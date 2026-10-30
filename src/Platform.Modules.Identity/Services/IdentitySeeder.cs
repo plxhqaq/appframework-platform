@@ -131,6 +131,32 @@ public sealed class IdentitySeeder : IHostedService
             ],
             cancellationToken);
 
+        // 单次密钥/扫码登录签发的临时令牌直接以此角色取权限：只覆盖业务操作与客户端功能，
+        // 不含用户/角色/权限维护，也不含签发新密钥与审批扫码，避免临时会话自我续期。
+        await EnsureRoleAsync(
+            db,
+            SingleLoginConventions.EngineerRole,
+            "工程师（临时登录）",
+            [
+                PermissionCatalog.AppsRead,
+                PermissionCatalog.VersionsChannelRead,
+                PermissionCatalog.VersionsReleaseRead,
+                PermissionCatalog.VersionsArtifactDownload,
+                PermissionCatalog.LicenseProductRead,
+                PermissionCatalog.LicenseRead,
+                PermissionCatalog.BackupNamespaceRead,
+                PermissionCatalog.BackupRead,
+                PermissionCatalog.BackupCreate,
+                PermissionCatalog.BackupPush,
+                PermissionCatalog.BackupDelete,
+                PermissionCatalog.DocumentCollectionRead,
+                PermissionCatalog.DocumentRead,
+                PermissionCatalog.DocumentManage,
+                PermissionCatalog.DocumentDelete,
+                .. ClientPermissionCatalog.Permissions.Select(static p => p.Code),
+            ],
+            cancellationToken);
+
         await EnsureAdminAsync(db, hasher, platformAdmin, options, clock, cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);

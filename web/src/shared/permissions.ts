@@ -15,4 +15,6 @@ export const PERMISSIONS = {
   identityRoleManage: 'identity.role.manage',
   identitySessionRead: 'identity.session.read',
   identitySessionRevoke: 'identity.session.revoke',
+  identitySingleKeyIssue: 'identity.singlekey.issue',
+  identityQrApprove: 'identity.qr.approve',
 } as const;

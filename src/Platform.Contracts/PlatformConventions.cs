@@ -69,6 +69,12 @@ public static class PlatformRateLimitPolicies
 
     /// <summary>身份登录/刷新：匿名入口，按 IP 限流；账号维度节流由登录节流表负责。</summary>
     public const string IdentityLogin = "identity-login";
+
+    /// <summary>单次密钥兑换：匿名入口，按 IP 严格限流（6 位密钥空间小，必须压住枚举速度）。</summary>
+    public const string SingleLoginRedeem = "single-login-redeem";
+
+    /// <summary>扫码会话创建与状态轮询：匿名入口，按 IP 限流。</summary>
+    public const string QrSession = "qr-session";
 }
 
 /// <summary>JWT 声明短名。**必须配合 <c>MapInboundClaims=false</c>**，否则会被改写成 <c>ClaimTypes.*</c> URI。</summary>

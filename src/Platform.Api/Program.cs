@@ -7,10 +7,12 @@ using Platform.Api.Auth;
 using Platform.Api.Endpoints;
 using Platform.Api.Modules;
 using Platform.Contracts;
+using Platform.Contracts.Hubs;
 using Platform.Infrastructure.DependencyInjection;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.DependencyInjection;
+using Platform.Kernel.Hubs;
 using Platform.Kernel.Modules;
 using Platform.Kernel.Middleware;
 using Platform.Workers.DependencyInjection;
@@ -64,6 +66,10 @@ try
     builder.Services.AddSingleton<JwtTokenIssuer>();
     builder.Services.AddSingleton<IAccessTokenIssuer>(static sp => sp.GetRequiredService<JwtTokenIssuer>());
 
+    // ── 实时推送 ──────────────────────────────────────────────────────
+    // 推送只作提示（授权/版本/扫码审批），客户端收到后必须回拉接口校验。
+    builder.Services.AddSignalR();
+
     // ── 模块（集中清单是唯一装配点）──────────────────────────────────
     builder.Services.AddPlatformModules(PlatformModuleCatalog.Modules, builder.Configuration);
 
@@ -105,6 +111,35 @@ try
             return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true,
+            });
+        });
+        options.AddPolicy(PlatformRateLimitPolicies.SingleLoginRedeem, httpContext =>
+        {
+            // 6 位密钥空间只有 100 万，必须把单 IP 的兑换速度压到无法枚举。
+            // 请求期读配置：集成测试通过配置放大额度，生产默认 10/分钟。
+            var permitLimit = httpContext.RequestServices.GetRequiredService<IConfiguration>()
+                .GetValue("RateLimits:SingleLoginRedeemPerMinute", 10);
+            var partitionKey = $"ip:{httpContext.Connection.RemoteIpAddress}";
+            return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = permitLimit,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true,
+            });
+        });
+        options.AddPolicy(PlatformRateLimitPolicies.QrSession, httpContext =>
+        {
+            // 创建与轮询共用额度；客户端轮询通常 2–5 秒一次，60/分钟足够。
+            var permitLimit = httpContext.RequestServices.GetRequiredService<IConfiguration>()
+                .GetValue("RateLimits:QrSessionPerMinute", 60);
+            var partitionKey = $"ip:{httpContext.Connection.RemoteIpAddress}";
+            return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = permitLimit,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 AutoReplenishment = true,
@@ -160,6 +195,7 @@ try
     // ── 端点 ──────────────────────────────────────────────────────────
     app.MapPlatformEndpoints();
     app.MapPlatformModules();
+    app.MapHub<PlatformHub>(PlatformHubPaths.Root);
 
     // OpenAPI 3.1 导出 + Scalar 在线调试
     app.MapOpenApi();

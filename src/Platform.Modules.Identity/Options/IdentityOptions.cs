@@ -1,3 +1,5 @@
+using Platform.Contracts.Identity;
+
 namespace Platform.Modules.Identity.Options;
 
 /// <summary>登录失败节流配置（<c>LoginThrottle</c> 节点）。账号与 IP 两个维度共用同一组阈值。</summary>
@@ -24,6 +26,38 @@ public sealed class IdentityTokenOptions
 
     /// <summary>刷新令牌有效期（天）。</summary>
     public int RefreshTokenDays { get; set; } = 30;
+}
+
+/// <summary>单次密钥配置（<c>SingleLogin</c> 节点）。</summary>
+public sealed class SingleLoginOptions
+{
+    /// <summary>配置节名。</summary>
+    public const string SectionName = "SingleLogin";
+
+    /// <summary>默认有效期（分钟）。</summary>
+    public int DefaultDurationMinutes { get; set; } = SingleLoginConventions.DefaultDurationMinutes;
+
+    /// <summary>有效期上限（分钟）；签发时超过即钳制。</summary>
+    public int MaxDurationMinutes { get; set; } = 60;
+
+    /// <summary>最大兑换尝试次数；达到后密钥作废，抑制按键枚举。</summary>
+    public int MaxAttempts { get; set; } = 5;
+}
+
+/// <summary>扫码登录配置（<c>QrLogin</c> 节点）。</summary>
+public sealed class QrLoginOptions
+{
+    /// <summary>配置节名。</summary>
+    public const string SectionName = "QrLogin";
+
+    /// <summary>待审批会话存活时间（分钟）。</summary>
+    public int ExpireMinutes { get; set; } = QrLoginConventions.ExpireMinutes;
+
+    /// <summary>审批通过后临时令牌的默认有效期（分钟）。</summary>
+    public int DefaultDurationMinutes { get; set; } = QrLoginConventions.DefaultDurationMinutes;
+
+    /// <summary>审批时可指定的有效期上限（分钟）。</summary>
+    public int MaxDurationMinutes { get; set; } = 60;
 }
 
 /// <summary>幂等种子配置（<c>Seed</c> 节点）。管理员初始口令只从环境变量注入，仓库里只放开发默认值。</summary>

@@ -119,5 +119,47 @@ public sealed class IdentityModelContributor : IPlatformModelContributor
 
             builder.HasIndex(static x => x.LockedUntil).HasDatabaseName("ix_login_throttles_locked_until");
         });
+
+        modelBuilder.Entity<SingleLoginKey>(builder =>
+        {
+            builder.ToTable("single_login_keys");
+            builder.HasKey(static x => x.Key);
+
+            builder.Property(static x => x.Key).HasColumnName("key").HasMaxLength(16).IsRequired();
+            builder.Property(static x => x.DeviceFingerprint).HasColumnName("device_fingerprint").HasMaxLength(256);
+            builder.Property(static x => x.CreatedBy).HasColumnName("created_by");
+            builder.Property(static x => x.ExpiresAt).HasColumnName("expires_at");
+            builder.Property(static x => x.UsedAt).HasColumnName("used_at");
+            builder.Property(static x => x.AttemptCount).HasColumnName("attempt_count");
+            builder.Property(static x => x.CreatedAt).HasColumnName("created_at");
+            builder.Property(static x => x.UpdatedAt).HasColumnName("updated_at");
+
+            builder.HasIndex(static x => x.ExpiresAt).HasDatabaseName("ix_single_login_keys_expires_at");
+        });
+
+        modelBuilder.Entity<QrLoginSession>(builder =>
+        {
+            builder.ToTable("qr_login_sessions");
+            builder.HasKey(static x => x.Id);
+
+            builder.Property(static x => x.Id).HasColumnName("id");
+            builder.Property(static x => x.Status).HasColumnName("status").HasMaxLength(16).IsRequired();
+            builder.Property(static x => x.ClientName).HasColumnName("client_name").HasMaxLength(256);
+            builder.Property(static x => x.DeviceFingerprint).HasColumnName("device_fingerprint").HasMaxLength(256);
+            builder.Property(static x => x.ConnectionId).HasColumnName("connection_id").HasMaxLength(128);
+            builder.Property(static x => x.CreatedByIp).HasColumnName("created_by_ip").HasMaxLength(64);
+            builder.Property(static x => x.ExpiresAt).HasColumnName("expires_at");
+            builder.Property(static x => x.ApprovedAt).HasColumnName("approved_at");
+            builder.Property(static x => x.ApprovedBy).HasColumnName("approved_by");
+            builder.Property(static x => x.ApprovedByName).HasColumnName("approved_by_name").HasMaxLength(256);
+            builder.Property(static x => x.AccessToken).HasColumnName("access_token").HasMaxLength(4096);
+            builder.Property(static x => x.TokenExpiresAt).HasColumnName("token_expires_at");
+            builder.Property(static x => x.TemporaryUserId).HasColumnName("temporary_user_id");
+            builder.Property(static x => x.CreatedAt).HasColumnName("created_at");
+            builder.Property(static x => x.UpdatedAt).HasColumnName("updated_at");
+
+            builder.HasIndex(static x => x.Status).HasDatabaseName("ix_qr_login_sessions_status");
+            builder.HasIndex(static x => x.ExpiresAt).HasDatabaseName("ix_qr_login_sessions_expires_at");
+        });
     }
 }

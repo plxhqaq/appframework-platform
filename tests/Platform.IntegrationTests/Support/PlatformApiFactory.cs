@@ -39,6 +39,9 @@ public sealed class PlatformApiFactory : WebApplicationFactory<Program>
                 ["Argon2:Iterations"] = "1",
                 ["Argon2:HashLength"] = "32",
                 ["Argon2:SaltLength"] = "16",
+                // 并发用例需要一次性发几十个兑换请求，放大匿名入口配额
+                ["RateLimits:SingleLoginRedeemPerMinute"] = "1000",
+                ["RateLimits:QrSessionPerMinute"] = "1000",
             });
         });
 

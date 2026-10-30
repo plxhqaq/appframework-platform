@@ -321,6 +321,88 @@ namespace Platform.Infrastructure.Migrations
                     b.ToTable("login_throttles", (string)null);
                 });
 
+            modelBuilder.Entity("Platform.Modules.Identity.Domain.QrLoginSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AccessToken")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("access_token");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("approved_at");
+
+                    b.Property<Guid?>("ApprovedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approved_by");
+
+                    b.Property<string>("ApprovedByName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("approved_by_name");
+
+                    b.Property<string>("ClientName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("client_name");
+
+                    b.Property<string>("ConnectionId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("connection_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedByIp")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("created_by_ip");
+
+                    b.Property<string>("DeviceFingerprint")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("device_fingerprint");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid?>("TemporaryUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("temporary_user_id");
+
+                    b.Property<DateTimeOffset?>("TokenExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("token_expires_at");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_qr_login_sessions_expires_at");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_qr_login_sessions_status");
+
+                    b.ToTable("qr_login_sessions", (string)null);
+                });
+
             modelBuilder.Entity("Platform.Modules.Identity.Domain.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -465,6 +547,50 @@ namespace Platform.Infrastructure.Migrations
                         .HasDatabaseName("ux_roles_name");
 
                     b.ToTable("roles", (string)null);
+                });
+
+            modelBuilder.Entity("Platform.Modules.Identity.Domain.SingleLoginKey", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("key");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("DeviceFingerprint")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("device_fingerprint");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("used_at");
+
+                    b.HasKey("Key");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_single_login_keys_expires_at");
+
+                    b.ToTable("single_login_keys", (string)null);
                 });
 
             modelBuilder.Entity("Platform.Modules.Identity.Domain.User", b =>

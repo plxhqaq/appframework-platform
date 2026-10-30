@@ -15,8 +15,7 @@ using Platform.Modules.Identity.Services;
 namespace Platform.Modules.Identity;
 
 /// <summary>
-/// 身份模块：用户 / 角色 / 权限、用户名口令登录、刷新令牌、会话管理。
-/// 单次密钥与扫码登录在 B3 接入。
+/// 身份模块：用户 / 角色 / 权限、用户名口令登录、刷新令牌、会话管理、单次密钥与扫码登录。
 /// </summary>
 public sealed class IdentityModule : IPlatformModule
 {
@@ -50,6 +49,8 @@ public sealed class IdentityModule : IPlatformModule
         services.Configure<LoginThrottleOptions>(configuration.GetSection(LoginThrottleOptions.SectionName));
         services.Configure<IdentityTokenOptions>(configuration.GetSection(IdentityTokenOptions.SectionName));
         services.Configure<IdentitySeedOptions>(configuration.GetSection(IdentitySeedOptions.SectionName));
+        services.Configure<SingleLoginOptions>(configuration.GetSection(SingleLoginOptions.SectionName));
+        services.Configure<QrLoginOptions>(configuration.GetSection(QrLoginOptions.SectionName));
 
         services.AddScoped<IPasswordHasher, Argon2PasswordHasher>();
         services.AddScoped<ILoginThrottleService, LoginThrottleService>();
@@ -58,6 +59,9 @@ public sealed class IdentityModule : IPlatformModule
         services.AddScoped<IIdentityAuthService, IdentityAuthService>();
         services.AddScoped<IUserAdminService, UserAdminService>();
         services.AddScoped<IRoleAdminService, RoleAdminService>();
+        services.AddScoped<ITemporarySessionFactory, TemporarySessionFactory>();
+        services.AddScoped<ISingleLoginKeyService, SingleLoginKeyService>();
+        services.AddScoped<IQrLoginService, QrLoginService>();
 
         services.TryAddEnumerable(
             ServiceDescriptor.Scoped<IPlatformModelContributor, IdentityModelContributor>());
@@ -72,5 +76,7 @@ public sealed class IdentityModule : IPlatformModule
         api.MapIdentityEndpoints();
         api.MapAdminAuthEndpoints();
         api.MapIdentityAdminEndpoints();
+        api.MapSingleLoginEndpoints();
+        api.MapSingleLoginAdminEndpoints();
     }
 }

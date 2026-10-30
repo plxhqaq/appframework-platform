@@ -173,6 +173,67 @@ export interface PermissionDescriptor {
   platformAdminOnly: boolean;
 }
 
+/** 签发单次密钥。 */
+export interface IssueSingleLoginKeyRequest {
+  durationMinutes?: number | null;
+  deviceFingerprint?: string | null;
+}
+
+/** 单次密钥；明文只在此响应出现一次。 */
+export interface SingleLoginKey {
+  key: string;
+  expiresAt: string;
+  durationMinutes: number;
+}
+
+/** 创建扫码会话。 */
+export interface CreateQrSessionRequest {
+  deviceFingerprint?: string | null;
+  clientName?: string | null;
+}
+
+/** 扫码会话创建结果。 */
+export interface QrSessionCreated {
+  requestId: string;
+  expiresAt: string;
+  payload: string;
+}
+
+/** 临时会话（单次密钥/扫码登录）：没有刷新令牌，过期即失效。 */
+export interface TemporarySession {
+  accessToken: string;
+  expiresAt: string;
+  user: UserSession;
+}
+
+/** 扫码会话状态。 */
+export interface QrSessionStatus {
+  requestId: string;
+  status: string;
+  createdAt: string;
+  expiresAt: string;
+  approvedAt?: string | null;
+  session?: TemporarySession | null;
+}
+
+/** 管理端扫码会话概要。 */
+export interface QrSessionSummary {
+  requestId: string;
+  status: string;
+  clientName?: string | null;
+  deviceFingerprint?: string | null;
+  createdByIp?: string | null;
+  createdAt: string;
+  expiresAt: string;
+  approvedAt?: string | null;
+  approvedByName?: string | null;
+}
+
+/** 批准扫码会话。 */
+export interface ApproveQrSessionRequest {
+  durationMinutes?: number | null;
+}
+
 /** 应用概要（GET /api/v1/admin/apps）。 */
 export interface AppSummary {
   id: string;

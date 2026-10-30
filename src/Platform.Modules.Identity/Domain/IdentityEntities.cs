@@ -176,6 +176,89 @@ public static class RefreshTokenRevokeReasons
 }
 
 /// <summary>
+/// 6 位单次密钥。主键即密钥本身，兑换靠一条带条件的 UPDATE 原子消费，
+/// 因此多副本并发兑换时只有一个请求能成功。
+/// </summary>
+public sealed class SingleLoginKey : IAuditableEntity
+{
+    /// <summary>6 位数字密钥（主键）。</summary>
+    public required string Key { get; set; }
+
+    /// <summary>绑定设备指纹；为空表示不限制设备。</summary>
+    public string? DeviceFingerprint { get; set; }
+
+    /// <summary>签发人。</summary>
+    public Guid CreatedBy { get; set; }
+
+    /// <summary>过期时间。</summary>
+    public DateTimeOffset ExpiresAt { get; set; }
+
+    /// <summary>兑换时间；非空即已消费。</summary>
+    public DateTimeOffset? UsedAt { get; set; }
+
+    /// <summary>兑换尝试次数（含指纹不匹配）。达到上限后密钥作废。</summary>
+    public int AttemptCount { get; set; }
+
+    /// <inheritdoc />
+    public DateTimeOffset CreatedAt { get; set; }
+
+    /// <inheritdoc />
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// 扫码登录会话。请求 id 即二维码里的能力凭证；审批通过后临时令牌落库，
+/// 客户端轮询状态时领取。状态流转只允许 pending → approved/rejected。
+/// </summary>
+public sealed class QrLoginSession : IAuditableEntity
+{
+    /// <summary>请求 id（主键，二维码载荷）。</summary>
+    public Guid Id { get; set; } = Guid.CreateVersion7();
+
+    /// <summary>状态：<c>pending</c> / <c>approved</c> / <c>rejected</c>。</summary>
+    public string Status { get; set; } = "pending";
+
+    /// <summary>客户端名称（机器名等，展示给审批人）。</summary>
+    public string? ClientName { get; set; }
+
+    /// <summary>设备指纹（展示给审批人）。</summary>
+    public string? DeviceFingerprint { get; set; }
+
+    /// <summary>SignalR 连接 id（预留：定向推送审批结果）。</summary>
+    public string? ConnectionId { get; set; }
+
+    /// <summary>发起请求的客户端 IP。</summary>
+    public string? CreatedByIp { get; set; }
+
+    /// <summary>待审批截止时间。</summary>
+    public DateTimeOffset ExpiresAt { get; set; }
+
+    /// <summary>审批时间。</summary>
+    public DateTimeOffset? ApprovedAt { get; set; }
+
+    /// <summary>审批人 id。</summary>
+    public Guid? ApprovedBy { get; set; }
+
+    /// <summary>审批人名称（冗余存储，不受改名影响）。</summary>
+    public string? ApprovedByName { get; set; }
+
+    /// <summary>审批通过后签发的临时访问令牌。</summary>
+    public string? AccessToken { get; set; }
+
+    /// <summary>临时访问令牌过期时间。</summary>
+    public DateTimeOffset? TokenExpiresAt { get; set; }
+
+    /// <summary>临时主体 id（令牌 <c>sub</c>）。</summary>
+    public Guid? TemporaryUserId { get; set; }
+
+    /// <inheritdoc />
+    public DateTimeOffset CreatedAt { get; set; }
+
+    /// <inheritdoc />
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+/// <summary>
 /// 登录失败节流。按账号与 IP 两个维度落库：内存计数在多副本部署时失效，
 /// 而这两个维度分别拦截"分布式撞库同一账号"与"同一 IP 慢速撞多个账号"。
 /// </summary>

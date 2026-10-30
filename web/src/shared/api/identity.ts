@@ -1,12 +1,16 @@
 import { request } from './client';
 import type {
+  ApproveQrSessionRequest,
   CreateRoleRequest,
   CreateUserRequest,
+  IssueSingleLoginKeyRequest,
   PageResult,
   PermissionDescriptor,
+  QrSessionSummary,
   ResetUserPasswordRequest,
   RoleSummary,
   SessionSummary,
+  SingleLoginKey,
   UpdateRoleRequest,
   UpdateUserRequest,
   UserDetail,
@@ -33,6 +37,13 @@ export interface SessionListQuery {
   page?: number;
   pageSize?: number;
   userId?: string;
+}
+
+export interface QrSessionListQuery {
+  page?: number;
+  pageSize?: number;
+  /** pending / expired / approved / rejected；空表示全部。 */
+  status?: string;
 }
 
 function toQueryString(params: Record<string, string | number | boolean | undefined>): string {
@@ -103,6 +114,31 @@ export const identityApi = {
 
   revokeUserSessions: (userId: string) =>
     request<{ revokedSessions: number }>(`/api/v1/admin/identity/users/${userId}/sessions/revoke`, {
+      method: 'POST',
+    }),
+
+  /** 签发 6 位单次密钥；响应里的明文只出现这一次。 */
+  issueSingleLoginKey: (body: IssueSingleLoginKeyRequest) =>
+    request<SingleLoginKey>('/api/v1/admin/identity/singlekeys', {
+      method: 'POST',
+      body,
+      headers: { 'Idempotency-Key': idempotencyKey() },
+    }),
+
+  listQrSessions: (query: QrSessionListQuery, signal?: AbortSignal) =>
+    request<PageResult<QrSessionSummary>>(
+      `/api/v1/admin/identity/qr/sessions${toQueryString({ ...query })}`,
+      { signal },
+    ),
+
+  approveQrSession: (requestId: string, body: ApproveQrSessionRequest) =>
+    request<QrSessionSummary>(`/api/v1/admin/identity/qr/sessions/${requestId}/approve`, {
+      method: 'POST',
+      body,
+    }),
+
+  rejectQrSession: (requestId: string) =>
+    request<QrSessionSummary>(`/api/v1/admin/identity/qr/sessions/${requestId}/reject`, {
       method: 'POST',
     }),
 

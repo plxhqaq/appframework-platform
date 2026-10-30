@@ -1,6 +1,7 @@
-# 快速接入（B2：身份与权限）
+# 快速接入（B3：身份与权限 + 单次密钥/扫码）
 
-> 本文对应当前进度 **B2**：平台级端点、模块自述、应用接入、用户名口令登录与 RBAC。
+> 本文对应当前进度 **B3**：平台级端点、模块自述、应用接入、用户名口令登录与 RBAC、
+> 6 位单次密钥兑换临时令牌、扫码登录审批。
 > 版本、授权、备份、文档的服务端点在 B4–B6 落地后增补 `02-versions.md` ~ `05-documents.md`。
 > 本文所有命令都已在本仓验证通过。
 
@@ -110,6 +111,65 @@ curl -s -b admin.jar -c admin.jar -X POST http://localhost:5080/api/v1/admin/aut
 
 桌面客户端走 `/api/v1/identity/login`，刷新令牌放在响应体里由客户端自行安全存储（D11）。
 
+### 4.1 单次密钥（现场临时登录）
+
+管理员先签发一个 6 位密钥（需要 `identity.singlekey.issue`；创建类端点支持 `Idempotency-Key`）：
+
+```bash
+curl -s -X POST http://localhost:5080/api/v1/admin/identity/singlekeys \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: issue-20261030-001' \
+  -d '{"durationMinutes":30,"deviceFingerprint":"line-1-pc"}'
+```
+
+响应 `data.key` 是明文密钥，**只出现这一次**；服务端只存过期时间、指纹与尝试数，审计也不记密钥。
+
+客户端兑换（匿名，限流 `RateLimits:SingleLoginRedeemPerMinute`，默认 10 次/分）：
+
+```bash
+curl -s -X POST http://localhost:5080/api/v1/identity/singlekey/redeem \
+  -H 'Content-Type: application/json' \
+  -d '{"key":"123456","deviceFingerprint":"line-1-pc","machineCode":"PC-001"}'
+```
+
+成功后返回 `accessToken` / `expiresAt` / `user`：主体是内置 `engineer` 角色的 `temp-user`，
+`whoami` 里 `isTemporary=true`，权限集不含任何 `identity.*` 管理码。
+
+消费语义是**原子单次**的（条件 `ExecuteUpdateAsync`：未使用、未过期、尝试数未满、指纹匹配），
+同一密钥并发兑换只有一个成功。失败码：`105` 无效、`106` 已过期、`107` 已使用/尝试超限、`108` 设备不符。
+
+### 4.2 扫码登录
+
+1. 客户端发起（匿名，限流 `RateLimits:QrSessionPerMinute`，默认 60 次/分）：
+
+```bash
+curl -s -X POST http://localhost:5080/api/v1/identity/qr/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"deviceFingerprint":"line-1-pc","clientName":"1 号线操作台"}'
+```
+
+返回 `requestId`、`expiresAt`（默认 10 分钟）与 `payload`（`appframework://qr-login?requestId=...`，供二维码渲染）。
+
+2. 客户端轮询 `GET /api/v1/identity/qr/sessions/{requestId}`，状态为
+   `pending` / `approved` / `rejected` / `expired`；`approved` 时响应带 `session.accessToken`（令牌过期后不再回传）。
+
+3. 管理端审批（需要 `identity.qr.approve`）：
+
+```bash
+curl -s -b admin.jar 'http://localhost:5080/api/v1/admin/identity/qr/sessions?status=pending'
+curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sessions/$REQUEST_ID/approve \
+  -H 'Content-Type: application/json' -d '{"durationMinutes":30}'
+# 或拒绝
+curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sessions/$REQUEST_ID/reject
+```
+
+错误码：`109` 会话不存在、`110` 已过期、`111` 已处理（重复审批/拒绝）。
+
+审批通过时服务端经 SignalR `/hubs/platform` 广播 `qr-login.approved`，但这只是**提示**：
+客户端必须以轮询结果为准，Hub 断线或推送丢失都不会影响领取令牌。会话落 `qr_login_sessions` 表，
+服务重启后待审批会话仍在。
+
 ---
 
 ## 5. 第四步：验证令牌声明
@@ -183,7 +243,9 @@ pnpm dev            # http://localhost:5173，/api 自动代理到 http://localh
 ```
 
 用种子管理员 `admin` / `Admin@12345` 登录；首次登录会跳转强制改密，改密后全部会话被吊销，需要重新登录。
-登录后总览页展示当前主体与平台模块；「身份与权限」页按 `identity.*.read` 权限展示用户、角色、会话三个标签页。
+登录后总览页展示当前主体与平台模块；「身份与权限」页按权限展示标签页：用户 / 角色 / 会话
+（`identity.user.read`、`identity.role.read`、`identity.session.read`），以及「单次密钥」
+（`identity.singlekey.issue`）和「扫码审批」（`identity.qr.approve`）。
 
 改主题：右上角色系下拉 + 模式切换（8 族 × 3 模式 = 24 套）。
 **不要手改** `web/src/styles/antd-theme.ts`：它由 `design/tokens.json` 生成，改色板请改 JSON 后执行：
@@ -211,8 +273,7 @@ pnpm run tokens:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build
 
 | 阶段 | 端点（前缀省略 `/api/v1`） |
 |---|---|
-| S1 | `POST /identity/login`、`POST /identity/refresh`、`POST /identity/logout`、`/apps*`、`/admin/users*`、`/admin/roles*` |
-| S2 | `POST /identity/single-key`、`POST /identity/qr/*`（发起 / 状态 / 审批） |
+| 已落地 B0–B3 | `/platform/*`、`/apps/token`、`/admin/apps*`、`/identity/login`、`/identity/refresh`、`/identity/logout`、`/identity/password/change`、`/admin/auth/*`、`/admin/identity/users*`、`/admin/identity/roles*`、`/admin/identity/sessions*`、`/identity/singlekey/redeem`、`/identity/qr/sessions*`、`/admin/identity/singlekeys`、`/admin/identity/qr/sessions*` |
 | S3 | `POST /versions/check`、`GET /versions/{channel}/{version}/manifest`、`GET /download/*` |
 | S4 | `POST /licenses/status`、`POST /licenses/offline`、`/admin/licenses*` |
 | S5 | `/backups*`、`/documents*` |
