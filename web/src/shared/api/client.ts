@@ -43,6 +43,8 @@ export interface RequestOptions {
   body?: unknown;
   /** 二进制请求体（上传票据 PUT），与 `body` 互斥，不参与 JSON 序列化。 */
   rawBody?: Blob;
+  /** 多段表单（文档上传），Content-Type 由浏览器带 boundary 生成。 */
+  formData?: FormData;
   signal?: AbortSignal;
   /** 登录、健康检查等无需令牌的端点。 */
   anonymous?: boolean;
@@ -58,7 +60,9 @@ async function execute<T>(path: string, options: RequestOptions, retried: boolea
   }
 
   let body: BodyInit | undefined;
-  if (options.rawBody !== undefined) {
+  if (options.formData !== undefined) {
+    body = options.formData;
+  } else if (options.rawBody !== undefined) {
     body = options.rawBody;
     headers['Content-Type'] = options.rawBody.type || 'application/octet-stream';
   } else if (options.body !== undefined) {
@@ -107,4 +111,46 @@ async function execute<T>(path: string, options: RequestOptions, retried: boolea
 
 export function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   return execute<T>(path, options, false);
+}
+
+/**
+ * 下载二进制内容（备份 JSON / 文档文件）。
+ *
+ * 下载端点同样要求 Bearer 令牌，不能直接用 `<a href>`，否则浏览器不会带 Authorization。
+ */
+export async function requestBlob(path: string, retried = false): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  const token = tokenProvider();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, { headers, credentials: 'include' });
+  if (!response.ok) {
+    if (response.status === 401 && !retried && refreshHandler) {
+      const renewed = await refreshHandler().catch(() => null);
+      if (renewed) {
+        return requestBlob(path, true);
+      }
+    }
+
+    const text = await response.text();
+    let payload: ApiResult<unknown> | null = null;
+    if (text) {
+      try {
+        payload = JSON.parse(text) as ApiResult<unknown>;
+      } catch {
+        payload = null;
+      }
+    }
+
+    throw new ApiError(
+      payload?.code ?? -1,
+      payload?.message ?? `下载失败（HTTP ${response.status}）`,
+      response.status,
+      payload?.traceId,
+    );
+  }
+
+  return response.blob();
 }

@@ -1,9 +1,10 @@
-# 快速接入（B5：身份与权限 + 单次密钥/扫码 + 版本渠道 + 授权）
+# 快速接入（B6：身份与权限 + 单次密钥/扫码 + 版本渠道 + 授权 + 备份/文档）
 
-> 本文对应当前进度 **B5**：平台级端点、模块自述、应用接入、用户名口令登录与 RBAC、
+> 本文对应当前进度 **B6**：平台级端点、模块自述、应用接入、用户名口令登录与 RBAC、
 > 6 位单次密钥兑换临时令牌、扫码登录审批、上传票据直传与版本下发、
-> 授权产品/授权主体/离线码/签名密钥与 ECDSA 快照。
-> 备份与文档的服务端点在 B6 落地后增补 `04-backups.md` ~ `05-documents.md`。
+> 授权产品/授权主体/离线码/签名密钥与 ECDSA 快照、命名空间备份与下发 Ack、
+> 文档集合/修订/服务端强制可见性与保留清理。
+> 备份与文档的完整说明见 [`04-backups.md`](04-backups.md) 与 [`05-documents.md`](05-documents.md)。
 > 本文所有命令都已在本仓验证通过。
 
 ---
@@ -409,7 +410,56 @@ curl -s -X POST http://localhost:5080/api/v1/client/licensing/offline/verify \
 
 ---
 
-## 7. 第六步：验证令牌声明
+## 7. 第七步：备份与文档（B6）
+
+备份按「应用 + 命名空间」隔离：≤64 KB 内联、超过转存 Blob；下发走 SignalR 并等待 Ack。
+文档按集合分组、每次上传生成修订，`internal`（默认）文档不会出现在客户端清单，下载同样被服务端拒绝。
+
+```bash
+# 命名空间（channel 缺省 default；maxVersions 缺省 50）
+curl -s -X POST http://localhost:5080/api/v1/admin/backups/namespaces \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: backup-ns-global-001' \
+  -d '{"key":"global","name":"全局配置","channel":"default","maxVersions":50}'
+
+# 创建备份（payloadJson 为 JSON 文本；sha256 可省略，提供则必须一致）
+curl -s -X POST http://localhost:5080/api/v1/admin/backups \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: backup-global-001' \
+  -d '{"namespaceKey":"global","kind":"config","name":"dark-theme","schemaVersion":1,
+       "frameworkVersion":"3.2.0","channel":"default","payloadJson":"{\"theme\":\"dark\"}"}'
+
+# 下载（内联 JSON 或流式文件；ETag / Range / 304）
+curl -s "http://localhost:5080/api/v1/admin/backups/$ID/download" \
+  -H "Authorization: Bearer $TOKEN" -o backup.json
+
+# 下发：同渠道硬门禁；force 只放宽主版本；currentHash 非空会先落 pre-push 快照
+curl -s -X POST http://localhost:5080/api/v1/admin/backups/$ID/push \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"targetChannel":"default","targetFrameworkVersion":"3.2.0","force":false}'
+
+# 文档集合 + 上传（multipart；visibility 缺省 internal）
+curl -s -X POST http://localhost:5080/api/v1/admin/documents/collections \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"key":"manual","name":"用户手册"}'
+
+curl -s -X POST http://localhost:5080/api/v1/admin/documents \
+  -H "Authorization: Bearer $TOKEN" \
+  -F 'collectionKey=manual' -F 'title=安装手册' -F 'visibility=client' \
+  -F 'file=@install.pdf;type=application/pdf'
+
+# 客户端清单与下载：清单只含 client 可见且集合启用的文档
+curl -s http://localhost:5080/api/v1/client/documents/manifest \
+  -H "Authorization: Bearer $CLIENT_TOKEN"
+```
+
+备份错误码 `400–408`、文档错误码 `500–505`；软删除后由 `RetentionWorker` 在宽限期后
+“先删文件、再删行”。完整语义、兼容矩阵与配置项见 [`04-backups.md`](04-backups.md)、
+[`05-documents.md`](05-documents.md)。
+
+---
+
+## 8. 第八步：验证令牌声明
 
 ```bash
 TOKEN=... # 上一步的 accessToken

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Platform.Kernel.Abstractions;
+using Platform.Kernel.Hubs;
 using Platform.Kernel.Security;
 
 namespace Platform.Kernel.DependencyInjection;
@@ -22,6 +23,7 @@ public static class KernelServiceCollectionExtensions
         services.AddHttpContextAccessor();
         services.TryAddSingleton<IClock, SystemClock>();
         services.TryAddScoped<ICurrentPrincipal, HttpCurrentPrincipal>();
+        services.TryAddSingleton<IPlatformPushCoordinator, PlatformPushCoordinator>();
 
         services.AddAuthorization();
         services.Replace(ServiceDescriptor.Singleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>());

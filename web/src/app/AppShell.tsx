@@ -1,6 +1,7 @@
 import {
   AppstoreOutlined,
   DashboardOutlined,
+  DatabaseOutlined,
   FileTextOutlined,
   KeyOutlined,
   LockOutlined,
@@ -30,8 +31,9 @@ const NAV_ITEMS: NavItem[] = [
   { key: '/apps', icon: <AppstoreOutlined />, label: '应用接入', ready: true },
   { key: '/identity', icon: <SafetyOutlined />, label: '身份与权限', ready: true },
   { key: '/versions', icon: <SwapOutlined />, label: '版本与渠道', ready: true },
+  { key: '/backups', icon: <DatabaseOutlined />, label: '配置备份', ready: true },
   { key: '/licensing', icon: <KeyOutlined />, label: '授权', ready: true },
-  { key: '/documents', icon: <FileTextOutlined />, label: '文档', ready: false },
+  { key: '/documents', icon: <FileTextOutlined />, label: '文档', ready: true },
 ];
 
 /** 管理台外壳：侧栏导航 + 主题切换 + 当前主体。 */

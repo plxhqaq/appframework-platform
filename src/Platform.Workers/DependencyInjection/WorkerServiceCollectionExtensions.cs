@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Platform.Workers.Maintenance;
+using Platform.Workers.Retention;
 
 namespace Platform.Workers.DependencyInjection;
 
@@ -17,6 +18,9 @@ public static class WorkerServiceCollectionExtensions
 
         services.Configure<MaintenanceOptions>(configuration.GetSection(MaintenanceOptions.SectionName));
         services.AddHostedService<MaintenanceWorker>();
+
+        services.Configure<RetentionOptions>(configuration.GetSection(RetentionOptions.SectionName));
+        services.AddHostedService<RetentionWorker>();
 
         return services;
     }

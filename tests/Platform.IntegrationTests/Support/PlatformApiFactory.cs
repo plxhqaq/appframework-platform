@@ -48,6 +48,10 @@ public sealed class PlatformApiFactory : WebApplicationFactory<Program>
                 ["BlobStorage:RootPath"] = _blobRoot,
                 // 授权模块需要签发私钥才处于 managed 状态；测试用进程内生成的密钥对
                 ["Licensing:SigningKeyPkcs8"] = TestLicenseKeys.PrivateKeyPkcs8Base64,
+                // 下发回执超时压到 1 秒，超时用例不必真等一分钟
+                ["Backups:PushAckTimeoutSeconds"] = "1",
+                ["Backups:CleanupGraceMinutes"] = "1",
+                ["Documents:CleanupGraceMinutes"] = "1",
             });
         });
 

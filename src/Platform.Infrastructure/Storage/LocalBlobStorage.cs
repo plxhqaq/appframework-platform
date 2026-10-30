@@ -30,6 +30,9 @@ public sealed class BlobStorageOptions
 /// </remarks>
 public sealed class LocalBlobStorage : IBlobStorage
 {
+    /// <summary>待发布文件后缀；发布即 rename 到最终路径。</summary>
+    private const string PendingSuffix = ".pending";
+
     private readonly BlobStorageOptions _options;
     private readonly string _root;
 
@@ -99,14 +102,56 @@ public sealed class LocalBlobStorage : IBlobStorage
     }
 
     /// <inheritdoc />
-    public async Task<BlobWriteResult> WriteAsync(
+    public Task<BlobWriteResult> WriteAsync(
         string relativePath,
         Stream content,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        WriteToAsync(relativePath, content, pending: false, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<BlobWriteResult> WritePendingAsync(
+        string relativePath,
+        Stream content,
+        CancellationToken cancellationToken = default) =>
+        WriteToAsync(relativePath, content, pending: true, cancellationToken);
+
+    /// <inheritdoc />
+    public Task PublishAsync(string relativePath, CancellationToken cancellationToken = default)
+    {
+        var pendingPath = Resolve(PendingPath(relativePath));
+        if (!File.Exists(pendingPath))
+        {
+            throw new FileNotFoundException("待发布文件不存在。", relativePath);
+        }
+
+        var target = Resolve(relativePath);
+        var targetDirectory = Path.GetDirectoryName(target);
+        if (!string.IsNullOrEmpty(targetDirectory))
+        {
+            Directory.CreateDirectory(targetDirectory);
+        }
+
+        File.Move(pendingPath, target, overwrite: true);
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task DiscardPendingAsync(string relativePath, CancellationToken cancellationToken = default)
+    {
+        TryDelete(Resolve(PendingPath(relativePath)));
+        return Task.CompletedTask;
+    }
+
+    private async Task<BlobWriteResult> WriteToAsync(
+        string relativePath,
+        Stream content,
+        bool pending,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(content);
 
-        var target = Resolve(relativePath);
+        var destination = pending ? PendingPath(relativePath) : relativePath;
+        var target = Resolve(destination);
         var targetDirectory = Path.GetDirectoryName(target);
         if (!string.IsNullOrEmpty(targetDirectory))
         {
@@ -160,6 +205,8 @@ public sealed class LocalBlobStorage : IBlobStorage
 
     private static FileStream OpenFile(string path, FileOptions options) =>
         new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, options);
+
+    private static string PendingPath(string relativePath) => relativePath + PendingSuffix;
 
     /// <summary>把相对路径解析到根目录下，并阻止 <c>..</c> 越界。</summary>
     private string Resolve(string relativePath)

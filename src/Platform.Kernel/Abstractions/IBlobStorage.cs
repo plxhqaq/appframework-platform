@@ -32,6 +32,21 @@ public interface IBlobStorage
         Stream content,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 写入"待发布"文件（最终路径 + <c>.pending</c>）：先落盘，**调用方提交数据库后再发布**。
+    /// 用于需要"临时文件 → 库提交 → rename"三段式不变式的场景（备份、文档）。
+    /// </summary>
+    Task<BlobWriteResult> WritePendingAsync(
+        string relativePath,
+        Stream content,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>把待发布文件 rename 到最终路径；待发布文件不存在时抛 <see cref="FileNotFoundException"/>。</summary>
+    Task PublishAsync(string relativePath, CancellationToken cancellationToken = default);
+
+    /// <summary>丢弃待发布文件（数据库提交失败时的补偿动作）。</summary>
+    Task DiscardPendingAsync(string relativePath, CancellationToken cancellationToken = default);
+
     /// <summary>删除（不存在视为成功）。</summary>
     Task DeleteAsync(string relativePath, CancellationToken cancellationToken = default);
 }

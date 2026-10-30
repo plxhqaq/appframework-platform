@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Modules.Apps.Persistence;
+using Platform.Modules.Backups.Persistence;
+using Platform.Modules.Documents.Persistence;
 using Platform.Modules.Identity.Persistence;
 using Platform.Modules.Licensing.Persistence;
 using Platform.Modules.Versions.Persistence;
@@ -29,6 +31,6 @@ internal static class TestDbContext
                 .UseInMemoryDatabase($"platform-tests-{Guid.NewGuid():N}")
                 .Options,
             [new AppsModelContributor(), new IdentityModelContributor(), new VersionsModelContributor(),
-             new LicensingModelContributor()],
+             new LicensingModelContributor(), new BackupsModelContributor(), new DocumentsModelContributor()],
             clock);
 }

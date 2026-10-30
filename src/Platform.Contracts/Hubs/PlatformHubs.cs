@@ -7,6 +7,13 @@ public static class PlatformHubPaths
     public const string Root = "/hubs/platform";
 }
 
+/// <summary>Hub 分组名（服务端按应用隔离推送）。</summary>
+public static class PlatformHubGroups
+{
+    /// <summary>应用分组：同一 app 令牌的连接。</summary>
+    public static string App(string appKey) => $"app:{appKey}";
+}
+
 /// <summary>Hub 事件名。</summary>
 /// <remarks>
 /// **约定**：所有推送都只是"提示"，客户端收到后必须回拉接口重新校验

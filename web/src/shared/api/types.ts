@@ -542,3 +542,181 @@ export interface LicenseSigningKeyStatus {
   fingerprint?: string | null;
   keys: LicenseSigningKey[];
 }
+
+/** 备份命名空间：同一应用下的配置域，承载渠道与保留配额。 */
+export interface BackupNamespace {
+  id: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  channel: string;
+  maxVersions: number;
+  isEnabled: boolean;
+  backupCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 创建命名空间。 */
+export interface CreateBackupNamespaceRequest {
+  key: string;
+  name: string;
+  description?: string | null;
+  channel?: string | null;
+  maxVersions?: number | null;
+}
+
+/** 更新命名空间；字段缺省表示不修改。 */
+export interface UpdateBackupNamespaceRequest {
+  name?: string | null;
+  description?: string | null;
+  channel?: string | null;
+  maxVersions?: number | null;
+  isEnabled?: boolean | null;
+}
+
+/** 备份类型：config / profile。 */
+export type BackupKind = 'config' | 'profile';
+
+/** 备份摘要。 */
+export interface BackupSummary {
+  id: string;
+  namespaceKey: string;
+  kind: BackupKind;
+  name: string;
+  deviceId?: string | null;
+  deviceName?: string | null;
+  moduleId?: string | null;
+  schemaVersion: number;
+  frameworkVersion: string;
+  channel: string;
+  sizeBytes: number;
+  sha256?: string | null;
+  hasInline: boolean;
+  hasFile: boolean;
+  fileName?: string | null;
+  downloadUrl?: string | null;
+  createdAt: string;
+  createdBy?: string | null;
+}
+
+/** 创建备份。 */
+export interface CreateBackupRequest {
+  namespaceKey: string;
+  kind: BackupKind;
+  name: string;
+  deviceId?: string | null;
+  deviceName?: string | null;
+  moduleId?: string | null;
+  schemaVersion: number;
+  frameworkVersion: string;
+  channel?: string | null;
+  payloadJson: string;
+  sha256?: string | null;
+}
+
+/** 下发备份；服务端复核渠道硬门禁与主版本兼容。 */
+export interface PushBackupRequest {
+  targetDeviceId?: string | null;
+  targetChannel?: string | null;
+  targetFrameworkVersion?: string | null;
+  restartAfterApply: boolean;
+  force: boolean;
+  currentHash?: string | null;
+  confirmCrossDevice: boolean;
+}
+
+/** 下发结果。 */
+export interface PushBackupResult {
+  acked: boolean;
+  success: boolean;
+  message?: string | null;
+  snapshotBackupId?: string | null;
+}
+
+/** 文档集合。 */
+export interface DocumentCollection {
+  id: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  isEnabled: boolean;
+  documentCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 创建集合。 */
+export interface CreateDocumentCollectionRequest {
+  key: string;
+  name: string;
+  description?: string | null;
+}
+
+/** 更新集合。 */
+export interface UpdateDocumentCollectionRequest {
+  name?: string | null;
+  description?: string | null;
+  isEnabled?: boolean | null;
+}
+
+/** 文档可见性：client 才进入客户端清单。 */
+export type DocumentVisibility = 'client' | 'internal';
+
+/** 文档修订。 */
+export interface DocumentRevision {
+  id: string;
+  revision: number;
+  fileName: string;
+  contentType?: string | null;
+  sizeBytes: number;
+  sha256: string;
+  createdBy?: string | null;
+  createdAt: string;
+  downloadUrl: string;
+}
+
+/** 文档摘要。 */
+export interface DocumentSummary {
+  id: string;
+  collectionKey: string;
+  title: string;
+  visibility: DocumentVisibility;
+  revision: number;
+  fileName: string;
+  sizeBytes: number;
+  sha256: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 文档详情（含修订历史）。 */
+export interface DocumentDetail extends DocumentSummary {
+  revisions: DocumentRevision[];
+}
+
+/** 更新文档元数据。 */
+export interface UpdateDocumentRequest {
+  title?: string | null;
+  visibility?: DocumentVisibility | null;
+}
+
+/** 客户端文档清单条目。 */
+export interface ClientDocument {
+  documentId: string;
+  collectionKey: string;
+  title: string;
+  revision: number;
+  fileName: string;
+  contentType?: string | null;
+  sizeBytes: number;
+  sha256: string;
+  updatedAt: string;
+  downloadUrl: string;
+}
+
+/** 客户端文档清单。 */
+export interface ClientDocumentManifest {
+  items: ClientDocument[];
+  generatedAt: string;
+}
