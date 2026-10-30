@@ -41,6 +41,8 @@ export function setRefreshHandler(handler: () => Promise<string | null>): void {
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
+  /** 二进制请求体（上传票据 PUT），与 `body` 互斥，不参与 JSON 序列化。 */
+  rawBody?: Blob;
   signal?: AbortSignal;
   /** 登录、健康检查等无需令牌的端点。 */
   anonymous?: boolean;
@@ -55,8 +57,11 @@ async function execute<T>(path: string, options: RequestOptions, retried: boolea
     headers.Authorization = `Bearer ${token}`;
   }
 
-  let body: string | undefined;
-  if (options.body !== undefined) {
+  let body: BodyInit | undefined;
+  if (options.rawBody !== undefined) {
+    body = options.rawBody;
+    headers['Content-Type'] = options.rawBody.type || 'application/octet-stream';
+  } else if (options.body !== undefined) {
     headers['Content-Type'] = 'application/json';
     body = JSON.stringify(options.body);
   }

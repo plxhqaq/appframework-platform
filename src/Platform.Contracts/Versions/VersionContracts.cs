@@ -1,0 +1,162 @@
+namespace Platform.Contracts.Versions;
+
+/// <summary>版本模块常量与校验口径（服务端与客户端共用）。</summary>
+public static class VersionConventions
+{
+    /// <summary>渠道键：小写字母开头，2–32 位小写字母/数字/连字符。</summary>
+    public const string ChannelKeyPattern = "^[a-z][a-z0-9-]{1,31}$";
+
+    /// <summary>版本号：三段数字，可选预发布后缀（如 <c>1.2.3</c>、<c>1.2.3-rc.1</c>）。</summary>
+    public const string VersionPattern = @"^\d{1,5}\.\d{1,5}\.\d{1,5}(-[0-9A-Za-z.-]{1,32})?$";
+
+    /// <summary>文件路径最大长度。</summary>
+    public const int MaxPathLength = 512;
+
+    /// <summary>单个产物允许的文件数上限。</summary>
+    public const int MaxFilesPerArtifact = 50_000;
+
+    /// <summary>单个文件大小上限（4 GiB）。</summary>
+    public const long MaxFileSizeBytes = 4L * 1024 * 1024 * 1024;
+
+    /// <summary>上传票据默认有效期（分钟）。</summary>
+    public const int UploadTicketMinutes = 30;
+
+    /// <summary>版本草稿。</summary>
+    public const string StatusDraft = "draft";
+
+    /// <summary>已发布（客户端可见）。</summary>
+    public const string StatusPublished = "published";
+
+    /// <summary>已归档（不再下发；把最新版本归档即完成全量回退）。</summary>
+    public const string StatusArchived = "archived";
+
+    /// <summary>支持的运行时标识（与服务端发布脚本、客户端更新器一致）。</summary>
+    public static IReadOnlySet<string> RuntimeIdentifiers { get; } = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "win-x64",
+        "win-arm64",
+        "linux-x64",
+        "linux-arm64",
+        "osx-x64",
+        "osx-arm64",
+    };
+
+    /// <summary>是否受支持的运行时标识。</summary>
+    public static bool IsSupportedRuntime(string? runtimeIdentifier) =>
+        !string.IsNullOrWhiteSpace(runtimeIdentifier) && RuntimeIdentifiers.Contains(runtimeIdentifier);
+
+    /// <summary>是否合法的版本状态。</summary>
+    public static bool IsValidStatus(string? status) =>
+        status is StatusDraft or StatusPublished or StatusArchived;
+}
+
+/// <summary>版本渠道（同一应用下的 stable / beta / canary 等）。</summary>
+public sealed record ReleaseChannelDto(
+    Guid Id,
+    string Key,
+    string Name,
+    string? Description,
+    bool IsEnabled,
+    int ReleaseCount,
+    string? LatestVersion,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+/// <summary>创建渠道。</summary>
+public sealed record CreateReleaseChannelRequest(string? Key, string? Name, string? Description);
+
+/// <summary>更新渠道；字段缺省表示不修改。</summary>
+public sealed record UpdateReleaseChannelRequest(
+    string? Name,
+    string? Description,
+    bool? IsEnabled);
+
+/// <summary>清单条目：相对路径 + 内容哈希 + 字节数。</summary>
+public sealed record ReleaseFileDto(string Path, string Sha256, long SizeBytes);
+
+/// <summary>版本摘要（列表用）。</summary>
+public sealed record ReleaseSummaryDto(
+    Guid Id,
+    string ChannelKey,
+    string Version,
+    string Status,
+    string? Notes,
+    int ArtifactCount,
+    int FileCount,
+    long TotalSizeBytes,
+    DateTimeOffset? PublishedAt,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+/// <summary>单个运行时产物（含文件清单）。</summary>
+public sealed record ReleaseArtifactDto(
+    string RuntimeIdentifier,
+    string ManifestHash,
+    int FileCount,
+    long TotalSizeBytes,
+    IReadOnlyList<ReleaseFileDto> Files);
+
+/// <summary>版本详情。</summary>
+public sealed record ReleaseDetailDto(
+    Guid Id,
+    string ChannelKey,
+    string Version,
+    string Status,
+    string? Notes,
+    int ArtifactCount,
+    int FileCount,
+    long TotalSizeBytes,
+    DateTimeOffset? PublishedAt,
+    DateTimeOffset? ArchivedAt,
+    string? CreatedBy,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    IReadOnlyList<ReleaseArtifactDto> Artifacts);
+
+/// <summary>发布时提交的单个文件条目。</summary>
+public sealed record ReleaseFileInput(string? Path, string? Sha256, long SizeBytes);
+
+/// <summary>发布时提交的单个运行时产物。</summary>
+public sealed record CreateReleaseArtifactRequest(
+    string? RuntimeIdentifier,
+    IReadOnlyList<ReleaseFileInput>? Files);
+
+/// <summary>创建版本；<see cref="Publish"/> 为 true 时创建即发布。</summary>
+public sealed record CreateReleaseRequest(
+    string? ChannelKey,
+    string? Version,
+    string? Notes,
+    bool Publish,
+    IReadOnlyList<CreateReleaseArtifactRequest>? Artifacts);
+
+/// <summary>客户端检查更新。</summary>
+public sealed record CheckUpdateRequest(
+    string? ChannelKey,
+    string? CurrentVersion,
+    string? RuntimeIdentifier);
+
+/// <summary>检查更新结果；无更新时 <see cref="Release"/> 仍带清单，供客户端做完整性修复。</summary>
+public sealed record CheckUpdateResponse(
+    bool HasUpdate,
+    string ChannelKey,
+    string? CurrentVersion,
+    ReleaseManifestDto? Release);
+
+/// <summary>单个运行时产物的清单（客户端据此做文件级差异）。</summary>
+public sealed record ReleaseManifestDto(
+    Guid ReleaseId,
+    string ChannelKey,
+    string Version,
+    string RuntimeIdentifier,
+    string ManifestHash,
+    DateTimeOffset? PublishedAt,
+    IReadOnlyList<ReleaseFileDto> Files);
+
+/// <summary>申请上传票据（先声明内容哈希与长度，再直传字节）。</summary>
+public sealed record CreateUploadTicketRequest(string? Sha256, long SizeBytes);
+
+/// <summary>上传票据；<see cref="UploadUrl"/> 为相对本服务的 PUT 地址。</summary>
+public sealed record UploadTicketDto(Guid Id, string UploadUrl, DateTimeOffset ExpiresAt);
+
+/// <summary>上传结果。<see cref="Reused"/> 表示内容已存在（内容寻址去重）。</summary>
+public sealed record UploadResultDto(string Sha256, long SizeBytes, bool Reused);

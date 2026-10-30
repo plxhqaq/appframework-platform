@@ -1,8 +1,8 @@
-# 快速接入（B3：身份与权限 + 单次密钥/扫码）
+# 快速接入（B4：身份与权限 + 单次密钥/扫码 + 版本渠道）
 
-> 本文对应当前进度 **B3**：平台级端点、模块自述、应用接入、用户名口令登录与 RBAC、
-> 6 位单次密钥兑换临时令牌、扫码登录审批。
-> 版本、授权、备份、文档的服务端点在 B4–B6 落地后增补 `02-versions.md` ~ `05-documents.md`。
+> 本文对应当前进度 **B4**：平台级端点、模块自述、应用接入、用户名口令登录与 RBAC、
+> 6 位单次密钥兑换临时令牌、扫码登录审批、上传票据直传与版本下发。
+> 授权、备份、文档的服务端点在 B5–B6 落地后增补 `03-licensing.md` ~ `05-documents.md`。
 > 本文所有命令都已在本仓验证通过。
 
 ---
@@ -170,9 +170,117 @@ curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sess
 客户端必须以轮询结果为准，Hub 断线或推送丢失都不会影响领取令牌。会话落 `qr_login_sessions` 表，
 服务重启后待审批会话仍在。
 
+### 4.3 切换应用上下文（管理台进入应用级模块）
+
+应用隔离轴只来自令牌：平台管理员登录后默认落在首个启用应用（通常是 `demo`），进入版本、授权这类
+应用级模块前需要换一个绑定到目标应用的访问令牌：
+
+```bash
+curl -s -b admin.jar -c admin.jar -X POST http://localhost:5080/api/v1/admin/auth/context \
+  -H 'Content-Type: application/json' \
+  -d '{"appKey":"demo"}'
+```
+
+返回与登录相同的 `accessToken` / `expiresAt` / `user`，`user.appKey` 为目标应用；服务端同时把应用键
+写回当前刷新令牌记录，后续 Cookie 静默续期仍停在该应用。当前账号无权访问该应用时返回 `403`/`109`。
+
 ---
 
-## 5. 第四步：验证令牌声明
+## 5. 第四步：版本与渠道（B4）
+
+版本数据按应用隔离（渠道键不是全局唯一的），因此下面的管理端命令都要求令牌已带应用上下文
+（4.3 或登录时 `appKey`）。上传是「先声明哈希与长度、再直传字节」的两步：内容按 SHA-256 寻址，
+同内容只存一份，票据一次性消费。
+
+### 5.1 建渠道
+
+```bash
+curl -s -X POST http://localhost:5080/api/v1/admin/versions/channels \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: channel-stable-001' \
+  -d '{"key":"stable","name":"稳定版","description":"生产默认渠道"}'
+```
+
+渠道键规则 `^[a-z][a-z0-9-]{1,31}$`，创建后不可修改（客户端按它引用）；停用渠道不能发布新版本，
+但已发布版本的下载不受影响。
+
+### 5.2 上传文件（票据 → 直传）
+
+先算哈希，再申请票据，最后把字节 PUT 到票据地址：
+
+```bash
+SHA=$(sha256sum app.zip | cut -d' ' -f1)
+SIZE=$(stat -c%s app.zip)
+
+TICKET=$(curl -s -X POST http://localhost:5080/api/v1/admin/versions/uploads \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: ticket-app-zip-001' \
+  -d "{\"sha256\":\"$SHA\",\"sizeBytes\":$SIZE}" | jq -r '.data.uploadUrl')
+
+curl -s -X PUT "http://localhost:5080$TICKET" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/octet-stream' \
+  --data-binary @app.zip
+```
+
+票据默认 30 分钟有效且一次性；内容已存在时返回 `reused=true`。失败码：
+`207` 票据无效、`208` 已过期、`209` 已消费、`210` 字节哈希不符、`206` 发布时声明与 blob 不符。
+
+### 5.3 创建版本（可创建即发布）
+
+```bash
+curl -s -X POST http://localhost:5080/api/v1/admin/versions/releases \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: release-1.2.3-win-x64' \
+  -d '{
+    "channelKey":"stable",
+    "version":"1.2.3",
+    "notes":"首个稳定版",
+    "publish":true,
+    "artifacts":[{
+      "runtimeIdentifier":"win-x64",
+      "files":[
+        {"path":"app/App.exe","sha256":"<sha256>","sizeBytes":123456},
+        {"path":"app/appsettings.json","sha256":"<sha256>","sizeBytes":789}
+      ]
+    }]
+  }'
+```
+
+服务端为每个产物计算清单哈希（按路径排序后对 `path\nsha256\nsize\n` 增量 SHA-256），
+客户端可据此判断是否需要修复。版本号规则 `\d{1,5}\.\d{1,5}\.\d{1,5}(-后缀)?`；
+`runtimeIdentifier` 支持 `win-x64/win-arm64/linux-x64/linux-arm64/osx-x64/osx-arm64`。
+草稿对客户端不可见；`POST /api/v1/admin/versions/releases/{id}/publish` 发布草稿，
+`.../archive` 归档（最新版归档后 check 自动回退到上一版）。
+
+### 5.4 客户端检查更新 / 清单 / 下载
+
+```bash
+# 检查更新：无更新时仍返回最新清单，供客户端做完整性修复
+curl -s -X POST http://localhost:5080/api/v1/client/versions/check \
+  -H "Authorization: Bearer $CLIENT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"channelKey":"stable","currentVersion":"1.2.2","runtimeIdentifier":"win-x64"}'
+
+# 读取某版本某运行时的清单
+curl -s "http://localhost:5080/api/v1/client/versions/stable/1.2.3/manifest?runtimeIdentifier=win-x64" \
+  -H "Authorization: Bearer $CLIENT_TOKEN"
+
+# 按内容哈希下载：ETag=sha256，支持 Range/206 与 If-None-Match/304
+curl -s -OJ "http://localhost:5080/api/v1/client/versions/download/$SHA" \
+  -H "Authorization: Bearer $CLIENT_TOKEN"
+```
+
+下载是纯流式（`Results.Stream` + Range），服务端不缓冲整文件；`ETag` 就是内容哈希，
+配合 `If-None-Match` 可让客户端重复检查零流量。版本错误码：`200` 渠道不存在、`202` 版本不存在、
+`203` 未发布、`204` 版本重复、`205` 产物不存在、`206` 清单与 blob 不符、`212` 渠道无已发布版本。
+
+---
+
+## 6. 第五步：验证令牌声明
 
 ```bash
 TOKEN=... # 上一步的 accessToken
@@ -185,7 +293,7 @@ curl -s http://localhost:5080/api/v1/platform/whoami -H "Authorization: Bearer $
 
 ---
 
-## 6. 权限码与错误码
+## 7. 权限码与错误码
 
 ```bash
 curl -s http://localhost:5080/api/v1/platform/permissions
@@ -210,7 +318,7 @@ HTTP 状态码由 `ApiErrorHttpStatus.Map` 唯一映射，**不要**在业务代
 
 ---
 
-## 7. 统一返回形状
+## 8. 统一返回形状
 
 所有端点（含 401/403/429/异常）都是同一个形状：
 
@@ -222,7 +330,7 @@ HTTP 状态码由 `ApiErrorHttpStatus.Map` 唯一映射，**不要**在业务代
 
 ---
 
-## 8. 契约包（客户端仓库消费）
+## 9. 契约包（客户端仓库消费）
 
 ```bash
 dotnet pack src/Platform.Contracts/Platform.Contracts.csproj -c Release \
@@ -234,7 +342,7 @@ dotnet pack src/Platform.Contracts/Platform.Contracts.csproj -c Release \
 
 ---
 
-## 9. 管理台
+## 10. 管理台
 
 ```bash
 cd web
@@ -246,6 +354,9 @@ pnpm dev            # http://localhost:5173，/api 自动代理到 http://localh
 登录后总览页展示当前主体与平台模块；「身份与权限」页按权限展示标签页：用户 / 角色 / 会话
 （`identity.user.read`、`identity.role.read`、`identity.session.read`），以及「单次密钥」
 （`identity.singlekey.issue`）和「扫码审批」（`identity.qr.approve`）。
+「版本与渠道」页（`versions.channel.*` / `versions.release.*` / `versions.artifact.upload`）
+支持新建/编辑渠道、选文件后浏览器端算 SHA-256 并直传、创建并发布、查看产物清单与归档；
+页面顶部的「当前应用」切换走 4.3 的上下文端点。
 
 改主题：右上角色系下拉 + 模式切换（8 族 × 3 模式 = 24 套）。
 **不要手改** `web/src/styles/antd-theme.ts`：它由 `design/tokens.json` 生成，改色板请改 JSON 后执行：
@@ -257,7 +368,7 @@ node tools/gen-tokens.mjs --check  # 校验（CI 用这个）
 
 ---
 
-## 10. 本地质量门（与 CI 一致）
+## 11. 本地质量门（与 CI 一致）
 
 ```bash
 dotnet build Platform.slnx -c Release --disable-build-servers -warnaserror
@@ -273,8 +384,7 @@ pnpm run tokens:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build
 
 | 阶段 | 端点（前缀省略 `/api/v1`） |
 |---|---|
-| 已落地 B0–B3 | `/platform/*`、`/apps/token`、`/admin/apps*`、`/identity/login`、`/identity/refresh`、`/identity/logout`、`/identity/password/change`、`/admin/auth/*`、`/admin/identity/users*`、`/admin/identity/roles*`、`/admin/identity/sessions*`、`/identity/singlekey/redeem`、`/identity/qr/sessions*`、`/admin/identity/singlekeys`、`/admin/identity/qr/sessions*` |
-| S3 | `POST /versions/check`、`GET /versions/{channel}/{version}/manifest`、`GET /download/*` |
+| 已落地 B0–B4 | `/platform/*`、`/apps/token`、`/admin/apps*`、`/identity/login`、`/identity/refresh`、`/identity/logout`、`/identity/password/change`、`/admin/auth/*`（含 `/context`）、`/admin/identity/users*`、`/admin/identity/roles*`、`/admin/identity/sessions*`、`/identity/singlekey/redeem`、`/identity/qr/sessions*`、`/admin/identity/singlekeys`、`/admin/identity/qr/sessions*`、`/admin/versions/channels*`、`/admin/versions/releases*`、`/admin/versions/uploads*`、`/client/versions/check`、`/client/versions/{channel}/{version}/manifest`、`/client/versions/download/{sha256}` |
 | S4 | `POST /licenses/status`、`POST /licenses/offline`、`/admin/licenses*` |
 | S5 | `/backups*`、`/documents*` |
 

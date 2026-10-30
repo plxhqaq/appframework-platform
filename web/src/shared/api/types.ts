@@ -55,6 +55,8 @@ export interface UserSession {
   roles: string[];
   permissions: string[];
   appKeys: string[];
+  /** 当前令牌固定的应用上下文；平台上下文为 null。 */
+  appKey?: string | null;
   mustChangePassword: boolean;
 }
 
@@ -293,4 +295,114 @@ export interface CreatedApiKey {
   scopes: string[];
   expiresAt?: string | null;
   createdAt: string;
+}
+
+/** 版本渠道（同一应用下的 stable / beta / canary 等）。 */
+export interface ReleaseChannel {
+  id: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  isEnabled: boolean;
+  releaseCount: number;
+  latestVersion?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 创建渠道。 */
+export interface CreateReleaseChannelRequest {
+  key: string;
+  name: string;
+  description?: string | null;
+}
+
+/** 更新渠道；字段缺省表示不修改。 */
+export interface UpdateReleaseChannelRequest {
+  name?: string | null;
+  description?: string | null;
+  isEnabled?: boolean | null;
+}
+
+/** 版本状态：draft / published / archived。 */
+export type ReleaseStatus = 'draft' | 'published' | 'archived';
+
+/** 清单条目：相对路径 + 内容哈希 + 字节数。 */
+export interface ReleaseFile {
+  path: string;
+  sha256: string;
+  sizeBytes: number;
+}
+
+/** 版本摘要（列表用）。 */
+export interface ReleaseSummary {
+  id: string;
+  channelKey: string;
+  version: string;
+  status: ReleaseStatus;
+  notes?: string | null;
+  artifactCount: number;
+  fileCount: number;
+  totalSizeBytes: number;
+  publishedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 单个运行时产物（含文件清单）。 */
+export interface ReleaseArtifact {
+  runtimeIdentifier: string;
+  manifestHash: string;
+  fileCount: number;
+  totalSizeBytes: number;
+  files: ReleaseFile[];
+}
+
+/** 版本详情。 */
+export interface ReleaseDetail extends ReleaseSummary {
+  archivedAt?: string | null;
+  createdBy?: string | null;
+  artifacts: ReleaseArtifact[];
+}
+
+/** 发布时提交的单个文件条目。 */
+export interface ReleaseFileInput {
+  path: string;
+  sha256: string;
+  sizeBytes: number;
+}
+
+/** 发布时提交的单个运行时产物。 */
+export interface CreateReleaseArtifactRequest {
+  runtimeIdentifier: string;
+  files: ReleaseFileInput[];
+}
+
+/** 创建版本；publish 为 true 时创建即发布。 */
+export interface CreateReleaseRequest {
+  channelKey: string;
+  version: string;
+  notes?: string | null;
+  publish: boolean;
+  artifacts: CreateReleaseArtifactRequest[];
+}
+
+/** 申请上传票据（先声明内容哈希与长度，再直传字节）。 */
+export interface CreateUploadTicketRequest {
+  sha256: string;
+  sizeBytes: number;
+}
+
+/** 上传票据；uploadUrl 为相对本服务的 PUT 地址。 */
+export interface UploadTicket {
+  id: string;
+  uploadUrl: string;
+  expiresAt: string;
+}
+
+/** 上传结果；reused 表示内容已存在（内容寻址去重）。 */
+export interface UploadResult {
+  sha256: string;
+  sizeBytes: number;
+  reused: boolean;
 }

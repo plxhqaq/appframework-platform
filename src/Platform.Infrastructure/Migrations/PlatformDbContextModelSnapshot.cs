@@ -672,6 +672,274 @@ namespace Platform.Infrastructure.Migrations
                     b.ToTable("user_roles", (string)null);
                 });
 
+            modelBuilder.Entity("Platform.Modules.Versions.Domain.Release", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AppKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("app_key");
+
+                    b.Property<DateTimeOffset?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_at");
+
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("channel_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("notes");
+
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("published_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("Version")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppKey", "Status")
+                        .HasDatabaseName("ix_releases_app_status");
+
+                    b.HasIndex("ChannelId", "Version")
+                        .IsUnique()
+                        .HasDatabaseName("ux_releases_channel_version");
+
+                    b.HasIndex("ChannelId", "Status", "PublishedAt")
+                        .HasDatabaseName("ix_releases_channel_status_published");
+
+                    b.ToTable("releases", (string)null);
+                });
+
+            modelBuilder.Entity("Platform.Modules.Versions.Domain.ReleaseArtifact", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("FileCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("file_count");
+
+                    b.Property<string>("ManifestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("manifest_hash");
+
+                    b.Property<Guid>("ReleaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("release_id");
+
+                    b.Property<string>("RuntimeIdentifier")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("runtime_identifier");
+
+                    b.Property<long>("TotalSizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("total_size_bytes");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReleaseId", "RuntimeIdentifier")
+                        .IsUnique()
+                        .HasDatabaseName("ux_release_artifacts_release_runtime");
+
+                    b.ToTable("release_artifacts", (string)null);
+                });
+
+            modelBuilder.Entity("Platform.Modules.Versions.Domain.ReleaseChannel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AppKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("app_key");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("key");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppKey", "Key")
+                        .IsUnique()
+                        .HasDatabaseName("ux_release_channels_app_key");
+
+                    b.ToTable("release_channels", (string)null);
+                });
+
+            modelBuilder.Entity("Platform.Modules.Versions.Domain.ReleaseFile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ArtifactId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("artifact_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("path");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("sha256");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Sha256")
+                        .HasDatabaseName("ix_release_files_sha256");
+
+                    b.HasIndex("ArtifactId", "Path")
+                        .IsUnique()
+                        .HasDatabaseName("ux_release_files_artifact_path");
+
+                    b.ToTable("release_files", (string)null);
+                });
+
+            modelBuilder.Entity("Platform.Modules.Versions.Domain.VersionUploadTicket", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AppKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("app_key");
+
+                    b.Property<DateTimeOffset?>("ConsumedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("consumed_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("sha256");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppKey", "ExpiresAt")
+                        .HasDatabaseName("ix_version_upload_tickets_app_expires");
+
+                    b.ToTable("version_upload_tickets", (string)null);
+                });
+
             modelBuilder.Entity("Platform.Modules.Apps.Domain.AppApiKey", b =>
                 {
                     b.HasOne("Platform.Modules.Apps.Domain.App", "App")
@@ -713,6 +981,39 @@ namespace Platform.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Platform.Modules.Versions.Domain.Release", b =>
+                {
+                    b.HasOne("Platform.Modules.Versions.Domain.ReleaseChannel", "Channel")
+                        .WithMany("Releases")
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Channel");
+                });
+
+            modelBuilder.Entity("Platform.Modules.Versions.Domain.ReleaseArtifact", b =>
+                {
+                    b.HasOne("Platform.Modules.Versions.Domain.Release", "Release")
+                        .WithMany("Artifacts")
+                        .HasForeignKey("ReleaseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Release");
+                });
+
+            modelBuilder.Entity("Platform.Modules.Versions.Domain.ReleaseFile", b =>
+                {
+                    b.HasOne("Platform.Modules.Versions.Domain.ReleaseArtifact", "Artifact")
+                        .WithMany("Files")
+                        .HasForeignKey("ArtifactId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Artifact");
+                });
+
             modelBuilder.Entity("Platform.Modules.Apps.Domain.App", b =>
                 {
                     b.Navigation("ApiKeys");
@@ -728,6 +1029,21 @@ namespace Platform.Infrastructure.Migrations
                     b.Navigation("RefreshTokens");
 
                     b.Navigation("UserRoles");
+                });
+
+            modelBuilder.Entity("Platform.Modules.Versions.Domain.Release", b =>
+                {
+                    b.Navigation("Artifacts");
+                });
+
+            modelBuilder.Entity("Platform.Modules.Versions.Domain.ReleaseArtifact", b =>
+                {
+                    b.Navigation("Files");
+                });
+
+            modelBuilder.Entity("Platform.Modules.Versions.Domain.ReleaseChannel", b =>
+                {
+                    b.Navigation("Releases");
                 });
 #pragma warning restore 612, 618
         }

@@ -21,6 +21,16 @@ export const authApi = {
 
   logout: () => request<void>('/api/v1/admin/auth/logout', { method: 'POST', anonymous: true }),
 
+  /**
+   * 切换当前会话的应用上下文（管理台进入某个应用的模块）。
+   * 服务端换发访问令牌，并把应用键写进刷新令牌记录，静默续期后仍停留在该应用。
+   */
+  switchAppContext: (appKey: string) =>
+    request<AdminSession>('/api/v1/admin/auth/context', {
+      method: 'POST',
+      body: { appKey },
+    }),
+
   changePassword: (currentPassword: string, newPassword: string) =>
     request<PasswordChanged>('/api/v1/identity/password/change', {
       method: 'POST',

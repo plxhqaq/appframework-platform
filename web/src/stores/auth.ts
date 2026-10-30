@@ -15,6 +15,8 @@ interface AuthState {
   /** 首屏静默续期：Cookie 里的 refresh token 还有效就恢复登录态。 */
   bootstrap: () => Promise<void>;
   refreshAccessToken: () => Promise<string | null>;
+  /** 切换应用上下文：换发带应用键的访问令牌，页面据此访问应用级模块。 */
+  switchAppContext: (appKey: string) => Promise<UserSession>;
   signOut: () => Promise<void>;
   hasPermission: (code: string) => boolean;
 }
@@ -87,6 +89,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch {
       set(cleared);
       return null;
+    }
+  },
+
+  switchAppContext: async (appKey) => {
+    set({ pending: true });
+    try {
+      const issued = await authApi.switchAppContext(appKey);
+      set({
+        accessToken: issued.accessToken,
+        expiresAt: issued.expiresAt,
+        session: issued.user,
+        status: 'authenticated',
+      });
+      return issued.user;
+    } finally {
+      set({ pending: false });
     }
   },
 

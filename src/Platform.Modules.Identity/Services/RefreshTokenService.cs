@@ -24,6 +24,9 @@ public sealed record RotatedRefreshToken(
     string? AppKey,
     string? MachineCode);
 
+/// <summary>会话的应用上下文快照（切换应用时同步刷新令牌记录）。</summary>
+public sealed record RefreshTokenContext(string? AppKey, string? MachineCode);
+
 /// <summary>刷新令牌生命周期与会话查询。</summary>
 public interface IRefreshTokenService
 {
@@ -40,6 +43,15 @@ public interface IRefreshTokenService
     Task<RotatedRefreshToken> RotateAsync(
         string plaintext,
         string? ipAddress,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 更新当前刷新令牌记录的应用上下文。令牌不属于该用户或已失效时返回 <c>null</c>（不阻断换发访问令牌）。
+    /// </summary>
+    Task<RefreshTokenContext?> SetAppKeyAsync(
+        string plaintext,
+        Guid userId,
+        string? appKey,
         CancellationToken cancellationToken = default);
 
     /// <summary>吊销指定令牌及其家族；令牌不存在时返回 <c>false</c>（登出保持幂等）。</summary>
@@ -184,6 +196,28 @@ public sealed class RefreshTokenService : IRefreshTokenService
             replacement.ExpiresAt,
             replacement.AppKey,
             replacement.MachineCode);
+    }
+
+    /// <inheritdoc />
+    public async Task<RefreshTokenContext?> SetAppKeyAsync(
+        string plaintext,
+        Guid userId,
+        string? appKey,
+        CancellationToken cancellationToken = default)
+    {
+        var token = await FindAsync(plaintext, cancellationToken);
+        var now = _clock.UtcNow;
+        if (token is null
+            || token.UserId != userId
+            || token.RevokedAt is not null
+            || token.ExpiresAt <= now)
+        {
+            return null;
+        }
+
+        token.AppKey = Normalize(appKey);
+        await _db.SaveChangesAsync(cancellationToken);
+        return new RefreshTokenContext(token.AppKey, token.MachineCode);
     }
 
     /// <inheritdoc />

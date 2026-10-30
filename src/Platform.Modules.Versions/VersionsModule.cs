@@ -1,9 +1,15 @@
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Platform.Contracts;
 using Platform.Contracts.Permissions;
+using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Modules;
+using Platform.Modules.Versions.Endpoints;
+using Platform.Modules.Versions.Options;
+using Platform.Modules.Versions.Persistence;
+using Platform.Modules.Versions.Services;
 
 namespace Platform.Modules.Versions;
 
@@ -11,9 +17,8 @@ namespace Platform.Modules.Versions;
 /// 版本模块：渠道 / 版本 / 多平台产物 / 文件级清单 / 下载服务 / 检查更新。
 /// </summary>
 /// <remarks>
-/// **S0 状态**：只装配骨架与自述端点。S3 落地：upload ticket 直传、清单生成与校验、
-/// 下载服务器（Range / ETag=sha256 / If-None-Match 304 / 流式不分片进内存）、
-/// 以及客户端侧「文件级 content-addressed 差异」所需的清单接口。
+/// 内容按 SHA-256 内容寻址存放；客户端先申请上传票据再直传，清单在发布时校验一致性。
+/// 下载走 Range / ETag / 304，按文件流式返回，不把整个包读进内存。
 /// </remarks>
 public sealed class VersionsModule : IPlatformModule
 {
@@ -39,9 +44,24 @@ public sealed class VersionsModule : IPlatformModule
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
-        // S3：通道/版本仓储、清单校验器、上传票据、下载流式服务。
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        services.Configure<VersionsOptions>(configuration.GetSection(VersionsOptions.SectionName));
+
+        services.AddScoped<IReleaseChannelService, ReleaseChannelService>();
+        services.AddScoped<IReleaseService, ReleaseService>();
+        services.AddScoped<IUploadTicketService, UploadTicketService>();
+        services.AddScoped<IReleaseContentService, ReleaseContentService>();
+
+        services.TryAddEnumerable(
+            ServiceDescriptor.Scoped<IPlatformModelContributor, VersionsModelContributor>());
     }
 
     /// <inheritdoc />
-    public void MapEndpoints(IEndpointRouteBuilder api) => api.MapModuleInfo(this);
+    public void MapEndpoints(IEndpointRouteBuilder api)
+    {
+        ArgumentNullException.ThrowIfNull(api);
+        api.MapModuleInfo(this);
+        api.MapVersionsEndpoints();
+    }
 }

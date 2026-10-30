@@ -17,4 +17,11 @@ export const PERMISSIONS = {
   identitySessionRevoke: 'identity.session.revoke',
   identitySingleKeyIssue: 'identity.singlekey.issue',
   identityQrApprove: 'identity.qr.approve',
+  versionsChannelRead: 'versions.channel.read',
+  versionsChannelManage: 'versions.channel.manage',
+  versionsReleaseRead: 'versions.release.read',
+  versionsReleasePublish: 'versions.release.publish',
+  versionsReleaseArchive: 'versions.release.archive',
+  versionsArtifactUpload: 'versions.artifact.upload',
+  versionsArtifactDownload: 'versions.artifact.download',
 } as const;

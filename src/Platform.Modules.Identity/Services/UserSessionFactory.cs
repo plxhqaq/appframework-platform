@@ -112,7 +112,8 @@ public sealed class UserSessionFactory : IUserSessionFactory
             roleNames,
             permissions,
             distinctAppKeys,
-            user.MustChangePassword);
+            user.MustChangePassword,
+            appKey);
 
         return new UserSessionContext(session, appKey);
     }

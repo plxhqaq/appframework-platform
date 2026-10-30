@@ -82,6 +82,7 @@ public sealed record LoginRequest(
     string? MachineCode = null);
 
 /// <summary>登录后的主体信息（令牌声明与响应共用同一份口径）。</summary>
+/// <param name="AppKey">本次令牌固定的应用上下文；平台上下文为 null。</param>
 public sealed record UserSessionDto(
     Guid UserId,
     string UserName,
@@ -89,7 +90,8 @@ public sealed record UserSessionDto(
     IReadOnlyList<string> Roles,
     IReadOnlyList<string> Permissions,
     IReadOnlyList<string> AppKeys,
-    bool MustChangePassword);
+    bool MustChangePassword,
+    string? AppKey = null);
 
 /// <summary>桌面端登录响应：刷新令牌放在 body（客户端自行安全存储）。</summary>
 public sealed record LoginResponse(
@@ -107,6 +109,12 @@ public sealed record AdminSessionResponse(
 
 /// <summary>刷新令牌请求（桌面端）。</summary>
 public sealed record RefreshTokenRequest(string RefreshToken);
+
+/// <summary>
+/// 切换当前会话的应用上下文：管理台进入某个应用的模块（版本、授权等）时使用。
+/// 只换发访问令牌，刷新令牌记录同步记下应用键，后续静默续期仍落在同一上下文。
+/// </summary>
+public sealed record SwitchAppContextRequest(string? AppKey);
 
 /// <summary>刷新结果：access 与 refresh 成对轮换，旧 refresh 立即失效。</summary>
 public sealed record RefreshTokenResponse(

@@ -17,6 +17,12 @@ public sealed record IssuedSession(
     DateTimeOffset RefreshExpiresAt,
     UserSessionDto User);
 
+/// <summary>换发结果：只换访问令牌，刷新令牌保持不变。</summary>
+public sealed record SwitchedSession(
+    string AccessToken,
+    DateTimeOffset ExpiresAt,
+    UserSessionDto User);
+
 /// <summary>用户名口令登录、刷新、登出与自助改密。</summary>
 public interface IIdentityAuthService
 {
@@ -36,6 +42,16 @@ public interface IIdentityAuthService
     Task<IssuedSession> RefreshAsync(
         string? refreshToken,
         string? ipAddress,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 切换当前会话的应用上下文并换发访问令牌。
+    /// 刷新令牌记录同步记下应用键，后续静默续期保持同一上下文。
+    /// </summary>
+    Task<SwitchedSession> SwitchAppContextAsync(
+        Guid userId,
+        SwitchAppContextRequest request,
+        string? refreshToken,
         CancellationToken cancellationToken = default);
 
     /// <summary>登出（幂等）。</summary>
@@ -126,6 +142,36 @@ public sealed class IdentityAuthService : IIdentityAuthService
             rotated.Plaintext,
             rotated.ExpiresAt,
             context.Session);
+    }
+
+    /// <inheritdoc />
+    public async Task<SwitchedSession> SwitchAppContextAsync(
+        Guid userId,
+        SwitchAppContextRequest request,
+        string? refreshToken,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var appKey = request.AppKey?.Trim();
+        if (string.IsNullOrEmpty(appKey))
+        {
+            throw BusinessException.Invalid("必须指定要进入的应用键。");
+        }
+
+        // BuildAsync 校验用户是否有权进入该应用（109），先校验再落库，避免无效切换改坏刷新令牌。
+        var context = await _sessions.BuildAsync(userId, appKey, cancellationToken);
+
+        string? machineCode = null;
+        if (!string.IsNullOrWhiteSpace(refreshToken))
+        {
+            var stored = await _refreshTokens.SetAppKeyAsync(
+                refreshToken, userId, context.AppKey, cancellationToken);
+            machineCode = stored?.MachineCode;
+        }
+
+        var access = IssueAccessToken(context, machineCode);
+        return new SwitchedSession(access.AccessToken, access.ExpiresAt, context.Session);
     }
 
     /// <inheritdoc />

@@ -119,6 +119,59 @@ internal static class AdminAuthEndpoints
             .RequireRateLimiting(PlatformRateLimitPolicies.IdentityLogin);
 
         group.MapPost(
+                "/context",
+                async (
+                    HttpContext context,
+                    SwitchAppContextRequest request,
+                    ICurrentPrincipal principal,
+                    IIdentityAuthService auth,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    if (principal.IsService
+                        || principal.UserId is null
+                        || !Guid.TryParse(principal.UserId, out var userId))
+                    {
+                        throw new BusinessException(
+                            ApiErrorCode.Forbidden,
+                            "只有用户会话可以切换应用上下文。");
+                    }
+
+                    var refreshToken = context.Request.Cookies[IdentityConventions.RefreshCookieName];
+                    try
+                    {
+                        var issued = await auth.SwitchAppContextAsync(
+                            userId, request, refreshToken, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit,
+                            action: "identity.admin.context.switch",
+                            actorId: issued.User.UserId.ToString(),
+                            actorName: issued.User.UserName,
+                            targetId: issued.User.AppKey,
+                            result: AuditResults.Success,
+                            message: null);
+                        return ApiResults.Ok(context, new AdminSessionResponse(
+                            issued.AccessToken,
+                            issued.ExpiresAt,
+                            issued.User));
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit,
+                            action: "identity.admin.context.switch",
+                            actorId: principal.UserId,
+                            actorName: principal.UserName,
+                            targetId: request.AppKey,
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("identity.admin.context")
+            .WithSummary("切换应用上下文（换发访问令牌，刷新令牌同步记录应用键）");
+
+        group.MapPost(
                 "/logout",
                 async (
                     HttpContext context,

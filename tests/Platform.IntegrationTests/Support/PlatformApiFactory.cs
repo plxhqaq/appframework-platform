@@ -16,6 +16,8 @@ namespace Platform.IntegrationTests.Support;
 public sealed class PlatformApiFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName = $"api-tests-{Guid.NewGuid():N}";
+    private readonly string _blobRoot = Path.Combine(
+        Path.GetTempPath(), "platform-blob-tests", Guid.NewGuid().ToString("N"));
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -42,6 +44,8 @@ public sealed class PlatformApiFactory : WebApplicationFactory<Program>
                 // 并发用例需要一次性发几十个兑换请求，放大匿名入口配额
                 ["RateLimits:SingleLoginRedeemPerMinute"] = "1000",
                 ["RateLimits:QrSessionPerMinute"] = "1000",
+                // 每个宿主用独立的 Blob 根目录，避免测试之间互相看到对方上传的内容
+                ["BlobStorage:RootPath"] = _blobRoot,
             });
         });
 
@@ -55,5 +59,31 @@ public sealed class PlatformApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<IDbContextOptionsConfiguration<PlatformDbContext>>();
             services.AddDbContext<PlatformDbContext>(options => options.UseInMemoryDatabase(_databaseName));
         });
+    }
+
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (!disposing)
+        {
+            return;
+        }
+
+        try
+        {
+            if (Directory.Exists(_blobRoot))
+            {
+                Directory.Delete(_blobRoot, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+            // 测试清理失败不掩盖真实断言结果
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // 同上
+        }
     }
 }

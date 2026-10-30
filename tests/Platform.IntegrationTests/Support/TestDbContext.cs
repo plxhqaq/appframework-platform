@@ -3,6 +3,7 @@ using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Modules.Apps.Persistence;
 using Platform.Modules.Identity.Persistence;
+using Platform.Modules.Versions.Persistence;
 
 namespace Platform.IntegrationTests.Support;
 
@@ -26,6 +27,6 @@ internal static class TestDbContext
             new DbContextOptionsBuilder<PlatformDbContext>()
                 .UseInMemoryDatabase($"platform-tests-{Guid.NewGuid():N}")
                 .Options,
-            [new AppsModelContributor(), new IdentityModelContributor()],
+            [new AppsModelContributor(), new IdentityModelContributor(), new VersionsModelContributor()],
             clock);
 }
