@@ -1,8 +1,9 @@
-# 快速接入（B4：身份与权限 + 单次密钥/扫码 + 版本渠道）
+# 快速接入（B5：身份与权限 + 单次密钥/扫码 + 版本渠道 + 授权）
 
-> 本文对应当前进度 **B4**：平台级端点、模块自述、应用接入、用户名口令登录与 RBAC、
-> 6 位单次密钥兑换临时令牌、扫码登录审批、上传票据直传与版本下发。
-> 授权、备份、文档的服务端点在 B5–B6 落地后增补 `03-licensing.md` ~ `05-documents.md`。
+> 本文对应当前进度 **B5**：平台级端点、模块自述、应用接入、用户名口令登录与 RBAC、
+> 6 位单次密钥兑换临时令牌、扫码登录审批、上传票据直传与版本下发、
+> 授权产品/授权主体/离线码/签名密钥与 ECDSA 快照。
+> 备份与文档的服务端点在 B6 落地后增补 `04-backups.md` ~ `05-documents.md`。
 > 本文所有命令都已在本仓验证通过。
 
 ---
@@ -280,7 +281,135 @@ curl -s -OJ "http://localhost:5080/api/v1/client/versions/download/$SHA" \
 
 ---
 
-## 6. 第五步：验证令牌声明
+## 6. 第五步：授权（B5）
+
+授权数据按应用隔离（产品键在同一应用内唯一），令牌同样需要应用上下文（4.3）。
+签名密钥是**全局资源**：公钥客户端可匿名发现，私钥只从部署环境变量读取，管理台只能看到指纹与状态。
+
+### 6.1 确认服务端已启用授权
+
+```bash
+curl -s http://localhost:5080/api/v1/admin/licensing/signing-keys \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+`isManaged=false` 表示没有配置私钥，此时：
+
+- 客户端状态接口返回 `unmanaged`，客户端不采信任何授权；
+- 签发离线码返回 `305`（HTTP 503）；
+- 管理台仍可建产品与签发授权，但快照为空。
+
+启用方式（启动前注入，私钥是 PKCS#8 DER 的 Base64，P-256）：
+
+```bash
+export Licensing__SigningKeyPkcs8="$(base64 -w0 license-key.pkcs8.der)"
+dotnet run --project src/Platform.Api
+```
+
+`keyId` 固定为 `lk-` + 公钥 SPKI SHA-256 指纹前 16 个十六进制字符；换钥后指纹随之变化。
+
+### 6.2 建授权产品
+
+```bash
+curl -s -X POST http://localhost:5080/api/v1/admin/licensing/products \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: license-product-erp-pro' \
+  -d '{
+    "key":"erp-pro",
+    "name":"旗舰版",
+    "description":"按机器授权",
+    "seatLimit":50,
+    "defaultGraceDays":7,
+    "trialDays":14
+  }'
+```
+
+- 产品键规则 `^[a-z][a-z0-9-]{1,31}$`，创建后不可修改（离线码与客户端都按它引用）。
+- `seatLimit` 为 `null`/0 表示不限；有效试用也占席位。
+- `trialDays > 0` 时，未签发的机器首次调用状态接口会自动获得试用授权（同一机器只发一次）。
+
+### 6.3 签发 / 续期 / 吊销授权
+
+机器码是客户端「授权」页展示的 16 位 Crockford Base32（10 字节哈希）。手抄时 `O/I/L` 会被纠正为 `0/1/1`，
+但长度必须完整。
+
+```bash
+# 签发（addDays 与 notAfter 二选一；licenseNo 留空自动生成）
+curl -s -X POST http://localhost:5080/api/v1/admin/licensing/entitlements \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: license-issue-001' \
+  -d '{"productKey":"erp-pro","machineCode":"008J4CT4ANK7F24S","addDays":365,"licenseNo":"LIC-20261030-001"}'
+
+# 续期：addDays 从「当前到期时间与现在取较晚者」追加
+curl -s -X POST http://localhost:5080/api/v1/admin/licensing/entitlements/$ID/renew \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"addDays":180}'
+
+# 吊销：不可恢复；需要恢复只能重新签发
+curl -s -X POST http://localhost:5080/api/v1/admin/licensing/entitlements/$ID/revoke \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"reason":"客户退订"}'
+```
+
+客户端校验在线状态（需要 `license.read`）：
+
+```bash
+curl -s -X POST http://localhost:5080/api/v1/client/licensing/status \
+  -H "Authorization: Bearer $CLIENT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"productKey":"erp-pro","machineCode":"008J4CT4ANK7F24S"}'
+```
+
+返回 `status`（`active` / `expired` / `revoked` / `unlicensed` / `unmanaged`）、时间字段
+`snapshot`（Base64 签名快照）与 `trustedKeys`（可下发的公钥）。
+
+**客户端必须验签后才采信快照**：用 `trustedKeys` 中任一公钥验证 ECDSA P-256（IEEE-P1363 64 字节签名，
+SHA-256），并核对快照里的 `appKey` / `productKey` / `machineCode`。过期判定用服务端时间，
+避免本机时钟被回拨。吊销时服务端经 SignalR 广播 `license.changed`，这只是提示：
+客户端回拉状态接口拿到新的 `revoked` 快照后才会锁定。
+
+### 6.4 离线授权码
+
+无网现场用离线码：服务端签发 → 现场录入客户端 → 客户端本地验签（公钥内置/随安装包下发）。
+
+```bash
+curl -s -X POST http://localhost:5080/api/v1/admin/licensing/offline-codes \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: license-offline-001' \
+  -d '{"productKey":"erp-pro","machineCode":"008J4CT4ANK7F24S","addDays":365,"licenseNo":"LIC-OFF-001"}'
+```
+
+返回 `code`（原始串）与 `formattedCode`（每 8 字符插 `-`，仅人读）。格式为
+`AF3 | payload 长度(2) | payload | 签名(103) | 校验位(1)`，绑定**产品键 + 机器码**，
+复制到另一台机器或另一个产品均会被拒。服务端校验端点（客户端离线时可不用）：
+
+```bash
+curl -s -X POST http://localhost:5080/api/v1/client/licensing/offline/verify \
+  -H "Authorization: Bearer $CLIENT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"AF3...","machineCode":"008J4CT4ANK7F24S","productKey":"erp-pro"}'
+```
+
+失败码：`306` 码非法/验签失败、`307` 机器码不匹配、`303` 已过期。
+**离线码没有吊销通道**：台账删除不影响已发出的码，只能等它到期；请保留台账用于对账。
+
+### 6.5 密钥轮换
+
+1. 生成新 P-256 私钥，更新部署环境变量 `Licensing__SigningKeyPkcs8`；
+2. 重启服务（私钥只在启动时读取）；
+3. 调用 `POST /api/v1/admin/licensing/signing-keys/sync`（或等待任一授权请求触发自动同步）。
+
+新密钥变为 `active`，旧密钥自动转为 `retired`：不再签新快照，但继续出现在 `trustedKeys` 中，
+客户端手里的旧快照仍能验签。当前私钥对应的密钥不能退役，否则会签出无人可验的快照。
+
+---
+
+## 7. 第六步：验证令牌声明
 
 ```bash
 TOKEN=... # 上一步的 accessToken
@@ -293,7 +422,7 @@ curl -s http://localhost:5080/api/v1/platform/whoami -H "Authorization: Bearer $
 
 ---
 
-## 7. 权限码与错误码
+## 8. 权限码与错误码
 
 ```bash
 curl -s http://localhost:5080/api/v1/platform/permissions
@@ -318,7 +447,7 @@ HTTP 状态码由 `ApiErrorHttpStatus.Map` 唯一映射，**不要**在业务代
 
 ---
 
-## 8. 统一返回形状
+## 9. 统一返回形状
 
 所有端点（含 401/403/429/异常）都是同一个形状：
 
@@ -330,7 +459,7 @@ HTTP 状态码由 `ApiErrorHttpStatus.Map` 唯一映射，**不要**在业务代
 
 ---
 
-## 9. 契约包（客户端仓库消费）
+## 10. 契约包（客户端仓库消费）
 
 ```bash
 dotnet pack src/Platform.Contracts/Platform.Contracts.csproj -c Release \
@@ -342,7 +471,7 @@ dotnet pack src/Platform.Contracts/Platform.Contracts.csproj -c Release \
 
 ---
 
-## 10. 管理台
+## 11. 管理台
 
 ```bash
 cd web
@@ -356,6 +485,9 @@ pnpm dev            # http://localhost:5173，/api 自动代理到 http://localh
 （`identity.singlekey.issue`）和「扫码审批」（`identity.qr.approve`）。
 「版本与渠道」页（`versions.channel.*` / `versions.release.*` / `versions.artifact.upload`）
 支持新建/编辑渠道、选文件后浏览器端算 SHA-256 并直传、创建并发布、查看产物清单与归档；
+「授权」页（`license.product.*` / `license.issue` / `license.revoke` / `license.offlinecode.issue` /
+`license.signingkey.manage`）按标签页提供授权产品、授权主体（签发/续期/吊销）、离线码台账
+（复制/删除）与签名密钥（当前指纹、轮换同步、退役密钥）；
 页面顶部的「当前应用」切换走 4.3 的上下文端点。
 
 改主题：右上角色系下拉 + 模式切换（8 族 × 3 模式 = 24 套）。
@@ -368,7 +500,7 @@ node tools/gen-tokens.mjs --check  # 校验（CI 用这个）
 
 ---
 
-## 11. 本地质量门（与 CI 一致）
+## 12. 本地质量门（与 CI 一致）
 
 ```bash
 dotnet build Platform.slnx -c Release --disable-build-servers -warnaserror
@@ -384,8 +516,7 @@ pnpm run tokens:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build
 
 | 阶段 | 端点（前缀省略 `/api/v1`） |
 |---|---|
-| 已落地 B0–B4 | `/platform/*`、`/apps/token`、`/admin/apps*`、`/identity/login`、`/identity/refresh`、`/identity/logout`、`/identity/password/change`、`/admin/auth/*`（含 `/context`）、`/admin/identity/users*`、`/admin/identity/roles*`、`/admin/identity/sessions*`、`/identity/singlekey/redeem`、`/identity/qr/sessions*`、`/admin/identity/singlekeys`、`/admin/identity/qr/sessions*`、`/admin/versions/channels*`、`/admin/versions/releases*`、`/admin/versions/uploads*`、`/client/versions/check`、`/client/versions/{channel}/{version}/manifest`、`/client/versions/download/{sha256}` |
-| S4 | `POST /licenses/status`、`POST /licenses/offline`、`/admin/licenses*` |
-| S5 | `/backups*`、`/documents*` |
+| 已落地 B0–B5 | `/platform/*`、`/apps/token`、`/admin/apps*`、`/identity/login`、`/identity/refresh`、`/identity/logout`、`/identity/password/change`、`/admin/auth/*`（含 `/context`）、`/admin/identity/users*`、`/admin/identity/roles*`、`/admin/identity/sessions*`、`/identity/singlekey/redeem`、`/identity/qr/sessions*`、`/admin/identity/singlekeys`、`/admin/identity/qr/sessions*`、`/admin/versions/channels*`、`/admin/versions/releases*`、`/admin/versions/uploads*`、`/client/versions/check`、`/client/versions/{channel}/{version}/manifest`、`/client/versions/download/{sha256}`、`/admin/licensing/products*`、`/admin/licensing/entitlements*`、`/admin/licensing/offline-codes*`、`/admin/licensing/signing-keys*`、`/client/licensing/status`、`/client/licensing/offline/verify`、`/client/licensing/keys` |
+| B6 | `/backups*`、`/documents*` |
 
 约定不变：路由 `/api/v1/{module}/...`，管理端与客户端入口分离（`/admin/*` 与 `/client/*`），服务端强制可见性。

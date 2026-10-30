@@ -672,6 +672,315 @@ namespace Platform.Infrastructure.Migrations
                     b.ToTable("user_roles", (string)null);
                 });
 
+            modelBuilder.Entity("Platform.Modules.Licensing.Domain.LicenseEntitlement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AppKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("app_key");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<int>("GraceDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("grace_days");
+
+                    b.Property<string>("IssuedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("issued_by");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<DateTimeOffset?>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_seen_at");
+
+                    b.Property<string>("LicenseNo")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("license_no");
+
+                    b.Property<string>("MachineCode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("machine_code");
+
+                    b.Property<DateTimeOffset>("NotAfter")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("not_after");
+
+                    b.Property<DateTimeOffset>("NotBefore")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("not_before");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("notes");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("RevokedReason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("revoked_reason");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppKey", "ExpiresAt")
+                        .HasDatabaseName("ix_license_entitlements_app_expires");
+
+                    b.HasIndex("AppKey", "RevokedAt")
+                        .HasDatabaseName("ix_license_entitlements_app_revoked");
+
+                    b.HasIndex("ProductId", "MachineCode")
+                        .IsUnique()
+                        .HasDatabaseName("ux_license_entitlements_product_machine");
+
+                    b.ToTable("license_entitlements", (string)null);
+                });
+
+            modelBuilder.Entity("Platform.Modules.Licensing.Domain.LicenseProduct", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AppKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("app_key");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("DefaultGraceDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("default_grace_days");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("key");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("name");
+
+                    b.Property<int?>("SeatLimit")
+                        .HasColumnType("integer")
+                        .HasColumnName("seat_limit");
+
+                    b.Property<int>("TrialDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("trial_days");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppKey", "Key")
+                        .IsUnique()
+                        .HasDatabaseName("ux_license_products_app_key");
+
+                    b.ToTable("license_products", (string)null);
+                });
+
+            modelBuilder.Entity("Platform.Modules.Licensing.Domain.LicenseSigningKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("ActivatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("activated_at");
+
+                    b.Property<string>("Algorithm")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("algorithm");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("fingerprint");
+
+                    b.Property<string>("KeyId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("key_id");
+
+                    b.Property<string>("PublicKey")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("public_key");
+
+                    b.Property<DateTimeOffset?>("RetiredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("retired_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("KeyId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_license_signing_keys_key_id");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_license_signing_keys_status");
+
+                    b.ToTable("license_signing_keys", (string)null);
+                });
+
+            modelBuilder.Entity("Platform.Modules.Licensing.Domain.OfflineLicenseCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AppKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("app_key");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("GraceDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("grace_days");
+
+                    b.Property<DateTimeOffset>("IssuedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("issued_at");
+
+                    b.Property<string>("IssuedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("issued_by");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("LicenseNo")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("license_no");
+
+                    b.Property<string>("MachineCode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("machine_code");
+
+                    b.Property<DateTimeOffset>("NotAfter")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("not_after");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<string>("Remark")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("remark");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("AppKey", "LicenseNo")
+                        .IsUnique()
+                        .HasDatabaseName("ux_offline_license_codes_app_license_no");
+
+                    b.HasIndex("AppKey", "MachineCode")
+                        .HasDatabaseName("ix_offline_license_codes_app_machine");
+
+                    b.ToTable("offline_license_codes", (string)null);
+                });
+
             modelBuilder.Entity("Platform.Modules.Versions.Domain.Release", b =>
                 {
                     b.Property<Guid>("Id")
@@ -981,6 +1290,28 @@ namespace Platform.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Platform.Modules.Licensing.Domain.LicenseEntitlement", b =>
+                {
+                    b.HasOne("Platform.Modules.Licensing.Domain.LicenseProduct", "Product")
+                        .WithMany("Entitlements")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Platform.Modules.Licensing.Domain.OfflineLicenseCode", b =>
+                {
+                    b.HasOne("Platform.Modules.Licensing.Domain.LicenseProduct", "Product")
+                        .WithMany("OfflineCodes")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
             modelBuilder.Entity("Platform.Modules.Versions.Domain.Release", b =>
                 {
                     b.HasOne("Platform.Modules.Versions.Domain.ReleaseChannel", "Channel")
@@ -1029,6 +1360,13 @@ namespace Platform.Infrastructure.Migrations
                     b.Navigation("RefreshTokens");
 
                     b.Navigation("UserRoles");
+                });
+
+            modelBuilder.Entity("Platform.Modules.Licensing.Domain.LicenseProduct", b =>
+                {
+                    b.Navigation("Entitlements");
+
+                    b.Navigation("OfflineCodes");
                 });
 
             modelBuilder.Entity("Platform.Modules.Versions.Domain.Release", b =>

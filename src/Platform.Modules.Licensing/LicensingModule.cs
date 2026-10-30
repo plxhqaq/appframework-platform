@@ -1,19 +1,25 @@
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Platform.Contracts;
 using Platform.Contracts.Permissions;
+using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Modules;
+using Platform.Modules.Licensing.Endpoints;
+using Platform.Modules.Licensing.Options;
+using Platform.Modules.Licensing.Persistence;
+using Platform.Modules.Licensing.Services;
 
 namespace Platform.Modules.Licensing;
 
 /// <summary>
-/// 授权模块：产品 / 授权主体（机器码·用户·席位）/ 在线 ECDSA 签名快照 / 离线授权码 / 密钥轮换。
+/// 授权模块：产品 / 授权主体 / 在线签名快照 / 离线授权码 / 签名密钥轮换。
 /// </summary>
 /// <remarks>
-/// **S0 状态**：只装配骨架与自述端点。S4 落地时沿用现网已验证的
-/// <c>LicenseToken</c> 快照结构与 <c>OfflineLicenseCodec</c>（Base32-Crockford + 校验位 + 机器码绑定），
-/// 私钥只从环境变量/KMS 读取、永不入库；未配置签名密钥时返回 <c>Unmanaged</c>（不限制），避免升级即停产。
+/// 签名使用 ECDSA P-256，私钥只从部署配置或环境变量读取（<c>Licensing__SigningKeyPkcs8</c>），
+/// 数据库只登记公钥与状态；未配置私钥时整个模块返回 <c>unmanaged</c>，不签发任何凭据。
+/// 吊销通过 SignalR 推送"变了"的提示，客户端收到后必须回拉状态接口重新校验。
 /// </remarks>
 public sealed class LicensingModule : IPlatformModule
 {
@@ -39,9 +45,25 @@ public sealed class LicensingModule : IPlatformModule
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
-        // S4：签名服务（ECDSA P-256）、授权仓储、离线码编解码、吊销推送。
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        services.Configure<LicensingOptions>(configuration.GetSection(LicensingOptions.SectionName));
+
+        services.AddScoped<ILicenseKeyService, LicenseKeyService>();
+        services.AddScoped<ILicenseProductService, LicenseProductService>();
+        services.AddScoped<ILicenseEntitlementService, LicenseEntitlementService>();
+        services.AddScoped<ILicenseStatusService, LicenseStatusService>();
+        services.AddScoped<IOfflineLicenseCodeService, OfflineLicenseCodeService>();
+
+        services.TryAddEnumerable(
+            ServiceDescriptor.Scoped<IPlatformModelContributor, LicensingModelContributor>());
     }
 
     /// <inheritdoc />
-    public void MapEndpoints(IEndpointRouteBuilder api) => api.MapModuleInfo(this);
+    public void MapEndpoints(IEndpointRouteBuilder api)
+    {
+        ArgumentNullException.ThrowIfNull(api);
+        api.MapModuleInfo(this);
+        api.MapLicensingEndpoints();
+    }
 }

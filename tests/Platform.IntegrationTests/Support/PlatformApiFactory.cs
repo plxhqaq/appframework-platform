@@ -46,6 +46,8 @@ public sealed class PlatformApiFactory : WebApplicationFactory<Program>
                 ["RateLimits:QrSessionPerMinute"] = "1000",
                 // 每个宿主用独立的 Blob 根目录，避免测试之间互相看到对方上传的内容
                 ["BlobStorage:RootPath"] = _blobRoot,
+                // 授权模块需要签发私钥才处于 managed 状态；测试用进程内生成的密钥对
+                ["Licensing:SigningKeyPkcs8"] = TestLicenseKeys.PrivateKeyPkcs8Base64,
             });
         });
 

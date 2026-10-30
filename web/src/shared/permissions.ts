@@ -24,4 +24,11 @@ export const PERMISSIONS = {
   versionsReleaseArchive: 'versions.release.archive',
   versionsArtifactUpload: 'versions.artifact.upload',
   versionsArtifactDownload: 'versions.artifact.download',
+  licenseProductRead: 'license.product.read',
+  licenseProductManage: 'license.product.manage',
+  licenseRead: 'license.read',
+  licenseIssue: 'license.issue',
+  licenseRevoke: 'license.revoke',
+  licenseOfflineCodeIssue: 'license.offlinecode.issue',
+  licenseSigningKeyManage: 'license.signingkey.manage',
 } as const;

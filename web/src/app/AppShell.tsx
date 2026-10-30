@@ -30,7 +30,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: '/apps', icon: <AppstoreOutlined />, label: '应用接入', ready: true },
   { key: '/identity', icon: <SafetyOutlined />, label: '身份与权限', ready: true },
   { key: '/versions', icon: <SwapOutlined />, label: '版本与渠道', ready: true },
-  { key: '/licensing', icon: <KeyOutlined />, label: '授权', ready: false },
+  { key: '/licensing', icon: <KeyOutlined />, label: '授权', ready: true },
   { key: '/documents', icon: <FileTextOutlined />, label: '文档', ready: false },
 ];
 

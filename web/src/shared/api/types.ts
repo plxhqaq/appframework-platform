@@ -406,3 +406,139 @@ export interface UploadResult {
   sizeBytes: number;
   reused: boolean;
 }
+
+/** 授权产品（同一应用下按产品分别签发授权）。 */
+export interface LicenseProduct {
+  id: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  isEnabled: boolean;
+  seatLimit?: number | null;
+  defaultGraceDays: number;
+  trialDays: number;
+  entitlementCount: number;
+  activeEntitlementCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 创建授权产品。 */
+export interface CreateLicenseProductRequest {
+  key: string;
+  name: string;
+  description?: string | null;
+  seatLimit?: number | null;
+  defaultGraceDays: number;
+  trialDays: number;
+}
+
+/** 更新授权产品；字段缺省表示不修改。 */
+export interface UpdateLicenseProductRequest {
+  name?: string | null;
+  description?: string | null;
+  isEnabled?: boolean | null;
+  seatLimit?: number | null;
+  defaultGraceDays?: number | null;
+  trialDays?: number | null;
+}
+
+/** 授权状态：active / expired / revoked / unlicensed / unmanaged。 */
+export type LicenseStatus = 'active' | 'expired' | 'revoked' | 'unlicensed' | 'unmanaged';
+
+/** 授权类型：trial / official。 */
+export type LicenseKind = 'trial' | 'official';
+
+/** 授权主体（配额绑定机器码，跨机器复制无效）。 */
+export interface LicenseEntitlement {
+  id: string;
+  productKey: string;
+  machineCode: string;
+  kind: LicenseKind;
+  status: Exclude<LicenseStatus, 'unlicensed' | 'unmanaged'>;
+  notBefore: string;
+  notAfter: string;
+  expiresAt: string;
+  graceDays: number;
+  licenseNo?: string | null;
+  notes?: string | null;
+  issuedBy?: string | null;
+  revokedAt?: string | null;
+  revokedReason?: string | null;
+  lastSeenAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 签发正式授权。 */
+export interface IssueLicenseRequest {
+  productKey: string;
+  machineCode: string;
+  licenseNo?: string | null;
+  notAfter?: string | null;
+  addDays?: number | null;
+  graceDays?: number | null;
+  notes?: string | null;
+}
+
+/** 续期授权；notAfter 与 addDays 二选一。 */
+export interface RenewLicenseRequest {
+  notAfter?: string | null;
+  addDays?: number | null;
+  graceDays?: number | null;
+  notes?: string | null;
+}
+
+/** 吊销授权。 */
+export interface RevokeLicenseRequest {
+  reason?: string | null;
+}
+
+/** 签发离线授权码。 */
+export interface IssueOfflineLicenseCodeRequest {
+  productKey: string;
+  machineCode: string;
+  notAfter?: string | null;
+  addDays?: number | null;
+  licenseNo?: string | null;
+  remark?: string | null;
+}
+
+/** 离线授权码台账。 */
+export interface OfflineLicenseCode {
+  id: string;
+  productKey: string;
+  machineCode: string;
+  licenseNo: string;
+  code: string;
+  formattedCode: string;
+  kind: LicenseKind;
+  issuedAt: string;
+  notAfter: string;
+  graceDays: number;
+  remark?: string | null;
+  issuedBy?: string | null;
+  createdAt: string;
+}
+
+/** 签名密钥（管理端视图）。 */
+export interface LicenseSigningKey {
+  id: string;
+  keyId: string;
+  algorithm: string;
+  publicKey: string;
+  fingerprint: string;
+  status: 'active' | 'retired';
+  isCurrent: boolean;
+  activatedAt?: string | null;
+  retiredAt?: string | null;
+  createdAt: string;
+}
+
+/** 签名密钥总览；unmanaged 表示部署未配置私钥，授权校验不生效。 */
+export interface LicenseSigningKeyStatus {
+  isManaged: boolean;
+  currentKeyId?: string | null;
+  fingerprint?: string | null;
+  keys: LicenseSigningKey[];
+}

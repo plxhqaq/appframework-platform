@@ -6,6 +6,7 @@ import { ChangePasswordPage } from '../features/auth/ChangePasswordPage';
 import { LoginPage } from '../features/auth/LoginPage';
 import { OverviewPage } from '../features/dashboard/OverviewPage';
 import { IdentityPage } from '../features/identity/IdentityPage';
+import { LicensingPage } from '../features/licensing/LicensingPage';
 import { VersionsPage } from '../features/versions/VersionsPage';
 import { useAuthStore } from '../stores/auth';
 import { AppShell } from './AppShell';
@@ -39,6 +40,7 @@ const router = createBrowserRouter([
       { path: 'apps', element: <AppsPage /> },
       { path: 'identity', element: <IdentityPage /> },
       { path: 'versions', element: <VersionsPage /> },
+      { path: 'licensing', element: <LicensingPage /> },
       { path: 'password', element: <ChangePasswordPage /> },
     ],
   },
