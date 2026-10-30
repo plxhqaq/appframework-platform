@@ -1,0 +1,12 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+
+# EF 生成的迁移与快照属于生成代码：不参与代码风格与性能分析，
+# 否则每次 add migration 都会被 CA1861 之类的规则打断。
+[src/**/Migrations/*.cs]
+generated_code = true
+dotnet_analyzer_diagnostic.severity = none

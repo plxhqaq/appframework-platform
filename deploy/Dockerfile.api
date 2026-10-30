@@ -1,0 +1,40 @@
+# 平台服务端镜像（多阶段：SDK 编译 → ASP.NET 运行时）
+#
+# 构建上下文必须是仓库根（compose 里用 context: ..），因为需要中央包版本与全部工程文件。
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+
+# 先只拷构建输入，让 restore 层可缓存
+COPY global.json Directory.Build.props Directory.Packages.props nuget.config ./
+COPY src/Platform.Contracts/Platform.Contracts.csproj src/Platform.Contracts/
+COPY src/Platform.Kernel/Platform.Kernel.csproj src/Platform.Kernel/
+COPY src/Platform.Infrastructure/Platform.Infrastructure.csproj src/Platform.Infrastructure/
+COPY src/Platform.Workers/Platform.Workers.csproj src/Platform.Workers/
+COPY src/Platform.Modules.Apps/Platform.Modules.Apps.csproj src/Platform.Modules.Apps/
+COPY src/Platform.Modules.Identity/Platform.Modules.Identity.csproj src/Platform.Modules.Identity/
+COPY src/Platform.Modules.Versions/Platform.Modules.Versions.csproj src/Platform.Modules.Versions/
+COPY src/Platform.Modules.Licensing/Platform.Modules.Licensing.csproj src/Platform.Modules.Licensing/
+COPY src/Platform.Modules.Backups/Platform.Modules.Backups.csproj src/Platform.Modules.Backups/
+COPY src/Platform.Modules.Documents/Platform.Modules.Documents.csproj src/Platform.Modules.Documents/
+COPY src/Platform.Api/Platform.Api.csproj src/Platform.Api/
+RUN dotnet restore src/Platform.Api/Platform.Api.csproj
+
+COPY src/ src/
+RUN dotnet publish src/Platform.Api/Platform.Api.csproj -c Release -o /app --no-restore /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+COPY --from=build /app ./
+
+ENV ASPNETCORE_URLS=http://+:8080 \
+    ASPNETCORE_ENVIRONMENT=Production \
+    DOTNET_RUNNING_IN_CONTAINER=true
+
+# 非 root 运行；Blob 目录挂在命名卷上，所有权必须提前给足
+RUN useradd --uid 1001 --create-home --shell /usr/sbin/nologin platform \
+    && mkdir -p /data/blobs \
+    && chown -R platform:platform /data
+
+USER platform
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "Platform.Api.dll"]

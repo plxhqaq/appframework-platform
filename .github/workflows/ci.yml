@@ -1,0 +1,92 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dotnet:
+    name: .NET 构建 / 测试 / 契约包
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # 骨架期就用 -warnaserror：静态分析只紧不松，事后收紧代价更高
+      - name: 构建
+        run: dotnet build Platform.slnx -c Release --disable-build-servers -warnaserror
+
+      - name: 单元测试
+        run: dotnet test Platform.slnx -c Release --no-build --disable-build-servers --logger "trx;LogFileName=unit-tests.trx"
+
+      # 跨端契约包必须能独立产出，否则客户端仓库无法 pin 版本
+      - name: 打包契约包
+        run: >-
+          dotnet pack src/Platform.Contracts/Platform.Contracts.csproj
+          -c Release --no-build
+          -p:PackageId=AppFramework.Platform.Contracts
+          -o artifacts/packages
+
+      - name: 上传测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-trx
+          path: '**/*.trx'
+          if-no-files-found: ignore
+
+      - name: 上传契约包
+        uses: actions/upload-artifact@v4
+        with:
+          name: contracts-nupkg
+          path: artifacts/packages/*.nupkg
+          if-no-files-found: error
+
+  web:
+    name: React 管理台 校验 / 构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: 安装依赖
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      # token 单一源：任何手改生成物或漏跑生成器都会在这里失败
+      - name: 设计令牌一致性
+        run: node tools/gen-tokens.mjs --check
+
+      - name: Lint
+        working-directory: web
+        run: pnpm lint
+
+      - name: 类型检查
+        working-directory: web
+        run: pnpm typecheck
+
+      - name: 单元测试
+        working-directory: web
+        run: pnpm test
+
+      - name: 构建
+        working-directory: web
+        run: pnpm build

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    平台内核：模块契约、统一返回/异常、横切抽象（时钟/当前主体/存储/幂等）、分页、中间件。
+    只依赖 Contracts + 基础扩展包，不依赖 EF Core（否则各模块无法独立摘除）。
+  -->
+  <PropertyGroup>
+    <RootNamespace>Platform.Kernel</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Platform.Contracts\Platform.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      DI / Configuration / Logging / Options 由共享框架提供，显式引用会触发 NU1510（多余包）。
+      Kernel 是纯契约与横切抽象，不引 EF Core、不引任何数据访问包。
+    -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

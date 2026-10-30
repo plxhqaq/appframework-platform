@@ -1,0 +1,35 @@
+# ===== .NET =====
+bin/
+obj/
+artifacts/
+*.user
+*.suo
+.vs/
+*.nupkg
+*.snupkg
+
+# ===== 运行期数据（绝不入库） =====
+data/
+files/
+logs/
+*.db
+*.db-shm
+*.db-wal
+
+# ===== Node / React 管理台 =====
+node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# ===== 本地环境 =====
+.env
+.env.local
+deploy/.env
+
+# 开发配置默认不入库（真实签名密钥/口令一律走环境变量），
+# 但 API 的开发配置只有 localhost 占位值与明确的 dev-only 签名密钥，
+# 入库才能让 `dotnet run` 开箱可用——真正的密钥在部署时由环境变量覆盖。
+appsettings.Development.json
+!src/Platform.Api/appsettings.Development.json

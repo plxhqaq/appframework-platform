@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    宿主：装配模块清单、认证授权、限流、健康检查、OpenAPI，并托管 React 静态资源。
+    ApiProgram 暴露为 partial 供集成测试用 WebApplicationFactory 引用。
+  -->
+  <PropertyGroup>
+    <RootNamespace>Platform.Api</RootNamespace>
+    <UserSecretsId>platform-api</UserSecretsId>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Platform.Kernel\Platform.Kernel.csproj" />
+    <ProjectReference Include="..\Platform.Contracts\Platform.Contracts.csproj" />
+    <ProjectReference Include="..\Platform.Infrastructure\Platform.Infrastructure.csproj" />
+    <ProjectReference Include="..\Platform.Workers\Platform.Workers.csproj" />
+    <ProjectReference Include="..\Platform.Modules.Apps\Platform.Modules.Apps.csproj" />
+    <ProjectReference Include="..\Platform.Modules.Identity\Platform.Modules.Identity.csproj" />
+    <ProjectReference Include="..\Platform.Modules.Versions\Platform.Modules.Versions.csproj" />
+    <ProjectReference Include="..\Platform.Modules.Licensing\Platform.Modules.Licensing.csproj" />
+    <ProjectReference Include="..\Platform.Modules.Backups\Platform.Modules.Backups.csproj" />
+    <ProjectReference Include="..\Platform.Modules.Documents\Platform.Modules.Documents.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <!-- 设计时迁移工具要求启动工程引用 Design；运行时不使用。 -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Scalar.AspNetCore" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Serilog.Sinks.Console" />
+    <PackageReference Include="Serilog.Sinks.File" />
+    <PackageReference Include="Serilog.Enrichers.Thread" />
+  </ItemGroup>
+
+</Project>

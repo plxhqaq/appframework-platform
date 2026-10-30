@@ -1,0 +1,44 @@
+import { fileURLToPath, URL } from 'node:url';
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vitest/config';
+
+// 同源部署是计划里的既定取舍（React 静态资源由 Platform.Api 托管或 nginx 同域），
+// 所以开发期用 vite 代理把 /api 打到本机 Api，生产期不需要 CORS。
+const apiTarget = process.env.PLATFORM_API_URL ?? 'http://localhost:5080';
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
+  server: {
+    port: 5173,
+    strictPort: false,
+    proxy: {
+      '/api': { target: apiTarget, changeOrigin: true },
+      '/healthz': { target: apiTarget, changeOrigin: true },
+      '/ready': { target: apiTarget, changeOrigin: true },
+    },
+  },
+  build: {
+    outDir: 'dist',
+    sourcemap: false,
+    // antd + 图标库单块约 700KB，压不到 500KB 以下；这里显式分组，让版本升级只影响对应 chunk 的缓存
+    chunkSizeWarningLimit: 1024,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          antd: ['antd', '@ant-design/icons'],
+          query: ['@tanstack/react-query', 'zustand'],
+        },
+      },
+    },
+  },
+  test: {
+    environment: 'node',
+    include: ['src/**/*.test.ts'],
+  },
+});

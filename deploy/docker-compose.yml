@@ -1,0 +1,56 @@
+# 平台服务端最小可运行栈：PostgreSQL + Platform.Api
+#
+# 用法：
+#   cp deploy/env.example deploy/.env   # 改掉 POSTGRES_PASSWORD 与 JWT_SIGNING_KEY
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+#   curl http://localhost:8080/healthz
+#   curl http://localhost:8080/ready
+name: appframework-platform
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-appframework_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-platform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?deploy/.env 里必须设置 POSTGRES_PASSWORD}
+      # 中文排序与大小写行为在 initdb 时定死，避免后续迁移踩 locale 差异
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-platform} -d ${POSTGRES_DB:-appframework_platform}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Platform: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-appframework_platform};Username=${POSTGRES_USER:-platform};Password=${POSTGRES_PASSWORD}"
+      Jwt__Issuer: ${JWT_ISSUER:-appframework-platform}
+      Jwt__Audience: ${JWT_AUDIENCE:-appframework}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?deploy/.env 里必须设置 JWT_SIGNING_KEY（≥32 字符）}
+      Jwt__AccessTokenMinutes: ${JWT_ACCESS_TOKEN_MINUTES:-30}
+      Jwt__AllowDevTokenEndpoint: ${JWT_ALLOW_DEV_TOKEN_ENDPOINT:-false}
+      BlobStorage__RootPath: /data/blobs
+      # 反向代理后取真实客户端 IP 与协议（限流按 IP 分区，不能拿到代理 IP）
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+    volumes:
+      - blobs:/data/blobs
+    ports:
+      - "${API_PORT:-8080}:8080"
+
+volumes:
+  pgdata:
+  blobs:

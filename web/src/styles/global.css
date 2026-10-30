@@ -1,0 +1,47 @@
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+.app-shell {
+  min-height: 100%;
+}
+
+.app-shell__sider {
+  border-inline-end: 1px solid rgba(5, 5, 5, 0.06);
+}
+
+.app-shell__brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px;
+}
+
+.app-shell__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 16px;
+  background: #fff;
+}
+
+.app-shell__content {
+  padding: 16px;
+}
+
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 24px;
+}
+
+.login-page__card {
+  width: 100%;
+  max-width: 380px;
+}

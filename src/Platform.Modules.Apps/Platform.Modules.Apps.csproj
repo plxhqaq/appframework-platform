@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    模块：应用注册与应用接入凭据（其余四个业务模块的前置）。
+    只依赖 Kernel + Infrastructure：整目录移出即可摘除该服务，其它模块不受影响。
+  -->
+  <PropertyGroup>
+    <RootNamespace>Platform.Modules.Apps</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Platform.Kernel\Platform.Kernel.csproj" />
+    <ProjectReference Include="..\Platform.Infrastructure\Platform.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

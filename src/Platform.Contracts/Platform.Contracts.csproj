@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    跨端契约库。这是两个仓库之间唯一的编译期耦合点：
+      · 服务端各模块引用它；
+      · 客户端仓库以精确版本 pin 其 nupkg（AppFramework.Platform.Contracts）。
+    约束：禁止依赖 EF Core / ASP.NET Core 实现类型，只允许纯 BCL 与常量/DTO。
+  -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>AppFramework.Platform.Contracts</PackageId>
+    <Version>$(PlatformContractsVersion)</Version>
+    <Description>AppFramework 平台跨端契约（DTO / 错误码 / 权限码 / Hub 协议 / 分页）。</Description>
+    <Authors>AppFramework</Authors>
+    <PackageTags>appframework;platform;contracts</PackageTags>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+    <!--
+      本工程零 PackageReference，依赖组自然是空的；
+      因此不要开 SuppressDependenciesWhenPacking（开了会让 nuspec 缺 net10.0 依赖组，触发 NU5128）。
+    -->
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" Condition="Exists('README.md')" />
+  </ItemGroup>
+
+</Project>

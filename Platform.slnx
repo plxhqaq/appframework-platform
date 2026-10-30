@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Platform.Api/Platform.Api.csproj" />
+    <Project Path="src/Platform.Contracts/Platform.Contracts.csproj" />
+    <Project Path="src/Platform.Infrastructure/Platform.Infrastructure.csproj" />
+    <Project Path="src/Platform.Kernel/Platform.Kernel.csproj" />
+    <Project Path="src/Platform.Modules.Apps/Platform.Modules.Apps.csproj" />
+    <Project Path="src/Platform.Modules.Backups/Platform.Modules.Backups.csproj" />
+    <Project Path="src/Platform.Modules.Documents/Platform.Modules.Documents.csproj" />
+    <Project Path="src/Platform.Modules.Identity/Platform.Modules.Identity.csproj" />
+    <Project Path="src/Platform.Modules.Licensing/Platform.Modules.Licensing.csproj" />
+    <Project Path="src/Platform.Modules.Versions/Platform.Modules.Versions.csproj" />
+    <Project Path="src/Platform.Workers/Platform.Workers.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Platform.ContractTests/Platform.ContractTests.csproj" />
+    <Project Path="tests/Platform.IntegrationTests/Platform.IntegrationTests.csproj" />
+    <Project Path="tests/Platform.UnitTests/Platform.UnitTests.csproj" />
+  </Folder>
+</Solution>

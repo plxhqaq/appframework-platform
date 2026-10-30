@@ -1,0 +1,30 @@
+<Project>
+
+  <!--
+    全仓公共属性。约定：
+    1) 目标框架统一 net10.0；服务端不区分平台，需要 Windows 专属 API 的工程必须显式改写，不允许悄悄引入。
+    2) 包版本一律写在 Directory.Packages.props（中央包版本管理），csproj 只写 Include。
+    3) 此处不打开 TreatWarningsAsErrors：S0 骨架期先保证 CI 绿，静态分析规则随模块落地逐步收紧。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <Company>AppFramework</Company>
+    <Product>AppFramework Platform</Product>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <!-- 契约包版本：独立于产品版本，客户端以精确版本 pin -->
+    <PlatformContractsVersion>0.1.0-preview.1</PlatformContractsVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>
