@@ -3,6 +3,7 @@ import {
   DashboardOutlined,
   FileTextOutlined,
   KeyOutlined,
+  LockOutlined,
   LogoutOutlined,
   SafetyOutlined,
   SwapOutlined,
@@ -27,7 +28,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { key: '/overview', icon: <DashboardOutlined />, label: '总览', ready: true },
   { key: '/apps', icon: <AppstoreOutlined />, label: '应用接入', ready: true },
-  { key: '/identity', icon: <SafetyOutlined />, label: '身份与权限', ready: false },
+  { key: '/identity', icon: <SafetyOutlined />, label: '身份与权限', ready: true },
   { key: '/versions', icon: <SwapOutlined />, label: '版本与渠道', ready: false },
   { key: '/licensing', icon: <KeyOutlined />, label: '授权', ready: false },
   { key: '/documents', icon: <FileTextOutlined />, label: '文档', ready: false },
@@ -38,13 +39,13 @@ export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const { family, mode, setFamily, setMode } = useTheme();
-  const user = useAuthStore((state) => state.user);
+  const session = useAuthStore((state) => state.session);
   const signOut = useAuthStore((state) => state.signOut);
 
   const selectedKey = NAV_ITEMS.find((item) => location.pathname.startsWith(item.key))?.key ?? '/overview';
 
-  const handleSignOut = () => {
-    signOut();
+  const handleSignOut = async () => {
+    await signOut();
     navigate('/login', { replace: true });
   };
 
@@ -92,10 +93,16 @@ export function AppShell() {
           </Space>
 
           <Space size="small">
-            {user?.appKey ? <Tag color="processing">{user.appKey}</Tag> : null}
-            {user?.isTemporary ? <Tag color="warning">临时令牌</Tag> : null}
-            <Typography.Text>{user?.userName ?? '未登录'}</Typography.Text>
-            <Button icon={<LogoutOutlined />} size="small" onClick={handleSignOut}>
+            {session?.mustChangePassword ? <Tag color="warning">待改密</Tag> : null}
+            <Typography.Text>{session?.displayName ?? session?.userName ?? '未登录'}</Typography.Text>
+            <Button
+              icon={<LockOutlined />}
+              size="small"
+              onClick={() => navigate('/password')}
+            >
+              修改口令
+            </Button>
+            <Button icon={<LogoutOutlined />} size="small" onClick={() => void handleSignOut()}>
               退出
             </Button>
           </Space>

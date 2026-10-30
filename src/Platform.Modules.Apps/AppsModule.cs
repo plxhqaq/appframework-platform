@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Platform.Contracts;
 using Platform.Contracts.Permissions;
 using Platform.Infrastructure.Persistence;
+using Platform.Kernel.Abstractions;
 using Platform.Kernel.Modules;
 using Platform.Modules.Apps.Endpoints;
 using Platform.Modules.Apps.Persistence;
@@ -39,6 +40,7 @@ public sealed class AppsModule : IPlatformModule
         services.AddScoped<IAppRegistryService, AppRegistryService>();
         services.AddScoped<IApiKeyService, ApiKeyService>();
         services.AddScoped<IM2MTokenService, M2MTokenService>();
+        services.AddScoped<IAppDirectory, AppDirectory>();
         services.TryAddEnumerable(
             ServiceDescriptor.Scoped<IPlatformModelContributor, AppsModelContributor>());
     }

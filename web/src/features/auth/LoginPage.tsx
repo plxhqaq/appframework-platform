@@ -1,8 +1,7 @@
 import { LockOutlined, UserOutlined } from '@ant-design/icons';
 import { Alert, App, Button, Card, Form, Input, Typography } from 'antd';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { isDevTokenMode } from '../../shared/api/auth';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth';
 
 interface LoginFormValues {
@@ -10,25 +9,28 @@ interface LoginFormValues {
   password: string;
 }
 
-/**
- * 登录页。
- *
- * S0 通过开发令牌端点打通「登录 → 拿令牌 → whoami → 进入壳子」这条链路；
- * S1 落地 `/api/v1/identity/login` 后把 `VITE_USE_DEV_TOKEN` 置为 false 即可，
- * 密码框与错误提示逻辑不需要改。
- */
+/** 管理端登录：口令校验通过后刷新令牌由服务端写入 httpOnly Cookie。 */
 export function LoginPage() {
   const navigate = useNavigate();
   const { message } = App.useApp();
   const signIn = useAuthStore((state) => state.signIn);
+  const status = useAuthStore((state) => state.status);
   const pending = useAuthStore((state) => state.pending);
   const [error, setError] = useState<string | null>(null);
-  const devMode = isDevTokenMode();
+
+  if (status === 'authenticated') {
+    return <Navigate to="/overview" replace />;
+  }
 
   const handleFinish = async (values: LoginFormValues) => {
     setError(null);
     try {
-      await signIn(values.userName, values.password ?? '');
+      const session = await signIn(values.userName, values.password);
+      if (session.mustChangePassword) {
+        message.warning('首次登录或口令已被重置，请先修改口令');
+        navigate('/password', { replace: true });
+        return;
+      }
       navigate('/overview', { replace: true });
     } catch (caught) {
       const text = caught instanceof Error ? caught.message : '登录失败';
@@ -45,16 +47,6 @@ export function LoginPage() {
         </Typography.Title>
         <Typography.Paragraph type="secondary">通用服务提供平台 · 管理台</Typography.Paragraph>
 
-        {devMode ? (
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 16 }}
-            message="当前为开发令牌登录"
-            description="身份服务在 S1 接入；此模式仅在 API 处于 Development 且开启 Jwt:AllowDevTokenEndpoint 时可用。"
-          />
-        ) : null}
-
         {error ? <Alert type="error" showIcon style={{ marginBottom: 16 }} message={error} /> : null}
 
         <Form<LoginFormValues>
@@ -67,11 +59,14 @@ export function LoginPage() {
             <Input prefix={<UserOutlined />} placeholder="用户名" autoComplete="username" />
           </Form.Item>
 
-          <Form.Item name="password" label="密码">
+          <Form.Item
+            name="password"
+            label="密码"
+            rules={[{ required: true, message: '请输入密码' }]}
+          >
             <Input.Password
               prefix={<LockOutlined />}
-              placeholder={devMode ? '开发令牌登录无需密码' : '密码'}
-              disabled={devMode}
+              placeholder="密码"
               autoComplete="current-password"
             />
           </Form.Item>
@@ -80,6 +75,11 @@ export function LoginPage() {
             登录
           </Button>
         </Form>
+
+        <Typography.Paragraph type="secondary" style={{ marginTop: 16, marginBottom: 0, fontSize: 12 }}>
+          初始管理员口令由部署环境变量 <Typography.Text code>Seed__AdminPassword</Typography.Text> 注入，
+          首次登录后必须修改。
+        </Typography.Paragraph>
       </Card>
     </div>
   );

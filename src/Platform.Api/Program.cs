@@ -28,10 +28,13 @@ using Serilog.Events;
 
 const string LogTemplate = "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff} {Level:u3}] {Message:lj}{NewLine}{Exception}";
 
+// 静态日志只用于宿主构建完成前的致命错误；宿主运行期日志由下方 UseSerilog 接管。
+// 不用 CreateBootstrapLogger：ReloadableLogger 每个进程只能 Freeze 一次，
+// 多宿主场景（集成测试）会在第二次启动时抛 "logger is already frozen"。
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
     .WriteTo.Console(outputTemplate: LogTemplate, formatProvider: CultureInfo.InvariantCulture)
-    .CreateBootstrapLogger();
+    .CreateLogger();
 
 try
 {
@@ -87,6 +90,18 @@ try
             var partitionKey = string.IsNullOrWhiteSpace(appKey)
                 ? $"ip:{httpContext.Connection.RemoteIpAddress}"
                 : $"app:{appKey}";
+            return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true,
+            });
+        });
+        options.AddPolicy(PlatformRateLimitPolicies.IdentityLogin, httpContext =>
+        {
+            // IP 级粗粒度限流；账号/分布式撞库由 login_throttles 双维度节流负责。
+            var partitionKey = $"ip:{httpContext.Connection.RemoteIpAddress}";
             return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 30,

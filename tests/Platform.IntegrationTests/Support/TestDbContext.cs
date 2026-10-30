@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Modules.Apps.Persistence;
+using Platform.Modules.Identity.Persistence;
 
 namespace Platform.IntegrationTests.Support;
 
@@ -17,7 +18,7 @@ internal sealed class TestClock : IClock
 internal static class TestDbContext
 {
     /// <summary>
-    /// 固定装配 Apps 模块的 contributor：EF 的模型缓存按上下文类型共享，
+    /// 固定装配全部模块的 contributor：EF 的模型缓存按上下文类型共享，
     /// 不同测试传不同 contributor 集合会让实体是否在模型里取决于执行顺序。
     /// </summary>
     public static PlatformDbContext Create(IClock clock) =>
@@ -25,6 +26,6 @@ internal static class TestDbContext
             new DbContextOptionsBuilder<PlatformDbContext>()
                 .UseInMemoryDatabase($"platform-tests-{Guid.NewGuid():N}")
                 .Options,
-            [new AppsModelContributor()],
+            [new AppsModelContributor(), new IdentityModelContributor()],
             clock);
 }

@@ -10,6 +10,7 @@
     <ProjectReference Include="..\..\src\Platform.Kernel\Platform.Kernel.csproj" />
     <ProjectReference Include="..\..\src\Platform.Infrastructure\Platform.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Apps\Platform.Modules.Apps.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Modules.Identity\Platform.Modules.Identity.csproj" />
     <ProjectReference Include="..\..\src\Platform.Api\Platform.Api.csproj" />
   </ItemGroup>
 

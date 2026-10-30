@@ -38,12 +38,139 @@ export interface WhoAmI {
   appKeys: string[];
 }
 
-/** 令牌签发结果（开发令牌端点与 S1 的登录端点同形状）。 */
-export interface IssuedToken {
+/** 分页结果（与服务端 PageResult<T> 对齐）。 */
+export interface PageResult<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+  nextCursor?: string | null;
+}
+
+/** 登录后的主体信息（令牌声明与响应共用同一份口径）。 */
+export interface UserSession {
+  userId: string;
+  userName: string;
+  displayName?: string | null;
+  roles: string[];
+  permissions: string[];
+  appKeys: string[];
+  mustChangePassword: boolean;
+}
+
+/** 管理端登录/刷新响应：刷新令牌只在 httpOnly Cookie，响应体不含它。 */
+export interface AdminSession {
   accessToken: string;
   expiresAt: string;
+  user: UserSession;
+}
+
+/** 自助修改口令结果。 */
+export interface PasswordChanged {
+  changedAt: string;
+  revokedSessions: number;
+}
+
+/** 角色引用。 */
+export interface RoleRef {
+  id: string;
+  name: string;
+  displayName?: string | null;
+}
+
+/** 用户概要。 */
+export interface UserSummary {
+  id: string;
+  userName: string;
+  displayName?: string | null;
+  isEnabled: boolean;
+  mustChangePassword: boolean;
+  roles: RoleRef[];
+  lastLoginAt?: string | null;
+  createdAt: string;
+}
+
+/** 用户详情。 */
+export interface UserDetail extends UserSummary {
+  roleIds: string[];
+  loginCount: number;
+  updatedAt: string;
+}
+
+/** 创建用户。 */
+export interface CreateUserRequest {
+  userName: string;
+  password: string;
+  displayName?: string | null;
+  isEnabled?: boolean;
+  roleIds?: string[] | null;
+  mustChangePassword?: boolean;
+}
+
+/** 更新用户；字段缺省表示不修改。 */
+export interface UpdateUserRequest {
+  displayName?: string | null;
+  isEnabled?: boolean | null;
+  roleIds?: string[] | null;
+}
+
+/** 管理员重置口令。 */
+export interface ResetUserPasswordRequest {
+  newPassword: string;
+  requireChange?: boolean;
+}
+
+/** 角色概要。 */
+export interface RoleSummary {
+  id: string;
+  name: string;
+  displayName?: string | null;
+  scope: string;
+  appKey?: string | null;
   permissions: string[];
-  appKey: string;
+  isSystem: boolean;
+  userCount: number;
+  createdAt: string;
+}
+
+/** 创建角色。 */
+export interface CreateRoleRequest {
+  name: string;
+  displayName?: string | null;
+  scope?: string;
+  appKey?: string | null;
+  permissions?: string[] | null;
+}
+
+/** 更新角色；字段缺省表示不修改。 */
+export interface UpdateRoleRequest {
+  displayName?: string | null;
+  scope?: string | null;
+  appKey?: string | null;
+  permissions?: string[] | null;
+}
+
+/** 会话（一条 refresh token 记录）。 */
+export interface SessionSummary {
+  id: string;
+  userId: string;
+  userName: string;
+  familyId: string;
+  deviceFingerprint?: string | null;
+  createdByIp?: string | null;
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt?: string | null;
+  isActive: boolean;
+}
+
+/** 权限目录条目（后台权限树的数据源）。 */
+export interface PermissionDescriptor {
+  code: string;
+  moduleKey: string;
+  displayNameKey: string;
+  sort: number;
+  platformAdminOnly: boolean;
 }
 
 /** 应用概要（GET /api/v1/admin/apps）。 */

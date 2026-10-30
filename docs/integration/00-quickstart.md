@@ -1,7 +1,7 @@
-# 快速接入（S0 骨架版）
+# 快速接入（B2：身份与权限）
 
-> 本文对应**阶段 S0（骨架）**：只有平台级端点 + 模块自述 + 开发令牌。
-> 身份、版本、授权、备份、文档五个服务的业务端点随 S1–S5 落地，届时增补 `01-identity.md` ~ `05-documents.md`。
+> 本文对应当前进度 **B2**：平台级端点、模块自述、应用接入、用户名口令登录与 RBAC。
+> 版本、授权、备份、文档的服务端点在 B4–B6 落地后增补 `02-versions.md` ~ `05-documents.md`。
 > 本文所有命令都已在本仓验证通过。
 
 ---
@@ -89,28 +89,26 @@ curl -s http://localhost:5080/api/v1/platform/modules
 
 ---
 
-## 4. 第三步：拿令牌
+## 4. 第三步：登录拿令牌
 
-S0 还没有身份服务，用**开发令牌端点**打通链路（仅 `ASPNETCORE_ENVIRONMENT=Development` 且 `Jwt:AllowDevTokenEndpoint=true` 时注册）：
+管理端用**用户名口令**登录；刷新令牌由服务端写入 httpOnly + SameSite=Strict Cookie（`af_refresh`，路径 `/api/v1/admin/auth`），响应体只返回 access token：
 
 ```bash
-curl -s -X POST http://localhost:5080/api/v1/dev/token \
+curl -s -c admin.jar -X POST http://localhost:5080/api/v1/admin/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"subject":"user-1","name":"联调账号"}'
+  -d '{"userName":"admin","password":"Admin@12345"}'
 ```
 
-返回值：
+> `Admin@12345` 只是开发环境的种子口令（`Seed__AdminPassword`）。生产必须通过环境变量注入强口令；种子账号首次登录会被要求改密（`mustChangePassword=true`）。
 
-```json
-{ "isSuccess": true, "code": 0,
-  "data": { "accessToken": "eyJ...", "expiresAt": "2026-01-01T00:00:00+00:00",
-            "permissions": ["*"], "appKey": "demo" } }
+返回 `data.accessToken` / `data.expiresAt` / `data.user`（角色、权限、可访问应用、是否待改密）。刷新与登出：
+
+```bash
+curl -s -b admin.jar -c admin.jar -X POST http://localhost:5080/api/v1/admin/auth/refresh
+curl -s -b admin.jar -c admin.jar -X POST http://localhost:5080/api/v1/admin/auth/logout
 ```
 
-- 不传 `permissions` 时默认 `["*"]`（平台管理员通配）。
-- 想看「部分权限」的行为，传 `{"permissions":["identity.user.read"]}`，再用它调受保护端点验证 403。
-
-> 生产环境这两个条件是 false，该端点**不会被注册**（不是靠鉴权挡住，是根本没有这条路由）。
+桌面客户端走 `/api/v1/identity/login`，刷新令牌放在响应体里由客户端自行安全存储（D11）。
 
 ---
 
@@ -184,8 +182,8 @@ pnpm install
 pnpm dev            # http://localhost:5173，/api 自动代理到 http://localhost:5080
 ```
 
-登录页默认走开发令牌（`web/.env.development` 里 `VITE_USE_DEV_TOKEN=true`），密码框禁用。
-进入总览后应看到「当前主体」与「平台模块」两张卡片 —— 这就是 S0 的出口验收点。
+用种子管理员 `admin` / `Admin@12345` 登录；首次登录会跳转强制改密，改密后全部会话被吊销，需要重新登录。
+登录后总览页展示当前主体与平台模块；「身份与权限」页按 `identity.*.read` 权限展示用户、角色、会话三个标签页。
 
 改主题：右上角色系下拉 + 模式切换（8 族 × 3 模式 = 24 套）。
 **不要手改** `web/src/styles/antd-theme.ts`：它由 `design/tokens.json` 生成，改色板请改 JSON 后执行：

@@ -1,5 +1,5 @@
 import { request } from './client';
-import type { IssuedToken } from './types';
+import type { AdminSession, PasswordChanged } from './types';
 
 export interface LoginRequest {
   userName: string;
@@ -7,30 +7,23 @@ export interface LoginRequest {
 }
 
 /**
- * 登录。
+ * 管理端认证（`/api/v1/admin/auth`）。
  *
- * S0 还没有身份服务，所以默认走开发令牌端点（仅 Development 注册）。
- * S1 落地 `/api/v1/identity/login` 后把 `VITE_USE_DEV_TOKEN` 置为 false 即可切换到真实登录，
- * 两端返回形状一致（IssuedToken），调用方无需改动。
+ * access token 只在内存里，refresh token 由服务端写入 httpOnly + SameSite=Strict Cookie，
+ * 前端代码永远接触不到刷新令牌。
  */
-const useDevToken = import.meta.env.VITE_USE_DEV_TOKEN === 'true';
+export const authApi = {
+  login: (body: LoginRequest) =>
+    request<AdminSession>('/api/v1/admin/auth/login', { method: 'POST', anonymous: true, body }),
 
-export function isDevTokenMode(): boolean {
-  return useDevToken;
-}
+  refresh: () =>
+    request<AdminSession>('/api/v1/admin/auth/refresh', { method: 'POST', anonymous: true }),
 
-export function login(request_: LoginRequest): Promise<IssuedToken> {
-  if (useDevToken) {
-    return request<IssuedToken>('/api/v1/dev/token', {
+  logout: () => request<void>('/api/v1/admin/auth/logout', { method: 'POST', anonymous: true }),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<PasswordChanged>('/api/v1/identity/password/change', {
       method: 'POST',
-      anonymous: true,
-      body: { name: request_.userName, subject: request_.userName },
-    });
-  }
-
-  return request<IssuedToken>('/api/v1/identity/login', {
-    method: 'POST',
-    anonymous: true,
-    body: request_,
-  });
-}
+      body: { currentPassword, newPassword },
+    }),
+};

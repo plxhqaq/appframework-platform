@@ -86,8 +86,9 @@ public sealed class AppsServiceTests
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
         var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest());
 
+        var tampered = created.Plaintext[..^1] + (created.Plaintext[^1] == 'A' ? 'B' : 'A');
         var exception = await Assert.ThrowsAsync<BusinessException>(
-            () => keys.AuthenticateAsync("demo", created.Plaintext[..^1] + "0"));
+            () => keys.AuthenticateAsync("demo", tampered));
         Assert.Equal(ApiErrorCode.AppsApiKeyInvalid, exception.Code);
 
         var wrongApp = await Assert.ThrowsAsync<BusinessException>(

@@ -1,82 +1,111 @@
 import { create } from 'zustand';
-import { login } from '../shared/api/auth';
-import { setTokenProvider } from '../shared/api/client';
-import { platformApi } from '../shared/api/platform';
-import type { WhoAmI } from '../shared/api/types';
+import { authApi } from '../shared/api/auth';
+import { setRefreshHandler, setTokenProvider } from '../shared/api/client';
+import type { UserSession } from '../shared/api/types';
 
-/** 当前登录主体（与 whoami 响应一一对应）。 */
-export interface AuthUser {
-  userId?: string | null;
-  userName?: string | null;
-  roles: string[];
-  permissions: string[];
-  appKey?: string | null;
-  appKeys: string[];
-  isService: boolean;
-  isTemporary: boolean;
-}
+export type AuthStatus = 'unknown' | 'authenticated' | 'anonymous';
 
 interface AuthState {
   accessToken: string | null;
   expiresAt: string | null;
-  user: AuthUser | null;
+  session: UserSession | null;
+  status: AuthStatus;
   pending: boolean;
-  signIn: (userName: string, password: string) => Promise<void>;
-  refreshUser: () => Promise<void>;
-  signOut: () => void;
+  signIn: (userName: string, password: string) => Promise<UserSession>;
+  /** 首屏静默续期：Cookie 里的 refresh token 还有效就恢复登录态。 */
+  bootstrap: () => Promise<void>;
+  refreshAccessToken: () => Promise<string | null>;
+  signOut: () => Promise<void>;
   hasPermission: (code: string) => boolean;
 }
 
-function toAuthUser(me: WhoAmI): AuthUser {
-  return {
-    userId: me.userId,
-    userName: me.userName,
-    roles: me.roles,
-    permissions: me.permissions,
-    appKey: me.appKey,
-    appKeys: me.appKeys,
-    isService: me.isService,
-    isTemporary: me.isTemporary,
-  };
-}
+let bootstrapPromise: Promise<void> | null = null;
+
+const cleared = { accessToken: null, expiresAt: null, session: null, status: 'anonymous' as const };
 
 /**
- * 登录态：access token 只放内存（刷新页面即失效，S1 上 refresh token 后再做静默续期），
- * 这样 XSS 也偷不到长期凭据。
+ * 登录态：access token 只放内存；刷新令牌是 httpOnly Cookie，
+ * 刷新页面后通过 `/admin/auth/refresh` 静默恢复，不把长期凭据暴露给脚本。
  */
 export const useAuthStore = create<AuthState>((set, get) => ({
   accessToken: null,
   expiresAt: null,
-  user: null,
+  session: null,
+  status: 'unknown',
   pending: false,
 
   signIn: async (userName, password) => {
     set({ pending: true });
     try {
-      const issued = await login({ userName, password });
-      set({ accessToken: issued.accessToken, expiresAt: issued.expiresAt });
-      const me = await platformApi.whoami();
-      set({ user: toAuthUser(me) });
+      const issued = await authApi.login({ userName, password });
+      set({
+        accessToken: issued.accessToken,
+        expiresAt: issued.expiresAt,
+        session: issued.user,
+        status: 'authenticated',
+      });
+      return issued.user;
     } finally {
       set({ pending: false });
     }
   },
 
-  refreshUser: async () => {
-    if (!get().accessToken) {
-      return;
+  bootstrap: () => {
+    if (get().status !== 'unknown') {
+      return Promise.resolve();
     }
-    const me = await platformApi.whoami();
-    set({ user: toAuthUser(me) });
+
+    bootstrapPromise ??= (async () => {
+      try {
+        const issued = await authApi.refresh();
+        set({
+          accessToken: issued.accessToken,
+          expiresAt: issued.expiresAt,
+          session: issued.user,
+          status: 'authenticated',
+        });
+      } catch {
+        set(cleared);
+      } finally {
+        bootstrapPromise = null;
+      }
+    })();
+
+    return bootstrapPromise;
   },
 
-  signOut: () => set({ accessToken: null, expiresAt: null, user: null }),
+  refreshAccessToken: async () => {
+    try {
+      const issued = await authApi.refresh();
+      set({
+        accessToken: issued.accessToken,
+        expiresAt: issued.expiresAt,
+        session: issued.user,
+        status: 'authenticated',
+      });
+      return issued.accessToken;
+    } catch {
+      set(cleared);
+      return null;
+    }
+  },
+
+  signOut: async () => {
+    try {
+      await authApi.logout();
+    } catch {
+      // 登出必须幂等：网络失败也要清掉本地态
+    } finally {
+      set(cleared);
+    }
+  },
 
   hasPermission: (code) => {
-    const permissions = get().user?.permissions ?? [];
+    const permissions = get().session?.permissions ?? [];
     return permissions.includes('*') || permissions.includes(code);
   },
 }));
 
-// 令牌注入点：fetch 封装只认这个 provider，不直接依赖 store
+// 令牌注入点：fetch 封装只认这两个 provider，不直接依赖 store
 setTokenProvider(() => useAuthStore.getState().accessToken);
+setRefreshHandler(() => useAuthStore.getState().refreshAccessToken());

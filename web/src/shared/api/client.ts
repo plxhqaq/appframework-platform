@@ -26,10 +26,16 @@ export class ApiError extends Error {
 }
 
 let tokenProvider: () => string | null = () => null;
+let refreshHandler: (() => Promise<string | null>) | null = null;
 
-/** 令牌只存内存（计划里明确：refresh token 走 httpOnly cookie，access token 不进 localStorage）。 */
+/** 令牌只存内存（refresh token 走 httpOnly cookie，access token 不进 localStorage）。 */
 export function setTokenProvider(provider: () => string | null): void {
   tokenProvider = provider;
+}
+
+/** 访问令牌过期时的静默续期钩子；返回新令牌则重放原请求一次，返回 null 则按原错误抛出。 */
+export function setRefreshHandler(handler: () => Promise<string | null>): void {
+  refreshHandler = handler;
 }
 
 export interface RequestOptions {
@@ -41,7 +47,7 @@ export interface RequestOptions {
   headers?: Record<string, string>;
 }
 
-export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function execute<T>(path: string, options: RequestOptions, retried: boolean): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json', ...options.headers };
 
   const token = options.anonymous ? null : tokenProvider();
@@ -60,6 +66,8 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     headers,
     body,
     signal: options.signal,
+    // 管理端刷新令牌是 httpOnly cookie，必须携带凭据（同源部署）
+    credentials: 'include',
   });
 
   const text = await response.text();
@@ -73,6 +81,14 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   if (!response.ok || !payload || payload.isSuccess === false) {
+    // 访问令牌过期：尝试用 httpOnly 刷新令牌静默续期并重放一次
+    if (response.status === 401 && !options.anonymous && !retried && refreshHandler) {
+      const renewed = await refreshHandler().catch(() => null);
+      if (renewed) {
+        return execute<T>(path, options, true);
+      }
+    }
+
     throw new ApiError(
       payload?.code ?? -1,
       payload?.message ?? `请求失败（HTTP ${response.status}）`,
@@ -82,4 +98,8 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   return payload.data as T;
+}
+
+export function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return execute<T>(path, options, false);
 }

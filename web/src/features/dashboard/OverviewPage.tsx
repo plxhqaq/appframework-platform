@@ -42,7 +42,7 @@ const columns = [
  * 能列出全部模块（证明模块清单与装配可用），能显示当前令牌解析结果（证明 JWT 声明链路可用）。
  */
 export function OverviewPage() {
-  const user = useAuthStore((state) => state.user);
+  const session = useAuthStore((state) => state.session);
 
   const modules = useQuery({
     queryKey: ['platform', 'modules'],
@@ -52,21 +52,22 @@ export function OverviewPage() {
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Card title="当前主体" size="small">
-        {user ? (
+        {session ? (
           <Descriptions column={3} size="small" items={[
-            { key: 'userName', label: '用户名', children: user.userName ?? '-' },
-            { key: 'userId', label: '用户 ID', children: user.userId ?? '-' },
-            { key: 'appKey', label: '应用键', children: user.appKey ?? '-' },
-            { key: 'roles', label: '角色', children: user.roles.join(', ') || '-' },
+            { key: 'userName', label: '用户名', children: session.userName },
+            { key: 'userId', label: '用户 ID', children: session.userId },
+            { key: 'displayName', label: '显示名', children: session.displayName ?? '-' },
+            { key: 'appKeys', label: '可访问应用', children: session.appKeys.join(', ') || '-' },
+            { key: 'roles', label: '角色', children: session.roles.join(', ') || '-' },
             {
               key: 'permissions',
               label: '权限',
               children:
-                user.permissions.length > 6
-                  ? `${user.permissions.slice(0, 6).join(', ')} 等 ${user.permissions.length} 项`
-                  : user.permissions.join(', ') || '-',
+                session.permissions.length > 6
+                  ? `${session.permissions.slice(0, 6).join(', ')} 等 ${session.permissions.length} 项`
+                  : session.permissions.join(', ') || '-',
             },
-            { key: 'temporary', label: '临时令牌', children: user.isTemporary ? '是' : '否' },
+            { key: 'mustChangePassword', label: '待改密', children: session.mustChangePassword ? '是' : '否' },
           ]} />
         ) : (
           <Typography.Text type="secondary">尚未获取主体信息</Typography.Text>

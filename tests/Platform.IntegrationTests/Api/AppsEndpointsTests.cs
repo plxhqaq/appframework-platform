@@ -12,7 +12,8 @@ namespace Platform.IntegrationTests.Api;
 public sealed class AppsEndpointsTests : IClassFixture<PlatformApiFactory>
 {
     private static readonly string[] WildcardPermissions = ["*"];
-    private static readonly string[] DemoApps = ["demo"];
+    private static readonly string[] DemoApps = ["demo-ci"];
+    private const string TestAppKey = "demo-ci";
 
     private readonly PlatformApiFactory _factory;
 
@@ -33,7 +34,7 @@ public sealed class AppsEndpointsTests : IClassFixture<PlatformApiFactory>
         Assert.NotNull(created);
         Assert.True(created.IsSuccess);
         Assert.NotNull(created.Data);
-        Assert.Equal("demo", created.Data.Key);
+        Assert.Equal(TestAppKey, created.Data.Key);
 
         // 同键重放：返回同一个应用，不重复创建
         var replay = await client.SendAsync(CreateAppRequestMessage(adminToken));
@@ -45,7 +46,7 @@ public sealed class AppsEndpointsTests : IClassFixture<PlatformApiFactory>
         listRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
         var list = await (await client.SendAsync(listRequest))
             .Content.ReadFromJsonAsync<ApiResult<List<AppSummaryDto>>>();
-        Assert.Single(list!.Data!);
+        Assert.Contains(list!.Data!, x => x.Id == created.Data.Id);
 
         // 签发 API Key：明文只出现一次
         using var keyRequest = new HttpRequestMessage(
@@ -65,13 +66,13 @@ public sealed class AppsEndpointsTests : IClassFixture<PlatformApiFactory>
 
         // 换 M2M 令牌
         using var tokenRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/apps/token");
-        tokenRequest.Headers.TryAddWithoutValidation(PlatformHeaders.AppKey, "demo");
+        tokenRequest.Headers.TryAddWithoutValidation(PlatformHeaders.AppKey, TestAppKey);
         tokenRequest.Headers.TryAddWithoutValidation(PlatformHeaders.ApiKey, apiKey);
         var tokenResponse = await client.SendAsync(tokenRequest);
         Assert.Equal(HttpStatusCode.OK, tokenResponse.StatusCode);
         var tokenResult = await tokenResponse.Content.ReadFromJsonAsync<ApiResult<M2MTokenResponse>>();
         Assert.True(tokenResult!.IsSuccess);
-        Assert.Equal("demo", tokenResult.Data!.AppKey);
+        Assert.Equal(TestAppKey, tokenResult.Data!.AppKey);
 
         // 服务主体：isService=true、appKey=demo、权限等于 Key 的 scopes
         using var whoamiRequest = new HttpRequestMessage(HttpMethod.Get, "/api/v1/platform/whoami");
@@ -80,7 +81,7 @@ public sealed class AppsEndpointsTests : IClassFixture<PlatformApiFactory>
         var whoami = await (await client.SendAsync(whoamiRequest))
             .Content.ReadFromJsonAsync<ApiResult<WhoAmIResponsePayload>>();
         Assert.True(whoami!.Data!.IsService);
-        Assert.Equal("demo", whoami.Data.AppKey);
+        Assert.Equal(TestAppKey, whoami.Data.AppKey);
         Assert.Contains("versions.release.read", whoami.Data.Permissions);
 
         // 禁用应用后，已签发的 Key 也不能再换令牌
@@ -103,7 +104,7 @@ public sealed class AppsEndpointsTests : IClassFixture<PlatformApiFactory>
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/apps")
         {
-            Content = JsonContent.Create(new CreateAppRequest("demo", "演示应用")),
+            Content = JsonContent.Create(new CreateAppRequest(TestAppKey, "演示应用")),
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
         request.Headers.TryAddWithoutValidation(PlatformHeaders.IdempotencyKey, "create-demo-1");
@@ -118,7 +119,7 @@ public sealed class AppsEndpointsTests : IClassFixture<PlatformApiFactory>
             name = "集成测试管理员",
             permissions = WildcardPermissions,
             apps = DemoApps,
-            appKey = "demo",
+            appKey = TestAppKey,
         });
         response.EnsureSuccessStatusCode();
         var payload = await response.Content.ReadFromJsonAsync<ApiResult<DevTokenPayload>>();

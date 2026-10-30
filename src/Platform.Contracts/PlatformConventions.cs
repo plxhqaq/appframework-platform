@@ -66,6 +66,9 @@ public static class PlatformRateLimitPolicies
 {
     /// <summary>M2M 换令牌：匿名入口，按应用键（缺省时按 IP）限流。</summary>
     public const string M2MToken = "m2m-token";
+
+    /// <summary>身份登录/刷新：匿名入口，按 IP 限流；账号维度节流由登录节流表负责。</summary>
+    public const string IdentityLogin = "identity-login";
 }
 
 /// <summary>JWT 声明短名。**必须配合 <c>MapInboundClaims=false</c>**，否则会被改写成 <c>ClaimTypes.*</c> URI。</summary>

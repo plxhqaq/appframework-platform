@@ -8,4 +8,11 @@ export const PERMISSIONS = {
   appsRead: 'apps.read',
   appsManage: 'apps.manage',
   appsApiKeyManage: 'apps.apikey.manage',
+  identityUserRead: 'identity.user.read',
+  identityUserManage: 'identity.user.manage',
+  identityUserPasswordReset: 'identity.user.password.reset',
+  identityRoleRead: 'identity.role.read',
+  identityRoleManage: 'identity.role.manage',
+  identitySessionRead: 'identity.session.read',
+  identitySessionRevoke: 'identity.session.revoke',
 } as const;
