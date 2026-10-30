@@ -42,6 +42,9 @@ public static class PlatformHeaders
     /// <summary>应用键（M2M 场景；也可用 API Key 认证方案携带）。</summary>
     public const string AppKey = "X-App-Key";
 
+    /// <summary>API Key 明文（仅 M2M 换令牌端点使用，格式见 <c>AppConventions.ApiKeyPrefix</c>）。</summary>
+    public const string ApiKey = "X-Api-Key";
+
     /// <summary>客户端版本，用于最低版本门禁（旧版打新接口时被拒）。</summary>
     public const string ClientVersion = "X-Client-Version";
 
@@ -56,6 +59,13 @@ public static class PlatformHeaders
 
     /// <summary>请求追踪号（未携带时由服务端生成并回写）。</summary>
     public const string RequestId = "X-Request-Id";
+}
+
+/// <summary>限流策略名。宿主注册策略，模块端点按名字引用，避免两边手写字符串漂移。</summary>
+public static class PlatformRateLimitPolicies
+{
+    /// <summary>M2M 换令牌：匿名入口，按应用键（缺省时按 IP）限流。</summary>
+    public const string M2MToken = "m2m-token";
 }
 
 /// <summary>JWT 声明短名。**必须配合 <c>MapInboundClaims=false</c>**，否则会被改写成 <c>ClaimTypes.*</c> URI。</summary>

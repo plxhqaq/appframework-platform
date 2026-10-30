@@ -115,6 +115,8 @@ public enum ApiErrorCode
     AppsApiKeyRevoked = 605,
     AppsApiKeyScopeDenied = 606,
     AppsQuotaExceeded = 607,
+    AppsApiKeyScopeUnknown = 608,
+    AppsApiKeyNotFound = 609,
 }
 
 /// <summary>错误码分段边界。用于分组展示、CI 断言与客户端提示文案归类。</summary>

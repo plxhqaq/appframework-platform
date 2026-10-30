@@ -25,8 +25,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
-    // antd + 图标库单块约 700KB，压不到 500KB 以下；这里显式分组，让版本升级只影响对应 chunk 的缓存
-    chunkSizeWarningLimit: 1024,
+    // antd + 图标库 + dayjs 单块约 1.2MB（gzip 后约 360KB），管理台可接受；显式分组让版本升级只影响对应 chunk 的缓存
+    chunkSizeWarningLimit: 1280,
     rollupOptions: {
       output: {
         manualChunks: {

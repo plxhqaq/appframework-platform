@@ -4,11 +4,12 @@ using System.Text;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Platform.Contracts;
+using Platform.Kernel.Abstractions;
 
 namespace Platform.Api.Auth;
 
-/// <summary>访问令牌签发。S1 由身份模块调用，S0 仅供开发令牌端点使用。</summary>
-public sealed class JwtTokenIssuer
+/// <summary>访问令牌签发。身份模块与 M2M 端点通过 <see cref="IAccessTokenIssuer"/> 使用它。</summary>
+public sealed class JwtTokenIssuer : IAccessTokenIssuer
 {
     private readonly JwtOptions _options;
     private readonly SigningCredentials _credentials;
@@ -108,9 +109,21 @@ public sealed class JwtTokenIssuer
 
         return new IssuedToken(new JwtSecurityTokenHandler().WriteToken(token), expires);
     }
-}
 
-/// <summary>签发结果。</summary>
-/// <param name="AccessToken">JWT 字符串。</param>
-/// <param name="ExpiresAt">过期时间（UTC）。</param>
-public sealed record IssuedToken(string AccessToken, DateTimeOffset ExpiresAt);
+    /// <inheritdoc />
+    public IssuedToken Issue(AccessTokenSpec spec)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        return Issue(
+            subject: spec.Subject,
+            name: spec.Name,
+            roles: spec.Roles,
+            permissions: spec.Permissions,
+            appKeys: spec.AppKeys,
+            appKey: spec.AppKey,
+            temporary: spec.Temporary,
+            principalKind: spec.PrincipalKind,
+            machineCode: spec.MachineCode,
+            lifetime: spec.Lifetime);
+    }
+}

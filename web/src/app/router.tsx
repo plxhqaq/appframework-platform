@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
+import { AppsPage } from '../features/apps/AppsPage';
 import { LoginPage } from '../features/auth/LoginPage';
 import { OverviewPage } from '../features/dashboard/OverviewPage';
 import { useAuthStore } from '../stores/auth';
@@ -31,6 +32,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/overview" replace /> },
       { path: 'overview', element: <OverviewPage /> },
+      { path: 'apps', element: <AppsPage /> },
     ],
   },
   { path: '*', element: <Navigate to="/overview" replace /> },

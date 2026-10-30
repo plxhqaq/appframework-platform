@@ -20,13 +20,13 @@ interface NavItem {
   key: string;
   icon: ReactNode;
   label: string;
-  /** S0 只落地总览；其余页面在对应阶段接入，先占位但禁用（比"画了跑不通"诚实）。 */
+  /** 未落地的页面先占位但禁用（比"画了跑不通"诚实）。 */
   ready: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
   { key: '/overview', icon: <DashboardOutlined />, label: '总览', ready: true },
-  { key: '/apps', icon: <AppstoreOutlined />, label: '应用接入', ready: false },
+  { key: '/apps', icon: <AppstoreOutlined />, label: '应用接入', ready: true },
   { key: '/identity', icon: <SafetyOutlined />, label: '身份与权限', ready: false },
   { key: '/versions', icon: <SwapOutlined />, label: '版本与渠道', ready: false },
   { key: '/licensing', icon: <KeyOutlined />, label: '授权', ready: false },

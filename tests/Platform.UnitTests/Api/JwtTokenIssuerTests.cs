@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using Microsoft.Extensions.Options;
 using Platform.Api.Auth;
 using Platform.Contracts;
+using Platform.Kernel.Abstractions;
 
 namespace Platform.UnitTests.Api;
 

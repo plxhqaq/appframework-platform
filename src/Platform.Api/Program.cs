@@ -9,6 +9,7 @@ using Platform.Api.Modules;
 using Platform.Contracts;
 using Platform.Infrastructure.DependencyInjection;
 using Platform.Infrastructure.Persistence;
+using Platform.Kernel.Abstractions;
 using Platform.Kernel.DependencyInjection;
 using Platform.Kernel.Modules;
 using Platform.Kernel.Middleware;
@@ -58,6 +59,7 @@ try
     // ── 认证授权 ──────────────────────────────────────────────────────
     builder.Services.AddPlatformAuthentication(builder.Configuration);
     builder.Services.AddSingleton<JwtTokenIssuer>();
+    builder.Services.AddSingleton<IAccessTokenIssuer>(static sp => sp.GetRequiredService<JwtTokenIssuer>());
 
     // ── 模块（集中清单是唯一装配点）──────────────────────────────────
     builder.Services.AddPlatformModules(PlatformModuleCatalog.Modules, builder.Configuration);
@@ -78,6 +80,21 @@ try
             });
         });
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.AddPolicy(PlatformRateLimitPolicies.M2MToken, httpContext =>
+        {
+            // 匿名入口：按应用键分区（同一应用的多个副本共享额度），无应用键时退回按 IP。
+            var appKey = httpContext.Request.Headers[PlatformHeaders.AppKey].ToString();
+            var partitionKey = string.IsNullOrWhiteSpace(appKey)
+                ? $"ip:{httpContext.Connection.RemoteIpAddress}"
+                : $"app:{appKey}";
+            return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true,
+            });
+        });
         options.OnRejected = async (context, cancellationToken) =>
         {
             context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;

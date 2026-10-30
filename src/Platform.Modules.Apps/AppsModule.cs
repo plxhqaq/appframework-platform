@@ -1,19 +1,20 @@
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Platform.Contracts;
 using Platform.Contracts.Permissions;
+using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Modules;
+using Platform.Modules.Apps.Endpoints;
+using Platform.Modules.Apps.Persistence;
+using Platform.Modules.Apps.Services;
 
 namespace Platform.Modules.Apps;
 
 /// <summary>
 /// 应用注册模块：`apps` + `app_api_keys`。它是其余模块的前置——所有业务表的隔离轴 `app_id` 由这里产生。
 /// </summary>
-/// <remarks>
-/// **S0 状态**：只装配骨架与自述端点。业务端点（`/api/v1/admin/apps`、API Key 签发与轮换）
-/// 在 S1 落地；届时端点一律经 <c>RequirePermission</c> 并强制 <c>app_id</c> 过滤。
-/// </remarks>
 public sealed class AppsModule : IPlatformModule
 {
     /// <inheritdoc />
@@ -34,9 +35,19 @@ public sealed class AppsModule : IPlatformModule
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
-        // S1：注册 IAppRegistryService / IApiKeyService，以及本模块的 IPlatformModelContributor。
+
+        services.AddScoped<IAppRegistryService, AppRegistryService>();
+        services.AddScoped<IApiKeyService, ApiKeyService>();
+        services.AddScoped<IM2MTokenService, M2MTokenService>();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Scoped<IPlatformModelContributor, AppsModelContributor>());
     }
 
     /// <inheritdoc />
-    public void MapEndpoints(IEndpointRouteBuilder api) => api.MapModuleInfo(this);
+    public void MapEndpoints(IEndpointRouteBuilder api)
+    {
+        ArgumentNullException.ThrowIfNull(api);
+        api.MapModuleInfo(this);
+        api.MapAppsEndpoints();
+    }
 }

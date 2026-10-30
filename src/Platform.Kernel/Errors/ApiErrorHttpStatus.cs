@@ -110,6 +110,8 @@ public static class ApiErrorHttpStatus
         ApiErrorCode.AppsApiKeyRevoked => StatusCodes.Status401Unauthorized,
         ApiErrorCode.AppsApiKeyScopeDenied => StatusCodes.Status403Forbidden,
         ApiErrorCode.AppsQuotaExceeded => StatusCodes.Status429TooManyRequests,
+        ApiErrorCode.AppsApiKeyScopeUnknown => StatusCodes.Status400BadRequest,
+        ApiErrorCode.AppsApiKeyNotFound => StatusCodes.Status404NotFound,
 
         _ => StatusCodes.Status500InternalServerError,
     };

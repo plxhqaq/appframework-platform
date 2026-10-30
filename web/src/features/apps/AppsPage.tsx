@@ -1,0 +1,124 @@
+import { useQuery } from '@tanstack/react-query';
+import { Alert, Button, Card, Space, Table, Tag, Typography } from 'antd';
+import { useState } from 'react';
+import { appsApi } from '../../shared/api/apps';
+import type { AppDetail, AppSummary } from '../../shared/api/types';
+import { PERMISSIONS } from '../../shared/permissions';
+import { useAuthStore } from '../../stores/auth';
+import { ApiKeysDrawer } from './ApiKeysDrawer';
+import { AppFormModal } from './AppFormModal';
+
+/**
+ * 应用接入页。
+ *
+ * 应用键是全部业务数据的隔离轴，所以这里只有"注册/启用"和"发密钥"两类动作；
+ * 删除刻意不提供——停用即可，历史审计与业务数据必须保留。
+ */
+export function AppsPage() {
+  const canManage = useAuthStore((state) => state.hasPermission(PERMISSIONS.appsManage));
+  const canManageKeys = useAuthStore((state) => state.hasPermission(PERMISSIONS.appsApiKeyManage));
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<AppDetail | null>(null);
+  const [keysApp, setKeysApp] = useState<AppDetail | null>(null);
+
+  const apps = useQuery({
+    queryKey: ['apps', 'list'],
+    queryFn: ({ signal }) => appsApi.list(signal),
+  });
+
+  const openCreate = () => {
+    setEditing(null);
+    setFormOpen(true);
+  };
+
+  const openEdit = (app: AppSummary) => {
+    setEditing({ ...app, settingsJson: null });
+    setFormOpen(true);
+  };
+
+  const openKeys = (app: AppSummary) => {
+    setKeysApp({ ...app, settingsJson: null });
+  };
+
+  const columns = [
+    {
+      title: '应用键',
+      dataIndex: 'key',
+      key: 'key',
+      width: 160,
+      render: (key: string) => <Typography.Text code>{key}</Typography.Text>,
+    },
+    { title: '名称', dataIndex: 'name', key: 'name', width: 200 },
+    {
+      title: '说明',
+      dataIndex: 'description',
+      key: 'description',
+      render: (value: string | null) => value ?? <Typography.Text type="secondary">-</Typography.Text>,
+    },
+    {
+      title: '状态',
+      dataIndex: 'isEnabled',
+      key: 'isEnabled',
+      width: 90,
+      render: (enabled: boolean) => (enabled ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>),
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      width: 180,
+      render: (value: string) => new Date(value).toLocaleString(),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 160,
+      render: (_: unknown, app: AppSummary) => (
+        <Space size="small">
+          {canManage ? (
+            <Button type="link" size="small" onClick={() => openEdit(app)}>
+              编辑
+            </Button>
+          ) : null}
+          {canManageKeys ? (
+            <Button type="link" size="small" onClick={() => openKeys(app)}>
+              密钥
+            </Button>
+          ) : null}
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <Card
+      title="应用接入"
+      size="small"
+      extra={
+        canManage ? (
+          <Button type="primary" onClick={openCreate}>
+            新建应用
+          </Button>
+        ) : null
+      }
+    >
+      {apps.isError ? (
+        <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(apps.error as Error).message} />
+      ) : null}
+
+      <Table<AppSummary>
+        rowKey="id"
+        size="small"
+        loading={apps.isPending}
+        dataSource={apps.data ?? []}
+        columns={columns}
+        pagination={false}
+        locale={{ emptyText: '尚未注册应用' }}
+      />
+
+      <AppFormModal open={formOpen} app={editing} onClose={() => setFormOpen(false)} />
+      <ApiKeysDrawer open={keysApp !== null} app={keysApp} onClose={() => setKeysApp(null)} />
+    </Card>
+  );
+}

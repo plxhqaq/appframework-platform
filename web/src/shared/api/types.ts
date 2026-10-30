@@ -45,3 +45,64 @@ export interface IssuedToken {
   permissions: string[];
   appKey: string;
 }
+
+/** 应用概要（GET /api/v1/admin/apps）。 */
+export interface AppSummary {
+  id: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  isEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 应用详情。 */
+export interface AppDetail extends AppSummary {
+  settingsJson?: string | null;
+}
+
+/** 创建应用请求。 */
+export interface CreateAppRequest {
+  key: string;
+  name: string;
+  description?: string | null;
+}
+
+/** 更新应用请求；字段缺省表示不修改。 */
+export interface UpdateAppRequest {
+  name?: string | null;
+  description?: string | null;
+  isEnabled?: boolean | null;
+}
+
+/** API Key 概要：永不包含明文或哈希。 */
+export interface ApiKeySummary {
+  id: string;
+  prefix: string;
+  name: string;
+  scopes: string[];
+  expiresAt?: string | null;
+  revokedAt?: string | null;
+  lastUsedAt?: string | null;
+  createdAt: string;
+  isActive: boolean;
+}
+
+/** 签发 API Key 请求。 */
+export interface CreateApiKeyRequest {
+  name?: string | null;
+  scopes?: string[] | null;
+  expiresAt?: string | null;
+}
+
+/** 新签发的 API Key；明文只出现这一次。 */
+export interface CreatedApiKey {
+  id: string;
+  prefix: string;
+  plaintext: string;
+  name: string;
+  scopes: string[];
+  expiresAt?: string | null;
+  createdAt: string;
+}

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Platform.Contracts;
 
@@ -41,19 +42,6 @@ public static class AuthenticationSetup
             .AddJwtBearer(bearer =>
             {
                 bearer.MapInboundClaims = false;
-                bearer.TokenValidationParameters = new TokenValidationParameters
-                {
-                    ValidateIssuer = true,
-                    ValidIssuer = options.Issuer,
-                    ValidateAudience = true,
-                    ValidAudience = options.Audience,
-                    ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(options.SigningKey)),
-                    ValidateLifetime = true,
-                    ClockSkew = TimeSpan.FromSeconds(30),
-                    NameClaimType = PlatformClaimTypes.Name,
-                    RoleClaimType = PlatformClaimTypes.Role,
-                };
                 bearer.Events = new JwtBearerEvents
                 {
                     OnChallenge = async context =>
@@ -77,6 +65,29 @@ public static class AuthenticationSetup
                                 "当前主体缺少所需权限。",
                                 context.HttpContext.TraceIdentifier));
                     },
+                };
+            });
+
+        // 校验参数必须取最终绑定的 <see cref="JwtOptions"/>，而不是注册时的配置快照：
+        // 宿主（集成测试、密钥服务）可能在注册之后才追加配置源，快照会与签发端密钥不一致，
+        // 表现为"令牌单验通过、宿主一律 401"。
+        services
+            .AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+            .Configure<IOptions<JwtOptions>>((bearer, jwtOptions) =>
+            {
+                var current = jwtOptions.Value;
+                bearer.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = current.Issuer,
+                    ValidateAudience = true,
+                    ValidAudience = current.Audience,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(current.SigningKey)),
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.FromSeconds(30),
+                    NameClaimType = PlatformClaimTypes.Name,
+                    RoleClaimType = PlatformClaimTypes.Role,
                 };
             });
 
