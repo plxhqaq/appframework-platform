@@ -109,6 +109,8 @@ public sealed class IdentitySeeder : IHostedService
                 PermissionCatalog.DocumentCollectionRead,
                 PermissionCatalog.DocumentRead,
                 PermissionCatalog.DocumentManage,
+                PermissionCatalog.WebhookRead,
+                PermissionCatalog.WebhookManage,
             ],
             cancellationToken);
 
@@ -128,6 +130,7 @@ public sealed class IdentitySeeder : IHostedService
                 PermissionCatalog.BackupRead,
                 PermissionCatalog.DocumentCollectionRead,
                 PermissionCatalog.DocumentRead,
+                PermissionCatalog.WebhookRead,
             ],
             cancellationToken);
 

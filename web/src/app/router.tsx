@@ -11,6 +11,7 @@ import { OverviewPage } from '../features/dashboard/OverviewPage';
 import { IdentityPage } from '../features/identity/IdentityPage';
 import { LicensingPage } from '../features/licensing/LicensingPage';
 import { VersionsPage } from '../features/versions/VersionsPage';
+import { WebhooksPage } from '../features/webhooks/WebhooksPage';
 import { useAuthStore } from '../stores/auth';
 import { AppShell } from './AppShell';
 
@@ -46,6 +47,7 @@ const router = createBrowserRouter([
       { path: 'backups', element: <BackupsPage /> },
       { path: 'documents', element: <DocumentsPage /> },
       { path: 'licensing', element: <LicensingPage /> },
+      { path: 'webhooks', element: <WebhooksPage /> },
       { path: 'audit', element: <AuditPage /> },
       { path: 'password', element: <ChangePasswordPage /> },
     ],

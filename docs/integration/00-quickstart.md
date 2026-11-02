@@ -554,6 +554,7 @@ X-Platform-Signature: sha256=hex(Lower)(HMAC-SHA256(secret, "{timestamp}.{rawBod
 退避 `30s → 1m → 2m → 4m → 8m → 16m → 32m`（上限 1 小时，含首次共 8 次尝试，超时 10 秒，2xx 记成功）。
 **投递器只能在一个副本启用**（`Webhooks:DispatcherEnabled`，没有行级抢占）。
 完整语义、验签示例与错误码（`700–704`）见 [`06-webhooks-and-audit.md`](06-webhooks-and-audit.md)。
+上面这些步骤（建订阅、拿密钥、轮换、测试、查台账与重投）在管理台「Webhook」页都有对应入口，见 §15。
 
 ---
 
@@ -710,9 +711,9 @@ pnpm dev            # http://localhost:5173，/api 自动代理到 http://localh
 `license.signingkey.manage`）按标签页提供授权产品、授权主体（签发/续期/吊销）、离线码台账
 （复制/删除）与签名密钥（当前指纹、轮换同步、退役密钥）；
 「审计」页（`audit.read`）按应用 / 动作 / 主体 / 结果 / 关键字与时间区间分页查询，详情里给 `traceId`；
+「Webhook」页（`webhook.read` / `webhook.manage`）在当前应用下新建与编辑订阅、轮换签名密钥（明文只出现一次）、
+发起测试投递，并在投递台账里按订阅过滤、展开看负载与错误、对失败与死信手动重投；
 页面顶部的「当前应用」切换走 4.3 的上下文端点。
-
-> Webhook 订阅与投递台账目前**只有 API**（§8），管理台暂无对应页面。
 
 改主题：右上角色系下拉 + 模式切换（8 族 × 3 模式 = 24 套）。
 **不要手改** `web/src/styles/antd-theme.ts`：它由 `design/tokens.json` 生成，改色板请改 JSON 后执行：

@@ -42,5 +42,7 @@ export const PERMISSIONS = {
   licenseRevoke: 'license.revoke',
   licenseOfflineCodeIssue: 'license.offlinecode.issue',
   licenseSigningKeyManage: 'license.signingkey.manage',
+  webhookRead: 'webhook.read',
+  webhookManage: 'webhook.manage',
   auditRead: 'audit.read',
 } as const;

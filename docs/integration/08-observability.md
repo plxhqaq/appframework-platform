@@ -203,7 +203,7 @@ groups:
     labels: {severity: critical}
     annotations:
       summary: "应用 {{ $labels.app }} 有 {{ $labels.event }} 投递进入死信"
-      description: "8 次尝试全失败（约 1 小时内）。接收端要修：`GET /admin/webhooks/deliveries` 查台账，`POST /admin/webhooks/deliveries/{id}/redeliver` 重放（管理台暂无 Webhook 页面）。"
+      description: "8 次尝试全失败（约 1 小时内）。接收端要修：管理台「Webhook」页的投递台账查负载与错误、对死信点「重投」；命令行走 `GET /admin/webhooks/deliveries` + `POST /admin/webhooks/deliveries/{id}/redeliver`。"
 
   - alert: PlatformWebhookBacklogStale
     expr: platform_webhook_oldest_pending_age_seconds > 1800

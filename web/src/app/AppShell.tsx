@@ -8,6 +8,7 @@ import {
   LockOutlined,
   LogoutOutlined,
   SafetyOutlined,
+  SendOutlined,
   SwapOutlined,
 } from '@ant-design/icons';
 import { Button, Layout, Menu, Segmented, Select, Space, Tag, Tooltip, Typography } from 'antd';
@@ -35,6 +36,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: '/backups', icon: <DatabaseOutlined />, label: '配置备份', ready: true },
   { key: '/licensing', icon: <KeyOutlined />, label: '授权', ready: true },
   { key: '/documents', icon: <FileTextOutlined />, label: '文档', ready: true },
+  { key: '/webhooks', icon: <SendOutlined />, label: 'Webhook', ready: true },
   { key: '/audit', icon: <HistoryOutlined />, label: '审计日志', ready: true },
 ];
 

@@ -32,6 +32,7 @@ const MODULE_LABELS: Record<string, string> = {
   licensing: '授权',
   backups: '备份',
   documents: '文档',
+  webhooks: 'Webhook 订阅',
   platform: '平台',
   client: '客户端',
 };

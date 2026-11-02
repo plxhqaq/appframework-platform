@@ -738,3 +738,70 @@ export interface AuditLog {
   detailJson?: string | null;
   createdAt: string;
 }
+
+/** Webhook 订阅摘要；签名密钥不在此出现，只有 `secretHint`。 */
+export interface WebhookSubscription {
+  id: string;
+  appKey: string;
+  url: string;
+  eventTypes: string[];
+  description?: string | null;
+  isEnabled: boolean;
+  secretHint: string;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastDeliveryAt?: string | null;
+}
+
+/** 创建订阅的结果：`secret` 是明文密钥，只在这一次返回。 */
+export interface CreatedWebhookSubscription {
+  subscription: WebhookSubscription;
+  secret: string;
+}
+
+/** 轮换签名密钥的结果；新密钥只在这一次返回。 */
+export interface RotatedWebhookSecret {
+  secret: string;
+}
+
+/** 创建订阅；`eventTypes` 留空表示订阅全部事件。 */
+export interface CreateWebhookSubscriptionRequest {
+  url: string;
+  eventTypes?: string[] | null;
+  description?: string | null;
+  isEnabled?: boolean | null;
+}
+
+/** 更新订阅；字段缺省表示不修改，`eventTypes` 传空数组表示改为订阅全部事件。 */
+export interface UpdateWebhookSubscriptionRequest {
+  url?: string | null;
+  eventTypes?: string[] | null;
+  description?: string | null;
+  isEnabled?: boolean | null;
+}
+
+/** 投递状态：待投 / 失败待重试 / 成功 / 死信（达到重试上限）。 */
+export type WebhookDeliveryStatus = 'pending' | 'failed' | 'succeeded' | 'dead';
+
+/** 投递记录（含负载原文，供排查签名与字段问题）。 */
+export interface WebhookDelivery {
+  id: string;
+  subscriptionId: string;
+  eventType: string;
+  status: WebhookDeliveryStatus;
+  attempts: number;
+  nextAttemptAt?: string | null;
+  lastAttemptAt?: string | null;
+  lastStatusCode?: number | null;
+  lastError?: string | null;
+  payloadJson: string;
+  createdAt: string;
+  deliveredAt?: string | null;
+}
+
+/** 手动测试结果。 */
+export interface WebhookTestResult {
+  deliveryCount: number;
+}
+
