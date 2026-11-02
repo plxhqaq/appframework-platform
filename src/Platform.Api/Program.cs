@@ -14,6 +14,7 @@ using Platform.Kernel.Abstractions;
 using Platform.Kernel.DependencyInjection;
 using Platform.Kernel.Hubs;
 using Platform.Kernel.Modules;
+using Platform.Kernel.Metrics;
 using Platform.Kernel.Middleware;
 using Platform.Workers.DependencyInjection;
 using Scalar.AspNetCore;
@@ -160,6 +161,17 @@ try
 
     var app = builder.Build();
 
+    // 显式迁移入口：`dotnet Platform.Api.dll --migrate`（容器里同一入口）。
+    // 生产多副本不能各自抢迁移，所以 AutoMigrate 只留给开发，这里提供一次性跑完即退的替代路径。
+    if (args.Contains("--migrate", StringComparer.OrdinalIgnoreCase))
+    {
+        await using var migrateScope = app.Services.CreateAsyncScope();
+        var migrateDb = migrateScope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+        await migrateDb.Database.MigrateAsync();
+        Log.Information("数据库迁移已完成，退出。");
+        return;
+    }
+
     // 开发期可选自动迁移；生产由部署脚本显式执行，避免多副本同时迁移。
     if (app.Configuration.GetValue<bool>("Database:AutoMigrate"))
     {
@@ -176,6 +188,10 @@ try
     });
 
     app.UsePlatformExceptionHandling();
+    // 显式 UseRouting：否则路由信息在 UseAuthentication 时才注入，指标中间件拿不到端点，
+    // 所有请求都会被记成 unmatched，路由级告警全部失效。
+    app.UseRouting();
+    app.UsePlatformMetrics();
     app.UseSerilogRequestLogging(options =>
     {
         options.GetLevel = static (httpContext, _, exception) =>
@@ -194,6 +210,8 @@ try
 
     // ── 端点 ──────────────────────────────────────────────────────────
     app.MapPlatformEndpoints();
+    app.MapAuditEndpoints();
+    app.MapPlatformMetrics();
     app.MapPlatformModules();
     app.MapHub<PlatformHub>(PlatformHubPaths.Root);
 

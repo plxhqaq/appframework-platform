@@ -43,6 +43,17 @@ services:
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?deploy/.env 里必须设置 JWT_SIGNING_KEY（≥32 字符）}
       Jwt__AccessTokenMinutes: ${JWT_ACCESS_TOKEN_MINUTES:-30}
       Jwt__AllowDevTokenEndpoint: ${JWT_ALLOW_DEV_TOKEN_ENDPOINT:-false}
+      # 首个管理员口令：留空则跳过管理员创建（内置角色与演示应用仍会就绪）；
+      # 首次登录会被强制改密，改完全部会话作废，所以这里只用于引导。
+      Seed__AdminPassword: ${SEED_ADMIN_PASSWORD:-}
+      # 授权签发私钥（ECDSA P-256 PKCS#8 DER 的 Base64）：留空即 unmanaged，客户端不采信任何授权。
+      Licensing__SigningKeyPkcs8: ${LICENSING_SIGNING_KEY_PKCS8:-}
+      # 指标端点：默认开且匿名可抓，只暴露聚合运行指标。公网可达时务必设 scrape token，
+      # 或直接在边缘把 /metrics 限制在内网。
+      Metrics__Enabled: ${METRICS_ENABLED:-true}
+      Metrics__ScrapeToken: ${METRICS_SCRAPE_TOKEN:-}
+      # Webhook 投递器：多副本部署时只让一个副本开着，避免同一事件被并发重复投递。
+      Webhooks__DispatcherEnabled: ${WEBHOOKS_DISPATCHER_ENABLED:-true}
       BlobStorage__RootPath: /data/blobs
       # 反向代理后取真实客户端 IP 与协议（限流按 IP 分区，不能拿到代理 IP）
       ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"

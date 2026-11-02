@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Platform.Contracts;
 using Platform.Contracts.Hubs;
 using Platform.Contracts.Licensing;
+using Platform.Contracts.Webhooks;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
@@ -66,6 +67,7 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
     private readonly IHubContext<PlatformHub> _hub;
     private readonly LicensingOptions _options;
     private readonly ILogger<LicenseEntitlementService> _logger;
+    private readonly IPlatformEventPublisher _events;
 
     /// <summary>构造。</summary>
     public LicenseEntitlementService(
@@ -73,13 +75,15 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
         IClock clock,
         IHubContext<PlatformHub> hub,
         IOptions<LicensingOptions> options,
-        ILogger<LicenseEntitlementService> logger)
+        ILogger<LicenseEntitlementService> logger,
+        IPlatformEventPublisher events)
     {
         _db = db;
         _clock = clock;
         _hub = hub;
         _options = options.Value;
         _logger = logger;
+        _events = events;
     }
 
     /// <inheritdoc />
@@ -323,6 +327,20 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
             entitlement.RevokedReason = NormalizeText(request.Reason, 512);
             await _db.SaveChangesAsync(cancellationToken);
             await NotifyAsync(appKey, entitlement.MachineCode, LicenseChangedNotification.ReasonRevoked);
+            await _events.PublishAsync(
+                new PlatformEvent(
+                    WebhookConventions.EventLicenseRevoked,
+                    appKey,
+                    new
+                    {
+                        entitlementId = entitlement.Id,
+                        productKey = entitlement.Product.Key,
+                        machineCode = entitlement.MachineCode,
+                        revokedAt = entitlement.RevokedAt,
+                        reason = entitlement.RevokedReason,
+                    },
+                    now),
+                cancellationToken);
         }
 
         return ToDto(entitlement, now);

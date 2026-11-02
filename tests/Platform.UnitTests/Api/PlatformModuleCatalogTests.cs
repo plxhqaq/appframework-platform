@@ -67,6 +67,7 @@ public sealed class PlatformModuleCatalogTests
         PlatformModuleKeys.Licensing => "license",
         PlatformModuleKeys.Backups => "backup",
         PlatformModuleKeys.Documents => "document",
+        PlatformModuleKeys.Webhooks => "webhook",
         _ => moduleKey,
     };
 }

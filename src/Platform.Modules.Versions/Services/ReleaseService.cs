@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Platform.Contracts;
 using Platform.Contracts.Versions;
+using Platform.Contracts.Webhooks;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
@@ -60,18 +61,21 @@ public sealed partial class ReleaseService : IReleaseService
     private readonly IBlobStorage _blobs;
     private readonly IClock _clock;
     private readonly VersionsOptions _options;
+    private readonly IPlatformEventPublisher _events;
 
     /// <summary>构造。</summary>
     public ReleaseService(
         PlatformDbContext db,
         IBlobStorage blobs,
         IClock clock,
-        IOptions<VersionsOptions> options)
+        IOptions<VersionsOptions> options,
+        IPlatformEventPublisher events)
     {
         _db = db;
         _blobs = blobs;
         _clock = clock;
         _options = options.Value;
+        _events = events;
     }
 
     [GeneratedRegex(VersionConventions.ChannelKeyPattern, RegexOptions.CultureInvariant)]
@@ -235,6 +239,11 @@ public sealed partial class ReleaseService : IReleaseService
                 exception);
         }
 
+        if (request.Publish)
+        {
+            await PublishReleasedAsync(appKey, release, channelKey, cancellationToken);
+        }
+
         return await GetAsync(appKey, release.Id, cancellationToken);
     }
 
@@ -271,6 +280,7 @@ public sealed partial class ReleaseService : IReleaseService
         release.Status = VersionConventions.StatusPublished;
         release.PublishedAt = _clock.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
+        await PublishReleasedAsync(appKey, release, release.Channel.Key, cancellationToken);
 
         return ToDetail(release);
     }
@@ -418,6 +428,25 @@ public sealed partial class ReleaseService : IReleaseService
                    ApiErrorCode.VersionsReleaseNotFound,
                    $"版本 {id} 不存在。");
     }
+
+    private Task PublishReleasedAsync(
+        string appKey,
+        Release release,
+        string channelKey,
+        CancellationToken cancellationToken) =>
+        _events.PublishAsync(
+            new PlatformEvent(
+                WebhookConventions.EventVersionReleased,
+                appKey,
+                new
+                {
+                    releaseId = release.Id,
+                    channelKey,
+                    version = release.Version,
+                    publishedAt = release.PublishedAt,
+                },
+                _clock.UtcNow),
+            cancellationToken);
 
     /// <summary>校验并规范化客户端提交的清单；任何结构问题都先于落库被拒绝。</summary>
     private List<ArtifactInput> ValidateArtifacts(IReadOnlyList<CreateReleaseArtifactRequest>? artifacts)

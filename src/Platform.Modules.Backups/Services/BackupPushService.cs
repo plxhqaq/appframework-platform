@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Platform.Contracts;
 using Platform.Contracts.Backups;
 using Platform.Contracts.Hubs;
+using Platform.Contracts.Webhooks;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
 using Platform.Kernel.Hubs;
@@ -33,18 +34,24 @@ public sealed class BackupPushService : IBackupPushService
     private readonly IPlatformPushCoordinator _coordinator;
     private readonly IHubContext<PlatformHub> _hub;
     private readonly BackupsOptions _options;
+    private readonly IPlatformEventPublisher _events;
+    private readonly IClock _clock;
 
     /// <summary>构造。</summary>
     public BackupPushService(
         IBackupService backups,
         IPlatformPushCoordinator coordinator,
         IHubContext<PlatformHub> hub,
-        IOptions<BackupsOptions> options)
+        IOptions<BackupsOptions> options,
+        IPlatformEventPublisher events,
+        IClock clock)
     {
         _backups = backups;
         _coordinator = coordinator;
         _hub = hub;
         _options = options.Value;
+        _events = events;
+        _clock = clock;
     }
 
     /// <inheritdoc />
@@ -125,6 +132,23 @@ public sealed class BackupPushService : IBackupPushService
             throw new BusinessException(
                 ApiErrorCode.BackupsAckTimeout,
                 $"目标在 {timeout.TotalSeconds:0} 秒内没有回执。");
+        }
+
+        if (ack.Succeeded)
+        {
+            await _events.PublishAsync(
+                new PlatformEvent(
+                    WebhookConventions.EventBackupPushed,
+                    appKey,
+                    new
+                    {
+                        backupId = backup.Id,
+                        namespaceKey = backup.NamespaceKey,
+                        targetDeviceId = request.TargetDeviceId,
+                        snapshotId,
+                    },
+                    _clock.UtcNow),
+                cancellationToken);
         }
 
         return new PushBackupResult(true, ack.Succeeded, ack.Message, snapshotId);

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Platform.Infrastructure.Auditing;
 using Platform.IntegrationTests.Support;
 using Platform.Kernel.Abstractions;
+using Platform.Kernel.Metrics;
 
 namespace Platform.IntegrationTests.Infrastructure;
 
@@ -14,7 +15,7 @@ public sealed class EfAuditWriterTests
     {
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
-        var writer = new EfAuditWriter(db, NullLogger<EfAuditWriter>.Instance);
+        var writer = new EfAuditWriter(db, new PlatformMetrics(), NullLogger<EfAuditWriter>.Instance);
 
         await writer.WriteAsync(new AuditEntry
         {
@@ -48,11 +49,12 @@ public sealed class EfAuditWriterTests
     }
 
     [Fact]
-    public async Task 数据库不可用时只记日志不抛出()
+    public async Task 数据库不可用时只记日志并计入指标不抛出()
     {
         var clock = new TestClock();
         var db = TestDbContext.Create(clock);
-        var writer = new EfAuditWriter(db, NullLogger<EfAuditWriter>.Instance);
+        var metrics = new PlatformMetrics();
+        var writer = new EfAuditWriter(db, metrics, NullLogger<EfAuditWriter>.Instance);
         await db.DisposeAsync();
 
         // 已释放的上下文会让 SaveChanges 抛 ObjectDisposedException；
@@ -64,5 +66,11 @@ public sealed class EfAuditWriterTests
         }));
 
         Assert.Null(exception);
+
+        // 吞掉异常的唯一代价是「悄悄丢审计」，所以必须留下可告警的计数。
+        Assert.Contains(
+            PlatformMetricNames.AuditWriteFailures,
+            metrics.Render(),
+            StringComparison.Ordinal);
     }
 }

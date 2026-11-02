@@ -52,6 +52,8 @@ public sealed class PlatformApiFactory : WebApplicationFactory<Program>
                 ["Backups:PushAckTimeoutSeconds"] = "1",
                 ["Backups:CleanupGraceMinutes"] = "1",
                 ["Documents:CleanupGraceMinutes"] = "1",
+                // Webhook 后台循环在测试里关闭，用例直接驱动 IWebhookDispatcher
+                ["Webhooks:DispatcherEnabled"] = "false",
             });
         });
 

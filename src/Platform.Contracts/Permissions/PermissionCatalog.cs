@@ -62,6 +62,10 @@ public static class PermissionCatalog
     public const string DocumentManage = "document.manage";
     public const string DocumentDelete = "document.delete";
 
+    // ━━━ Webhook（webhook）━━━
+    public const string WebhookRead = "webhook.read";
+    public const string WebhookManage = "webhook.manage";
+
     // ━━━ 平台级 ━━━
     public const string AuditRead = "audit.read";
     public const string PlatformAdmin = "platform.admin";
@@ -111,6 +115,9 @@ public static class PermissionCatalog
         new(DocumentRead, PlatformModuleKeys.Documents, "perm.document.read", 620),
         new(DocumentManage, PlatformModuleKeys.Documents, "perm.document.manage", 630),
         new(DocumentDelete, PlatformModuleKeys.Documents, "perm.document.delete", 640),
+
+        new(WebhookRead, PlatformModuleKeys.Webhooks, "perm.webhook.read", 700),
+        new(WebhookManage, PlatformModuleKeys.Webhooks, "perm.webhook.manage", 710),
 
         new(AuditRead, "platform", "perm.audit.read", 900, PlatformAdminOnly: true),
         new(PlatformAdmin, "platform", "perm.platform.admin", 910, PlatformAdminOnly: true),

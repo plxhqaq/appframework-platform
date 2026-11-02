@@ -1,5 +1,9 @@
 <Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/ConsoleQuickstart/ConsoleQuickstart.csproj" />
+  </Folder>
   <Folder Name="/src/">
+    <Project Path="src/AppFramework.Platform.Client/AppFramework.Platform.Client.csproj" />
     <Project Path="src/Platform.Api/Platform.Api.csproj" />
     <Project Path="src/Platform.Contracts/Platform.Contracts.csproj" />
     <Project Path="src/Platform.Infrastructure/Platform.Infrastructure.csproj" />
@@ -10,6 +14,7 @@
     <Project Path="src/Platform.Modules.Identity/Platform.Modules.Identity.csproj" />
     <Project Path="src/Platform.Modules.Licensing/Platform.Modules.Licensing.csproj" />
     <Project Path="src/Platform.Modules.Versions/Platform.Modules.Versions.csproj" />
+    <Project Path="src/Platform.Modules.Webhooks/Platform.Modules.Webhooks.csproj" />
     <Project Path="src/Platform.Workers/Platform.Workers.csproj" />
   </Folder>
   <Folder Name="/tests/">

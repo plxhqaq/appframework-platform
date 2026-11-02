@@ -42,6 +42,7 @@ public static class InfrastructureServiceCollectionExtensions
 
         // 横切能力：审计与幂等都依赖业务 DbContext，必须随请求作用域创建。
         services.AddScoped<IAuditWriter, EfAuditWriter>();
+        services.AddScoped<IAuditQueryService, AuditQueryService>();
         services.AddScoped<IIdempotencyStore, EfIdempotencyStore>();
 
         services.AddHealthChecks()

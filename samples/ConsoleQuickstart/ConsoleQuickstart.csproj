@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    15 分钟 quickstart 的验证载体：一个桌面客户端接入平台时会走的最小链路
+    （健康检查 → 模块清单 → 登录 → 令牌自述 → 检查更新 → 授权状态 → 文档清单）。
+    凭据只从环境变量读，样例里不写任何口令；缺变量时直接给出可执行的提示。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ConsoleQuickstart</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AppFramework.Platform.Client\AppFramework.Platform.Client.csproj" />
+  </ItemGroup>
+
+</Project>

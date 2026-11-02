@@ -2,6 +2,7 @@ import { Spin } from 'antd';
 import { useEffect, type ReactNode } from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import { AppsPage } from '../features/apps/AppsPage';
+import { AuditPage } from '../features/audit/AuditPage';
 import { BackupsPage } from '../features/backups/BackupsPage';
 import { ChangePasswordPage } from '../features/auth/ChangePasswordPage';
 import { DocumentsPage } from '../features/documents/DocumentsPage';
@@ -45,6 +46,7 @@ const router = createBrowserRouter([
       { path: 'backups', element: <BackupsPage /> },
       { path: 'documents', element: <DocumentsPage /> },
       { path: 'licensing', element: <LicensingPage /> },
+      { path: 'audit', element: <AuditPage /> },
       { path: 'password', element: <ChangePasswordPage /> },
     ],
   },

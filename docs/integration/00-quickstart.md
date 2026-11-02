@@ -1,10 +1,11 @@
-# 快速接入（B6：身份与权限 + 单次密钥/扫码 + 版本渠道 + 授权 + 备份/文档）
+# 快速接入（B7：全模块 + SDK + 示例 + Webhook/审计 + 可观测 + 一键部署）
 
-> 本文对应当前进度 **B6**：平台级端点、模块自述、应用接入、用户名口令登录与 RBAC、
+> 本文对应当前进度 **B7（平台收口）**：平台级端点、模块自述、应用接入、用户名口令登录与 RBAC、
 > 6 位单次密钥兑换临时令牌、扫码登录审批、上传票据直传与版本下发、
 > 授权产品/授权主体/离线码/签名密钥与 ECDSA 快照、命名空间备份与下发 Ack、
-> 文档集合/修订/服务端强制可见性与保留清理。
-> 备份与文档的完整说明见 [`04-backups.md`](04-backups.md) 与 [`05-documents.md`](05-documents.md)。
+> 文档集合/修订/服务端强制可见性与保留清理、Webhook 订阅与指数退避投递、审计查询、
+> `/metrics` 与告警、`AppFramework.Platform.Client` SDK 与 `samples/ConsoleQuickstart`。
+> 分模块的完整语义在 [`01-identity.md`](01-identity.md) ~ [`09-operations-drills.md`](09-operations-drills.md)。
 > 本文所有命令都已在本仓验证通过。
 
 ---
@@ -16,6 +17,8 @@
 | .NET SDK | 10.0.403+ | `global.json` 已锁定；`rollForward: latestFeature` |
 | PostgreSQL | 16+ | 只有 `/ready` 与后续业务端点需要；`/healthz` 与模块自述不需要 |
 | Node.js / pnpm | 22 / 9 | 仅管理台需要 |
+| Docker + Compose v2 | 最新 | 仅 `deploy/deploy.sh` 一键起栈需要 |
+| curl / jq | — | 本文命令用它们解析响应 |
 
 ---
 
@@ -28,14 +31,23 @@
 docker run -d --name platform-pg -p 5432:5432 \
   -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=appframework_platform postgres:17-alpine
 
-# 2) 跑 API（Development 环境已内置开发连接串与开发签名密钥）
+# 2) 跑 API（Development 已内置开发连接串、开发 JWT 签名密钥与种子口令）
 dotnet run --project src/Platform.Api
 ```
 
+> **Development 里没有内置的只有授权签名私钥**：不注入 `Licensing__SigningKeyPkcs8` 时
+> 授权状态接口返回 `unmanaged`、离线码签发返回 `305`（见 §6.1）。这是刻意的 ——
+> 私钥永远不进仓库，连开发环境也要自己生成一份。
+
 > **数据库迁移**：Development 下 `Database:AutoMigrate=true`，启动时自动 `MigrateAsync`。
-> 生产环境必须关掉自动迁移（多副本同时迁移会互相踩），由部署脚本显式执行：
+> 生产环境必须关掉自动迁移（多副本同时迁移会互相踩），由部署脚本显式执行。两种方式：
 >
 > ```bash
+> # 方式一（推荐，容器/裸二进制同一入口）：跑完即退，不启 Web 服务
+> dotnet run --project src/Platform.Api -- --migrate
+> # 容器里：bash deploy/deploy.sh migrate（内部就是 compose run --rm api --migrate）
+>
+> # 方式二：dotnet-ef，需要在宿主机上装工具
 > dotnet tool restore    # 首次：安装仓库锁定的 dotnet-ef 10.0.12
 > dotnet ef database update \
 >   --project src/Platform.Infrastructure \
@@ -56,7 +68,16 @@ pnpm install --force     # 或删除 node_modules 后 pnpm install
 pnpm verify              # tokens:check + lint + typecheck + test
 ```
 
-### B. docker compose（想验证部署产物时用）
+### B. 一键部署（想验证部署产物时用）
+
+```bash
+bash deploy/deploy.sh up      # 首次会生成 deploy/.env（随机强口令 + JWT 密钥 + 种子口令），起 pg → 迁移 → 起 api → 等 /ready
+```
+
+脚本动作只有六个：`up` / `migrate` / `status` / `logs` / `health` / `down`。
+`up` 先等 `postgres` 健康、再跑一次 `--migrate`、然后 `up -d --build api` 并轮询 `/ready`（最多 3 分钟，
+超时会自己打印 `compose ps` 与最近 50 行日志）。`SKIP_BUILD=1` 复用已有镜像。
+它**不会覆盖已存在的 `deploy/.env`**，密码与密钥只在首次生成时随机。手写 compose 也支持：
 
 ```bash
 cp deploy/env.example deploy/.env     # 填 POSTGRES_PASSWORD 与 JWT_SIGNING_KEY（≥32 字符）
@@ -70,9 +91,11 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 ```bash
 curl -s http://localhost:5080/healthz     # {"isSuccess":true,...,"data":{"status":"ok"}}
 curl -s http://localhost:5080/ready       # 含 postgres 检查项；库没起时这里会报 Unhealthy
+curl -s http://localhost:5080/metrics | head -5   # Prometheus 文本（Metrics:Enabled 缺省 true）
 ```
 
 `/healthz` **刻意不查库**：库抖动不应该让容器被反复重启。要判断能不能接流量，看 `/ready`。
+`/metrics` 只在设了 `Metrics:ScrapeToken` 时才要令牌（`X-Metrics-Token` 或 `Bearer`），指标与告警见 [`08-observability.md`](08-observability.md)。
 
 ---
 
@@ -82,13 +105,14 @@ curl -s http://localhost:5080/ready       # 含 postgres 检查项；库没起�
 curl -s http://localhost:5080/api/v1/platform/modules
 ```
 
-返回六个模块（`apps` / `identity` / `versions` / `licensing` / `backups` / `documents`），每个带：
+返回七个模块（`apps` / `identity` / `versions` / `licensing` / `backups` / `documents` / `webhooks`），每个带：
 
 - `key`：模块键，也是路由段的来源（`/api/v1/{key}`）
 - `routes`：该模块挂载的路由前缀
 - `requiredPermissions`：该模块声明的权限码（新增模块时 CI 会校验它们都已登记）
 
-`apps` 永远排在首位 —— 其余五个模块的 `app_id` 隔离轴由它产生。
+`apps` 永远排在首位 —— 其余六个模块的 `app_id` 隔离轴由它产生。
+`version` 里的 `+<40 位>` 是构建提交号（Source Link 同一条链），排查线上版本时直接读它。
 
 ---
 
@@ -125,7 +149,9 @@ curl -s -X POST http://localhost:5080/api/v1/admin/identity/singlekeys \
   -d '{"durationMinutes":30,"deviceFingerprint":"line-1-pc"}'
 ```
 
-响应 `data.key` 是明文密钥，**只出现这一次**；服务端只存过期时间、指纹与尝试数，审计也不记密钥。
+响应 `data.key` 是明文密钥，**只在响应里出现这一次**。库里 `single_login_keys` 以 6 位密钥本身作主键，
+另存指纹、签发人、过期时间、兑换时间与尝试数；审计与日志都不记密钥。
+（6 位数字 + 分钟级有效期 + 尝试上限 + 限流是这套短令牌能被接受的前提，长有效期请改用别的凭据。）
 
 客户端兑换（匿名，限流 `RateLimits:SingleLoginRedeemPerMinute`，默认 10 次/分）：
 
@@ -168,7 +194,8 @@ curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sess
 
 错误码：`109` 会话不存在、`110` 已过期、`111` 已处理（重复审批/拒绝）。
 
-审批通过时服务端经 SignalR `/hubs/platform` 广播 `qr-login.approved`，但这只是**提示**：
+审批通过时服务端经 SignalR `/hubs/platform` 广播 `QrLoginApproved`（事件名是 PascalCase 常量，
+见 `PlatformHubEvents`），但这只是**提示**：
 客户端必须以轮询结果为准，Hub 断线或推送丢失都不会影响领取令牌。会话落 `qr_login_sessions` 表，
 服务重启后待审批会话仍在。
 
@@ -184,7 +211,12 @@ curl -s -b admin.jar -c admin.jar -X POST http://localhost:5080/api/v1/admin/aut
 ```
 
 返回与登录相同的 `accessToken` / `expiresAt` / `user`，`user.appKey` 为目标应用；服务端同时把应用键
-写回当前刷新令牌记录，后续 Cookie 静默续期仍停在该应用。当前账号无权访问该应用时返回 `403`/`109`。
+写回当前刷新令牌记录，后续 Cookie 静默续期仍停在该应用。当前账号无权进入该应用时返回 `403`/`118`
+（`IdentityPermissionDenied`）。
+
+> 别和另一个 403 混淆：如果拿**没有应用上下文的令牌**（平台管理员未进入任何应用、或 M2M 服务令牌）
+> 去访问应用级端点，版本/授权模块的 `RequireAppKey` 直接抛 `403`/`4`（`Forbidden`），
+> 与账号权限无关 —— 先按本节切上下文。
 
 ---
 
@@ -258,6 +290,10 @@ curl -s -X POST http://localhost:5080/api/v1/admin/versions/releases \
 草稿对客户端不可见；`POST /api/v1/admin/versions/releases/{id}/publish` 发布草稿，
 `.../archive` 归档（最新版归档后 check 自动回退到上一版）。
 
+> **归档会让文件立即不可下载**（下载定位只认 `status == published`，返回 `404`/`205`）。
+> 因此回滚顺序是「先发布正确版本，再归档坏版本」，别只归档 ——
+> 半更新到坏版本的机器就再也拉不到它的文件了。演练见 [`09-operations-drills.md`](09-operations-drills.md) §三。
+
 ### 5.4 客户端检查更新 / 清单 / 下载
 
 ```bash
@@ -277,8 +313,20 @@ curl -s -OJ "http://localhost:5080/api/v1/client/versions/download/$SHA" \
 ```
 
 下载是纯流式（`Results.Stream` + Range），服务端不缓冲整文件；`ETag` 就是内容哈希，
-配合 `If-None-Match` 可让客户端重复检查零流量。版本错误码：`200` 渠道不存在、`202` 版本不存在、
-`203` 未发布、`204` 版本重复、`205` 产物不存在、`206` 清单与 blob 不符、`212` 渠道无已发布版本。
+配合 `If-None-Match` 可让客户端重复检查零流量。
+
+`check` 的三个语义容易踩：
+
+- 渠道里**没有已发布版本**是错误（`404`/`212`），不是空清单；
+- **最新已发布版本没有你请求的那个 `runtimeIdentifier` 产物**时返回 `hasUpdate=false` 且 `release=null`（不是错误）
+  —— 这是「本运行时暂无发布物」，需要人工补产物而不是等更新；
+- `hasUpdate` 只比较 `currentVersion` 与最新版本字符串是否**不相等**（不做语义化大小比较），
+  所以传高了也算「有更新」，客户端自己决定装不装。
+
+版本错误码：`200` 渠道不存在、`201` 渠道键已存在、`202` 版本不存在、`203` 未发布、`204` 同渠道版本号重复、
+`205` 产物/文件不存在（含归档后下载）、`206` 清单与 blob 不符、`207` 票据无效、`208` 票据过期、
+`209` 票据已消费、`210` 直传字节哈希不符、`211` `runtimeIdentifier` 不支持、`212` 渠道无已发布版本。
+完整链路与发布校验规则见 [`02-versions.md`](02-versions.md)。
 
 ---
 
@@ -303,9 +351,16 @@ curl -s http://localhost:5080/api/v1/admin/licensing/signing-keys \
 启用方式（启动前注入，私钥是 PKCS#8 DER 的 Base64，P-256）：
 
 ```bash
+# 生成一份开发用私钥（生产请走 KMS/密码库，同样的两步）
+openssl ecparam -name prime256v1 -genkey -noout -out license-key.pem
+openssl pkcs8 -topk8 -nocrypt -in license-key.pem -outform DER -out license-key.pkcs8.der
+
 export Licensing__SigningKeyPkcs8="$(base64 -w0 license-key.pkcs8.der)"
 dotnet run --project src/Platform.Api
 ```
+
+compose 栈对应 `deploy/.env` 里的 `LICENSING_SIGNING_KEY_PKCS8`（`env.example` 注了解释与生成命令）。
+私钥只在启动时读取，换钥必须重启。
 
 `keyId` 固定为 `lk-` + 公钥 SPKI SHA-256 指纹前 16 个十六进制字符；换钥后指纹随之变化。
 
@@ -370,7 +425,7 @@ curl -s -X POST http://localhost:5080/api/v1/client/licensing/status \
 
 **客户端必须验签后才采信快照**：用 `trustedKeys` 中任一公钥验证 ECDSA P-256（IEEE-P1363 64 字节签名，
 SHA-256），并核对快照里的 `appKey` / `productKey` / `machineCode`。过期判定用服务端时间，
-避免本机时钟被回拨。吊销时服务端经 SignalR 广播 `license.changed`，这只是提示：
+避免本机时钟被回拨。吊销时服务端经 SignalR 广播 `LicenseChanged`（PascalCase 常量），这只是提示：
 客户端回拉状态接口拿到新的 `revoked` 快照后才会锁定。
 
 ### 6.4 离线授权码
@@ -410,7 +465,7 @@ curl -s -X POST http://localhost:5080/api/v1/client/licensing/offline/verify \
 
 ---
 
-## 7. 第七步：备份与文档（B6）
+## 7. 第六步：备份与文档（B6）
 
 备份按「应用 + 命名空间」隔离：≤64 KB 内联、超过转存 Blob；下发走 SignalR 并等待 Ack。
 文档按集合分组、每次上传生成修订，`internal`（默认）文档不会出现在客户端清单，下载同样被服务端拒绝。
@@ -459,7 +514,93 @@ curl -s http://localhost:5080/api/v1/client/documents/manifest \
 
 ---
 
-## 8. 第八步：验证令牌声明
+## 8. 第七步：Webhook 与审计（B7）
+
+Webhook 是**旁路**能力：订阅由各模块发布的事件（`version.released`、`license.revoked`、
+`backup.pushed`、`document.uploaded`、`document.deleted`、`webhook.test`），
+投递失败只进死信，绝不影响业务事务。审计查询按应用与动作回看谁在什么时候做了什么。
+
+```bash
+# 订阅（需要 webhook.manage；密钥只在创建/轮换时明文返回一次）
+curl -s -X POST http://localhost:5080/api/v1/admin/webhooks \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: webhook-hook-001' \
+  -d '{"url":"https://ops.example.com/hooks/platform","eventTypes":["version.released","license.revoked"],"description":"运维通知"}' \
+  > webhook.json
+jq -r '.data.secret' webhook.json     # 形如 whsec_...，只在创建/轮换响应里出现这一次
+SUB_ID=$(jq -r '.data.subscription.id' webhook.json)
+
+# 事件目录与签名细节（本地可先用 test 端点验签通路）
+curl -s -X POST "http://localhost:5080/api/v1/admin/webhooks/$SUB_ID/test" \
+  -H "Authorization: Bearer $TOKEN" | jq .      # {"data":{"deliveryCount":1}}
+
+# 投递台账（只可按订阅过滤；状态在返回条目里，dead 的可用 redeliver 手动重放）
+curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:5080/api/v1/admin/webhooks/deliveries?pageSize=20" \
+  | jq '.data.items[] | {eventType,status,attempts,lastStatusCode,lastError}'
+curl -s -X POST "http://localhost:5080/api/v1/admin/webhooks/deliveries/$DELIVERY_ID/redeliver" -H "Authorization: Bearer $TOKEN"
+
+# 审计查询（需要 audit.read，且该权限标了 platformAdminOnly —— 只有平台管理员角色能查）
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:5080/api/v1/admin/audit-logs?page=1&pageSize=20&action=versions.release.archive&result=failure" | jq '.data.items[]'
+```
+
+签名头三件套 `X-Platform-Signature` / `X-Platform-Timestamp` / `X-Platform-Event`
+（外加 `X-Platform-Delivery` 作为投递唯一号，接收端**必须**按它去重）：
+
+```
+X-Platform-Signature: sha256=hex(Lower)(HMAC-SHA256(secret, "{timestamp}.{rawBody}"))
+```
+
+退避 `30s → 1m → 2m → 4m → 8m → 16m → 32m`（上限 1 小时，含首次共 8 次尝试，超时 10 秒，2xx 记成功）。
+**投递器只能在一个副本启用**（`Webhooks:DispatcherEnabled`，没有行级抢占）。
+完整语义、验签示例与错误码（`700–704`）见 [`06-webhooks-and-audit.md`](06-webhooks-and-audit.md)。
+
+---
+
+## 9. 第八步：SDK 与示例（一条命令跑通全链路）
+
+`samples/ConsoleQuickstart` 用真实服务端把「存活 → 模块 → 登录 → 自述 → 刷新 → 检查更新 →
+授权快照验签 → 文档清单」八步走完，是 15 分钟接入的验收脚本：
+
+```bash
+# 1) 打包本地 NuGet 源（SDK 与契约包都进 artifacts/packages，nuget.config 已映射 AppFramework.*）
+dotnet pack src/Platform.Contracts/Platform.Contracts.csproj -c Release -p:PackageId=AppFramework.Platform.Contracts -o artifacts/packages
+dotnet pack src/AppFramework.Platform.Client/AppFramework.Platform.Client.csproj -c Release -p:PackageId=AppFramework.Platform.Client -o artifacts/packages
+
+# 2) 起服务端（§1），然后跑示例
+export PLATFORM_URL=http://localhost:5080
+export PLATFORM_USERNAME=admin
+export PLATFORM_PASSWORD=Admin@12345
+export PLATFORM_APP_KEY=demo
+dotnet run --project samples/ConsoleQuickstart
+```
+
+`PLATFORM_PRODUCT_KEY` / `PLATFORM_MACHINE_CODE` / `PLATFORM_CHANNEL` / `PLATFORM_VERSION` 都有缺省：
+产品键缺省 `erp-pro`，渠道缺省 `stable`，机器码缺省用本机名派生（形态和管理台授权页一致），
+干净服务端下第 6/7 步会打印「建渠道 / 建产品」的请求体并跳过，而不是报错退出。
+把样例打印的机器码拿去 §6.2–6.3 建产品并签发（或给产品设 `trialDays` 让首次状态查询自动发试用），
+再跑一次就能看到第 7 步「状态 active，放行 True」。
+
+最后一行输出 `✓ quickstart 通过` 即链路可用。最小客户端代码只有五行：
+
+```csharp
+using var client = new PlatformClient(new PlatformClientOptions { BaseUrl = "http://localhost:5080" });
+await client.SignInAsync("admin", "Admin@12345", "demo");
+var update = await client.CheckUpdateAsync("stable", "1.2.2", "win-x64");
+var ok = LicenseVerifier.Verify(await client.GetLicenseStatusAsync("erp-pro", machineCode), "demo", "erp-pro", machineCode);
+```
+
+要点（展开在 [`src/AppFramework.Platform.Client/README.md`](../../src/AppFramework.Platform.Client/README.md) 与 [`07-openapi.md`](07-openapi.md)）：
+
+- 业务端点 `401` 时自动用刷新令牌续期并**恰好重试一次**（不递归）；
+- 桌面端重启后把安全存储里的刷新令牌赋回 `client.RefreshToken` 即可静默续命；
+- 下载走流式 + 增量哈希校验 + `*.tmp` 原子改名，`304` 返回 `false`；
+- `LicenseVerifier` 只信 ECDSA-P256-SHA256 且必须绑定 `appKey`/`productKey`/`machineCode`，`unmanaged` 一律拒；
+- `PlatformClientException` 带 `Code` / `StatusCode` / `TraceId`，`HasPermission` 与平台管理员的 `*` 通配同语义。
+
+---
+
+## 10. 第九步：验证令牌声明
 
 ```bash
 TOKEN=... # 上一步的 accessToken
@@ -472,7 +613,7 @@ curl -s http://localhost:5080/api/v1/platform/whoami -H "Authorization: Bearer $
 
 ---
 
-## 8. 权限码与错误码
+## 11. 权限码与错误码
 
 ```bash
 curl -s http://localhost:5080/api/v1/platform/permissions
@@ -492,36 +633,66 @@ curl -s http://localhost:5080/api/v1/platform/permissions
 | 400–499 | 备份 |
 | 500–599 | 文档 |
 | 600–699 | 应用接入 |
+| 700–799 | Webhook |
 
 HTTP 状态码由 `ApiErrorHttpStatus.Map` 唯一映射，**不要**在业务代码里手写 `StatusCode`。
 
+权限码里的 `*` 是通配：**平台管理员角色带 `*`**，`HasPermission` 与 SDK 同语义（未知码也判为已授权）。
+`audit.read`、应用与角色的增删改这类标了 `platformAdminOnly` 的码只发给平台管理员，
+给业务角色逐条显式授权才是正常形态。
+
 ---
 
-## 9. 统一返回形状
+## 12. 统一返回形状
 
 所有端点（含 401/403/429/异常）都是同一个形状：
 
 ```json
-{ "isSuccess": false, "code": 1001, "message": "用户名或密码错误", "data": null, "traceId": "0HN..." }
+{ "isSuccess": false, "code": 101, "message": "用户名或密码错误", "data": null, "traceId": "0HN..." }
 ```
 
 `traceId` 与服务端日志的 `RequestId` 对齐 —— 报障时先要这个值。
 
 ---
 
-## 10. 契约包（客户端仓库消费）
+## 13. 契约包与 SDK 包（客户端仓库消费）
 
 ```bash
+# 本地源目录：nuget.config 已把 AppFramework.* 指向 artifacts/packages
 dotnet pack src/Platform.Contracts/Platform.Contracts.csproj -c Release \
   -p:PackageId=AppFramework.Platform.Contracts -o artifacts/packages
+dotnet pack src/AppFramework.Platform.Client/AppFramework.Platform.Client.csproj -c Release \
+  -p:PackageId=AppFramework.Platform.Client -o artifacts/packages
 ```
 
-产物 `AppFramework.Platform.Contracts.0.1.0-preview.1.nupkg` 内含 DTO、错误码、权限码目录、Hub 契约与分页类型。
-客户端仓库应**精确 pin 版本**（不用 `*` 或范围），破坏性变更必须主版本 +1。
+`AppFramework.Platform.Contracts` 内含 DTO、错误码、权限码目录、Hub 契约与分页类型；
+`AppFramework.Platform.Client` 是薄 SDK（令牌 + 自动续期 + 下载 + `LicenseVerifier`）。
+两者版本号都由 `Directory.Build.props` 的 `PlatformContractsVersion` / `PlatformClientVersion` 单点控制，
+当前 `0.1.0-preview.1`。客户端仓库应**精确 pin 版本**（不用 `*` 或范围），破坏性变更必须主版本 +1。
+在线文档（OpenAPI / Scalar）与包的完整清单见 [`07-openapi.md`](07-openapi.md)。
 
 ---
 
-## 11. 管理台
+## 14. 可观测与部署
+
+```bash
+bash deploy/deploy.sh up        # 生成 .env（随机密钥）→ 等 pg 健康 → 迁移 → 构建 → 起 api → 等 /ready
+bash deploy/deploy.sh health    # healthz / ready / metrics / scalar / openapi 一次打完
+bash deploy/deploy.sh status    # compose ps
+bash deploy/deploy.sh logs      # 最近 api 日志
+bash deploy/deploy.sh migrate   # 只跑迁移（compose run --rm api --migrate）
+bash deploy/deploy.sh down      # 停栈（不删卷）
+```
+
+- `deploy/.env` 首次生成后**不会被覆盖**，里面是 `POSTGRES_PASSWORD` / `JWT_SIGNING_KEY` /
+  `SEED_ADMIN_PASSWORD`，需要授权签名私钥时再手工加 `LICENSING_SIGNING_KEY_PKCS8`。
+- `SKIP_BUILD=1 bash deploy/deploy.sh up` 复用现有镜像；`API_PORT` / `POSTGRES_PORT` 改端口。
+- 指标清单、Prometheus 抓取与告警规则：[`08-observability.md`](08-observability.md)。
+- 备份恢复 / 密钥轮换 / 版本回滚的演练脚本：[`09-operations-drills.md`](09-operations-drills.md)。
+
+---
+
+## 15. 管理台
 
 ```bash
 cd web
@@ -538,7 +709,10 @@ pnpm dev            # http://localhost:5173，/api 自动代理到 http://localh
 「授权」页（`license.product.*` / `license.issue` / `license.revoke` / `license.offlinecode.issue` /
 `license.signingkey.manage`）按标签页提供授权产品、授权主体（签发/续期/吊销）、离线码台账
 （复制/删除）与签名密钥（当前指纹、轮换同步、退役密钥）；
+「审计」页（`audit.read`）按应用 / 动作 / 主体 / 结果 / 关键字与时间区间分页查询，详情里给 `traceId`；
 页面顶部的「当前应用」切换走 4.3 的上下文端点。
+
+> Webhook 订阅与投递台账目前**只有 API**（§8），管理台暂无对应页面。
 
 改主题：右上角色系下拉 + 模式切换（8 族 × 3 模式 = 24 套）。
 **不要手改** `web/src/styles/antd-theme.ts`：它由 `design/tokens.json` 生成，改色板请改 JSON 后执行：
@@ -550,23 +724,32 @@ node tools/gen-tokens.mjs --check  # 校验（CI 用这个）
 
 ---
 
-## 12. 本地质量门（与 CI 一致）
+## 16. 本地质量门（与 CI 一致）
 
 ```bash
 dotnet build Platform.slnx -c Release --disable-build-servers -warnaserror
-dotnet test  Platform.slnx -c Release --disable-build-servers
+dotnet test  Platform.slnx -c Release --no-build --disable-build-servers
+dotnet format Platform.slnx --verify-no-changes --no-restore
+node tools/gen-tokens.mjs --check
 
 cd web
-pnpm run tokens:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build
+pnpm install --frozen-lockfile
+pnpm verify          # tokens:check + lint + typecheck + test
+pnpm build
 ```
 
 ---
 
-## 附录：后续阶段会出现在这里的端点
+## 附录：端点全景（按落地批次）
 
 | 阶段 | 端点（前缀省略 `/api/v1`） |
 |---|---|
-| 已落地 B0–B5 | `/platform/*`、`/apps/token`、`/admin/apps*`、`/identity/login`、`/identity/refresh`、`/identity/logout`、`/identity/password/change`、`/admin/auth/*`（含 `/context`）、`/admin/identity/users*`、`/admin/identity/roles*`、`/admin/identity/sessions*`、`/identity/singlekey/redeem`、`/identity/qr/sessions*`、`/admin/identity/singlekeys`、`/admin/identity/qr/sessions*`、`/admin/versions/channels*`、`/admin/versions/releases*`、`/admin/versions/uploads*`、`/client/versions/check`、`/client/versions/{channel}/{version}/manifest`、`/client/versions/download/{sha256}`、`/admin/licensing/products*`、`/admin/licensing/entitlements*`、`/admin/licensing/offline-codes*`、`/admin/licensing/signing-keys*`、`/client/licensing/status`、`/client/licensing/offline/verify`、`/client/licensing/keys` |
-| B6 | `/backups*`、`/documents*` |
+| B0–B1 | `/platform/*`、`/apps/token`、`/admin/apps*` |
+| B2–B3 | `/identity/login`、`/identity/refresh`、`/identity/logout`、`/identity/password/change`、`/admin/auth/*`（含 `/context`）、`/admin/identity/users*`、`/admin/identity/roles*`、`/admin/identity/sessions*`、`/identity/singlekey/redeem`、`/identity/qr/sessions*`、`/admin/identity/singlekeys`、`/admin/identity/qr/sessions*` |
+| B4 | `/admin/versions/channels*`、`/admin/versions/releases*`、`/admin/versions/uploads*`、`/client/versions/check`、`/client/versions/{channel}/{version}/manifest`、`/client/versions/download/{sha256}` |
+| B5 | `/admin/licensing/products*`、`/admin/licensing/entitlements*`、`/admin/licensing/offline-codes*`、`/admin/licensing/signing-keys*`、`/client/licensing/status`、`/client/licensing/offline/verify`、`/client/licensing/keys` |
+| B6 | `/admin/backups*`（含 `/{id}/download`、`/{id}/push`）、`/client/backups/{id}*`、`/admin/documents*`、`/client/documents/manifest`、`/client/documents/{id}*` |
+| B7 | `/admin/webhooks`（含 `/{id}`、`/{id}/secret/rotate`、`/{id}/test`、`/deliveries`、`/deliveries/{id}/redeliver`）、`/webhooks/info`、`/admin/audit-logs`、`/metrics`、`/openapi/v1.json`、`/scalar/v1` |
 
 约定不变：路由 `/api/v1/{module}/...`，管理端与客户端入口分离（`/admin/*` 与 `/client/*`），服务端强制可见性。
+每个模块还有一个 `/{module}/info` 自述端点（匿名，返回版本、权限码与路由前缀）。

@@ -3,6 +3,7 @@ import {
   DashboardOutlined,
   DatabaseOutlined,
   FileTextOutlined,
+  HistoryOutlined,
   KeyOutlined,
   LockOutlined,
   LogoutOutlined,
@@ -34,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: '/backups', icon: <DatabaseOutlined />, label: '配置备份', ready: true },
   { key: '/licensing', icon: <KeyOutlined />, label: '授权', ready: true },
   { key: '/documents', icon: <FileTextOutlined />, label: '文档', ready: true },
+  { key: '/audit', icon: <HistoryOutlined />, label: '审计日志', ready: true },
 ];
 
 /** 管理台外壳：侧栏导航 + 主题切换 + 当前主体。 */

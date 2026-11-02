@@ -2,7 +2,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Platform.Kernel.Abstractions;
+using Platform.Kernel.Diagnostics;
 using Platform.Kernel.Hubs;
+using Platform.Kernel.Metrics;
 using Platform.Kernel.Security;
 
 namespace Platform.Kernel.DependencyInjection;
@@ -24,6 +26,9 @@ public static class KernelServiceCollectionExtensions
         services.TryAddSingleton<IClock, SystemClock>();
         services.TryAddScoped<ICurrentPrincipal, HttpCurrentPrincipal>();
         services.TryAddSingleton<IPlatformPushCoordinator, PlatformPushCoordinator>();
+        services.TryAddScoped<IPlatformEventPublisher, NullPlatformEventPublisher>();
+        services.TryAddSingleton<PlatformMetrics>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPlatformMetricSource, ProcessMetricSource>());
 
         services.AddAuthorization();
         services.Replace(ServiceDescriptor.Singleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>());

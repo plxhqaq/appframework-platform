@@ -36,6 +36,14 @@ jobs:
           -p:PackageId=AppFramework.Platform.Contracts
           -o artifacts/packages
 
+      # 桌面 SDK 与契约包同批产出，客户端仓库两个 PackageId 一起 pin
+      - name: 打包客户端 SDK
+        run: >-
+          dotnet pack src/AppFramework.Platform.Client/AppFramework.Platform.Client.csproj
+          -c Release --no-build
+          -p:PackageId=AppFramework.Platform.Client
+          -o artifacts/packages
+
       - name: 上传测试报告
         if: always()
         uses: actions/upload-artifact@v4
@@ -44,7 +52,7 @@ jobs:
           path: '**/*.trx'
           if-no-files-found: ignore
 
-      - name: 上传契约包
+      - name: 上传跨端包
         uses: actions/upload-artifact@v4
         with:
           name: contracts-nupkg

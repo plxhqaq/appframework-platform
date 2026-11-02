@@ -7,10 +7,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\AppFramework.Platform.Client\AppFramework.Platform.Client.csproj" />
     <ProjectReference Include="..\..\src\Platform.Kernel\Platform.Kernel.csproj" />
     <ProjectReference Include="..\..\src\Platform.Infrastructure\Platform.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Apps\Platform.Modules.Apps.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Backups\Platform.Modules.Backups.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Modules.Webhooks\Platform.Modules.Webhooks.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Documents\Platform.Modules.Documents.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Identity\Platform.Modules.Identity.csproj" />
     <ProjectReference Include="..\..\src\Platform.Api\Platform.Api.csproj" />

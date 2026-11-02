@@ -5,6 +5,7 @@ using Platform.Modules.Documents;
 using Platform.Modules.Identity;
 using Platform.Modules.Licensing;
 using Platform.Modules.Versions;
+using Platform.Modules.Webhooks;
 
 namespace Platform.Api.Modules;
 
@@ -28,5 +29,6 @@ public static class PlatformModuleCatalog
         new LicensingModule(),
         new BackupsModule(),
         new DocumentsModule(),
+        new WebhooksModule(),
     ];
 }

@@ -7,6 +7,7 @@ using Platform.Modules.Documents.Persistence;
 using Platform.Modules.Identity.Persistence;
 using Platform.Modules.Licensing.Persistence;
 using Platform.Modules.Versions.Persistence;
+using Platform.Modules.Webhooks.Persistence;
 
 namespace Platform.IntegrationTests.Support;
 
@@ -31,6 +32,7 @@ internal static class TestDbContext
                 .UseInMemoryDatabase($"platform-tests-{Guid.NewGuid():N}")
                 .Options,
             [new AppsModelContributor(), new IdentityModelContributor(), new VersionsModelContributor(),
-             new LicensingModelContributor(), new BackupsModelContributor(), new DocumentsModelContributor()],
+             new LicensingModelContributor(), new BackupsModelContributor(), new DocumentsModelContributor(),
+             new WebhooksModelContributor()],
             clock);
 }

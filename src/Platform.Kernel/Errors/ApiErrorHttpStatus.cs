@@ -113,6 +113,13 @@ public static class ApiErrorHttpStatus
         ApiErrorCode.AppsApiKeyScopeUnknown => StatusCodes.Status400BadRequest,
         ApiErrorCode.AppsApiKeyNotFound => StatusCodes.Status404NotFound,
 
+        // ━━━ Webhook ━━━
+        ApiErrorCode.WebhooksSubscriptionNotFound => StatusCodes.Status404NotFound,
+        ApiErrorCode.WebhooksUrlInvalid => StatusCodes.Status400BadRequest,
+        ApiErrorCode.WebhooksEventUnknown => StatusCodes.Status400BadRequest,
+        ApiErrorCode.WebhooksDeliveryNotFound => StatusCodes.Status404NotFound,
+        ApiErrorCode.WebhooksDeliveryNotRetryable => StatusCodes.Status409Conflict,
+
         _ => StatusCodes.Status500InternalServerError,
     };
 }

@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    客户端 SDK：把平台面向桌面的 HTTP 面（/apps/token、/identity/*、/client/*、/platform/*）
+    包成强类型调用，桌面仓库以精确版本 pin 其 nupkg（AppFramework.Platform.Client）。
+    约束：只依赖 Contracts 与 BCL —— 不引 ASP.NET Core、不引 EF Core、不引第三方 HTTP 库，
+    否则桌面端（Avalonia/WinForms）会被迫拉起服务端依赖树。
+  -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>AppFramework.Platform.Client</PackageId>
+    <Version>$(PlatformClientVersion)</Version>
+    <Description>AppFramework 平台客户端 SDK（令牌、版本、授权、文档、配置备份的桌面侧调用）。</Description>
+    <Authors>AppFramework</Authors>
+    <PackageTags>appframework;platform;client;sdk</PackageTags>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Platform.Contracts\Platform.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" Condition="Exists('README.md')" />
+  </ItemGroup>
+
+</Project>

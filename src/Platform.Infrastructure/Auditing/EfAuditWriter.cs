@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Platform.Infrastructure.Persistence;
 using Platform.Infrastructure.Persistence.Entities;
 using Platform.Kernel.Abstractions;
+using Platform.Kernel.Metrics;
 
 namespace Platform.Infrastructure.Auditing;
 
@@ -19,12 +20,14 @@ public sealed class EfAuditWriter : IAuditWriter
             "审计写入失败：action={Action} target={TargetType}/{TargetId} actor={ActorId}");
 
     private readonly PlatformDbContext _db;
+    private readonly PlatformMetrics _metrics;
     private readonly ILogger<EfAuditWriter> _logger;
 
     /// <summary>构造。</summary>
-    public EfAuditWriter(PlatformDbContext db, ILogger<EfAuditWriter> logger)
+    public EfAuditWriter(PlatformDbContext db, PlatformMetrics metrics, ILogger<EfAuditWriter> logger)
     {
         _db = db;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -56,6 +59,11 @@ public sealed class EfAuditWriter : IAuditWriter
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            // 审计失败被吞掉，指标计数是唯一能被告警发现的信号，否则只丢在日志里。
+            _metrics.Increment(
+                PlatformMetricNames.AuditWriteFailures,
+                PlatformMetricNames.AuditWriteFailuresHelp,
+                new Dictionary<string, string> { ["action"] = entry.Action });
             AuditWriteFailed(
                 _logger,
                 entry.Action,

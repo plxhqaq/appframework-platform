@@ -720,3 +720,21 @@ export interface ClientDocumentManifest {
   items: ClientDocument[];
   generatedAt: string;
 }
+
+/** 审计记录（平台级只读视图）。 */
+export interface AuditLog {
+  id: string;
+  appKey?: string | null;
+  actorId?: string | null;
+  actorName?: string | null;
+  action: string;
+  targetType?: string | null;
+  targetId?: string | null;
+  result: string;
+  message?: string | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  traceId?: string | null;
+  detailJson?: string | null;
+  createdAt: string;
+}

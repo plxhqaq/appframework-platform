@@ -16,6 +16,7 @@ COPY src/Platform.Modules.Versions/Platform.Modules.Versions.csproj src/Platform
 COPY src/Platform.Modules.Licensing/Platform.Modules.Licensing.csproj src/Platform.Modules.Licensing/
 COPY src/Platform.Modules.Backups/Platform.Modules.Backups.csproj src/Platform.Modules.Backups/
 COPY src/Platform.Modules.Documents/Platform.Modules.Documents.csproj src/Platform.Modules.Documents/
+COPY src/Platform.Modules.Webhooks/Platform.Modules.Webhooks.csproj src/Platform.Modules.Webhooks/
 COPY src/Platform.Api/Platform.Api.csproj src/Platform.Api/
 RUN dotnet restore src/Platform.Api/Platform.Api.csproj
 

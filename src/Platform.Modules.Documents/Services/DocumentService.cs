@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Platform.Contracts;
 using Platform.Contracts.Documents;
+using Platform.Contracts.Webhooks;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
@@ -96,6 +97,7 @@ public sealed partial class DocumentService : IDocumentService
     private readonly IClock _clock;
     private readonly IDocumentCollectionService _collections;
     private readonly DocumentsOptions _options;
+    private readonly IPlatformEventPublisher _events;
 
     /// <summary>构造。</summary>
     public DocumentService(
@@ -103,13 +105,15 @@ public sealed partial class DocumentService : IDocumentService
         IBlobStorage blobs,
         IClock clock,
         IDocumentCollectionService collections,
-        IOptions<DocumentsOptions> options)
+        IOptions<DocumentsOptions> options,
+        IPlatformEventPublisher events)
     {
         _db = db;
         _blobs = blobs;
         _clock = clock;
         _collections = collections;
         _options = options.Value;
+        _events = events;
     }
 
     [GeneratedRegex(@"[\x00-\x1f<>:""/\\|?*]", RegexOptions.CultureInvariant)]
@@ -261,6 +265,21 @@ public sealed partial class DocumentService : IDocumentService
                 "文档发布失败，已回滚数据库记录。",
                 exception);
         }
+
+        await _events.PublishAsync(
+            new PlatformEvent(
+                WebhookConventions.EventDocumentUploaded,
+                appKey,
+                new
+                {
+                    documentId = document.Id,
+                    collectionKey = collection.Key,
+                    title = document.Title,
+                    visibility = document.Visibility,
+                    revision = document.Revision,
+                },
+                _clock.UtcNow),
+            cancellationToken);
 
         return ToDetail(document, collection.Key, [revision]);
     }
@@ -416,6 +435,13 @@ public sealed partial class DocumentService : IDocumentService
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        await _events.PublishAsync(
+            new PlatformEvent(
+                WebhookConventions.EventDocumentDeleted,
+                appKey,
+                new { documentId = row.Document.Id, collectionKey = row.CollectionKey },
+                deletedAt),
+            cancellationToken);
         return ToSummary(row.Document, row.CollectionKey);
     }
 
