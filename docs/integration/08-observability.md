@@ -1,6 +1,6 @@
 # 可观测：健康检查、指标、日志与告警
 
-> 适用版本：B7（`Platform.Api` 0.1.0-preview.1）。
+> 适用版本：B7–B10（`Platform.Api` 0.1.0）。
 > 相关文档：Webhook 投递与审计查询见 [`06-webhooks-and-audit.md`](06-webhooks-and-audit.md)，
 > 部署与拓扑见 [`00-quickstart.md`](00-quickstart.md)。
 
@@ -108,12 +108,37 @@ curl -s http://localhost:5080/metrics | head
 不会让告警误判为持续积压。**只有 `dead` 与积压时长适合直接告警**，
 `pending`/`failed` 在退避窗口内短暂存在是正常形态（退避见 [`06` §3](06-webhooks-and-audit.md)）。
 
-### 3.5 保留期清理（counter，**首次删除后才出现**）
+### 3.6 版本与发布包（counter/gauge/histogram，首次写入后才出现）
 
 | 指标 | 类型 | 标签 | 说明 |
 |---|---|---|---|
-| `platform_retention_deleted_rows_total` | counter | `task` | `RetentionWorker`/`MaintenanceWorker` 每轮删除行数；`task` ∈ `identity`/`webhooks`/`idempotency`/`audit` |
-| `platform_retention_deleted_files_total` | counter | `task` | 同一轮删除的文件数（当前仅备份类任务产生） |
+| `versions_package_probe_total` | counter | `format`、`result` | 清单探测次数；`format` ∈ `zip`/`exe`/`msi`…，`result` ∈ `success`/`missing`/`invalid` |
+| `versions_package_register_total` | counter | `kind`、`result` | 包/更新器登记；`kind` ∈ `full`/`incremental`/`updater`，`result` ∈ `created`/`reused`/`accepted`/`rejected` |
+| `versions_package_bytes_total` | counter | `kind` | 登记成功的包字节数（按包类型） |
+| `versions_package_ingest_total` | counter | `result` | 增量摄取终态：`ready`/`retry`/`failed`/`canceled` |
+| `versions_package_ingest_seconds` | histogram | 无 | 单次摄取耗时，桶复用 HTTP 分桶 |
+| `versions_package_files` | gauge | `kind` | 最近一次成功摄取的清单文件数 |
+| `versions_check_total` | counter | `result` | 客户端检查更新：`update`/`none`/`error` |
+| `versions_package_download_bytes_total` | counter | `kind` | 下载字节数；`kind` ∈ `file`/`package`/`updater`（按定位成功时的声明长度计，不是实际传输完成字节） |
+| `versions_upload_tickets_expired_total` | counter | 无 | 保留期清理删掉的过期票据数 |
+| `versions_blob_orphans_scanned_total` | counter | 无 | 孤儿扫描候选数（含 dry-run） |
+| `versions_blob_orphans_deleted_total` | counter | 无 | 实际删除的孤儿文件数 |
+| `versions_blob_orphans_deleted_bytes_total` | counter | 无 | 实际删除字节数 |
+
+判读要点：
+- `versions_package_register_total{result="rejected"}` 只统计 `BusinessException`（校验/冲突），
+  未处理异常直接 500 且不落这个标签；出现持续 rejected 先查客户端/管理台参数与文件名模板。
+- `ingest_total{result="retry"}` 是**一次失败尝试**而不是包终态；`failed` 才代表需要人工重试。
+- 下载字节数在拿到定位结果时记入：客户端中途断开仍会计入，所以它适合算流量，不适合算「成功交付」。
+- 孤儿扫描默认 dry-run：只有 `scanned` 增长、`deleted` 为 0 是**预期形态**；确认候选无误后再关闭
+  `Versions:BlobSweepDryRun`。
+
+### 3.7 保留期清理（counter，**首次删除后才出现**）
+
+| 指标 | 类型 | 标签 | 说明 |
+|---|---|---|---|
+| `platform_retention_deleted_rows_total` | counter | `task` | `RetentionWorker`/`MaintenanceWorker` 每轮删除行数；`task` ∈ `identity`/`webhooks`/`idempotency`/`audit`/`versions` |
+| `platform_retention_deleted_files_total` | counter | `task` | 同一轮删除的文件数（当前仅备份类任务产生；版本域 Blob 走 `versions_blob_orphans_*`） |
 
 长期停在 0 说明没有过期数据（正常），也可能意味着 Worker 没跑或保留期配置过大；
 配合 `platform_webhook_deliveries{status="dead"}` 等 gauge 一起看。清理语义见
@@ -223,6 +248,55 @@ groups:
     annotations:
       summary: "应用 {{ $labels.app }} 最久未投递已 > 30 分钟"
       description: "退避上限是 1 小时，30 分钟还没消说明投递器没跑：确认 `Webhooks:DispatcherEnabled` 与副本数。"
+
+  # P1 —— 版本与发布包
+  - alert: VersionIngestFailing
+    expr: increase(versions_package_ingest_total{result="failed"}[30m]) > 0
+    labels: {severity: warning}
+    annotations:
+      summary: "增量包摄取出现终态失败"
+      description: "查管理台包详情抽屉的 errorCode/errorMessage：`228` 清单非法、`215` 缺清单、`220` 归档不安全、`227` 磁盘不足；修好后原地重试。"
+
+  - alert: VersionIngestRetryStorm
+    expr: increase(versions_package_ingest_total{result="retry"}[30m]) > 5
+    labels: {severity: warning}
+    annotations:
+      summary: "30 分钟内增量摄取重试超过 5 次"
+      description: "多为 Blob 卷 IO 抖动或磁盘将满；同时看 `platform_retention_*` 与节点磁盘。持续重试会耗尽 `IngestionMaxAttempts` 转 failed。"
+
+  - alert: VersionProbeInvalidBurst
+    expr: |
+      sum(rate(versions_package_probe_total{result="invalid"}[10m]))
+      / sum(rate(versions_package_probe_total[10m])) > 0.2
+    for: 15m
+    labels: {severity: warning}
+    annotations:
+      summary: "清单探测非法比例 > 20%"
+      description: "构建产物清单格式回退或上传了错包；按 `format` 定位，核对 `10-package-manifest.md` 的 schema 版本。"
+
+  - alert: VersionRegisterRejectedBurst
+    expr: |
+      sum(rate(versions_package_register_total{result="rejected"}[10m]))
+      / sum(rate(versions_package_register_total[10m])) > 0.3
+    for: 15m
+    labels: {severity: warning}
+    annotations:
+      summary: "包/更新器登记被拒比例 > 30%"
+      description: "文件名模板（218）、版本冲突（219/216）、包超限（221）或上传内容缺失（206）；也可能是恶意刷接口，配合 429 与审计看主体。"
+
+  - alert: VersionCheckErroring
+    expr: increase(versions_check_total{result="error"}[10m]) > 0
+    labels: {severity: warning}
+    annotations:
+      summary: "客户端检查更新出现错误"
+      description: "`212` 渠道无已发布版本属配置问题；5xx/异常按 traceId 查日志。大量错误先看库连通性与版本表锁。"
+
+  - alert: VersionBlobOrphansFound
+    expr: increase(versions_blob_orphans_scanned_total[24h]) > 100
+    labels: {severity: info}
+    annotations:
+      summary: "24 小时内发现 > 100 个孤儿 Blob 候选"
+      description: "dry-run 期属正常观察信号：核对日志候选后关闭 `Versions:BlobSweepDryRun`；已关闭仍持续增长说明有写盘后未登记/未引用的路径泄漏。"
 ```
 
 阈值是「最小可运行栈」的经验值，上线后按两周的实际分布调。
@@ -317,6 +391,7 @@ location = /metrics {
 |---|---|---|---|
 | `MaintenanceWorker` | 600s | `Workers:Maintenance:*` | 幂等记录保留 `IdempotencyRetentionHours=24`；审计保留 `AuditRetentionDays=180`，每轮最多删 `max(100, BatchSize=5000)` 行。表行数下降是**预期**，不用告警 |
 | `RetentionWorker` | 600s | `Workers:Retention` | 备份/文档软删宽限 30 分钟后「先删文件、再删行」。Blob 体积异常增长说明它没跑（看 `logs/` 里的异常） |
+| 版本保留任务（`task=versions`） | 600s | `Workers:Retention` + `Versions:*Retention*` | 过期票据/失败包/归档版本删行，然后做孤儿 Blob 扫描；看 `versions_upload_tickets_expired_total`、`versions_blob_orphans_*` |
 | Webhook 派发器 | 15s | `Webhooks:DispatchIntervalSeconds` | `platform_webhook_*` 三个指标，见 §3.4 |
 
 Maintenance/Retention 目前**没有专属指标**，只有日志；判断它们是否在跑，
@@ -330,7 +405,9 @@ Maintenance/Retention 目前**没有专属指标**，只有日志；判断它们
 
 - 没有 APM/链路追踪导出：只有 `traceId`，没有 OpenTelemetry span 上报。
 - 没有数据库侧指标：连接池、慢查询、锁等待要去 PostgreSQL 自己的 exporter。
-- 没有业务计数器：登录次数、发布次数、授权签发次数都不暴露；这类计数请查审计接口。
+- 业务计数器只覆盖「版本与发布包」这一域（`versions_*`，见 §3.6），因为摄取失败、登记被拒、孤儿 Blob
+  都是需要告警的运行态。登录次数、授权签发次数等**不**暴露为指标：它们不是故障信号，查审计接口即可。
+  新加业务指标前先问「有没有人守着这条告警」，没有就不加，避免 `/metrics` 变成统计报表。
 - 没有推送网关（Pushgateway）：所有指标都是拉取式。
 - `/metrics` 不进 OpenAPI 文档，也没有管理台页面。
 - 单测里断言的是渲染文本，不保证指标值单调（counter 重启清零是设计如此）。

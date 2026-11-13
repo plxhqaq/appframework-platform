@@ -14,6 +14,9 @@ public sealed partial class PlatformClient
     private const string VersionCheckPath = "/api/v1/client/versions/check";
     private const string VersionManifestPath = "/api/v1/client/versions";
     private const string VersionDownloadPath = "/api/v1/client/versions/download";
+    private const string VersionPackagesPath = "/api/v1/client/versions/packages";
+    private const string UpdaterPath = "/api/v1/client/versions/updater";
+    private const string UpdatersPath = "/api/v1/client/versions/updaters";
     private const string LicensingStatusPath = "/api/v1/client/licensing/status";
     private const string LicensingOfflineVerifyPath = "/api/v1/client/licensing/offline/verify";
     private const string LicensingKeysPath = "/api/v1/client/licensing/keys";
@@ -24,16 +27,24 @@ public sealed partial class PlatformClient
 
     /// <summary>
     /// 检查更新。无新版本时响应里的 <c>Release</c> 仍是当前最新版清单，客户端可据此做完整性修复。
+    /// <paramref name="updaterVersion"/> 是本机更新器版本，服务端据此给出 <c>HasUpdaterUpdate</c>。
     /// </summary>
     public Task<CheckUpdateResponse> CheckUpdateAsync(
         string channelKey,
         string? currentVersion = null,
         string? runtimeIdentifier = null,
+        string? updaterVersion = null,
+        bool allowDowngrade = false,
         CancellationToken cancellationToken = default) =>
         AuthorizedCallAsync<CheckUpdateResponse>(
             HttpMethod.Post,
             VersionCheckPath,
-            new CheckUpdateRequest(channelKey, currentVersion, runtimeIdentifier ?? Options.RuntimeIdentifier),
+            new CheckUpdateRequest(
+                channelKey,
+                currentVersion,
+                runtimeIdentifier ?? Options.RuntimeIdentifier,
+                updaterVersion,
+                allowDowngrade),
             cancellationToken);
 
     /// <summary>读取某渠道某版本的清单（文件路径 + 哈希 + 长度，按路径排序）。</summary>
@@ -67,6 +78,49 @@ public sealed partial class PlatformClient
             $"{VersionDownloadPath}/{Uri.EscapeDataString(sha256)}",
             filePath,
             expectedSha256: sha256,
+            ifNoneMatch,
+            cancellationToken);
+
+    /// <summary>下载全量/增量安装包（保留服务端文件名；哈希不符时拒绝落盘）。</summary>
+    public Task<bool> DownloadReleasePackageAsync(
+        Guid packageId,
+        string filePath,
+        string? expectedSha256 = null,
+        string? ifNoneMatch = null,
+        CancellationToken cancellationToken = default) =>
+        DownloadAsync(
+            $"{VersionPackagesPath}/{packageId:D}/download",
+            filePath,
+            expectedSha256,
+            ifNoneMatch,
+            cancellationToken);
+
+    /// <summary>当前运行时下最新的已发布更新器；没有时抛 <see cref="ApiErrorCode.VersionsUpdaterNotFound"/>。</summary>
+    public Task<UpdaterInfoDto> GetLatestUpdaterAsync(
+        string? runtimeIdentifier = null,
+        CancellationToken cancellationToken = default)
+    {
+        var rid = runtimeIdentifier ?? Options.RuntimeIdentifier;
+        var path = UpdaterPath;
+        if (!string.IsNullOrEmpty(rid))
+        {
+            path += $"?runtimeIdentifier={Uri.EscapeDataString(rid)}";
+        }
+
+        return AuthorizedCallAsync<UpdaterInfoDto>(HttpMethod.Get, path, body: null, cancellationToken);
+    }
+
+    /// <summary>下载更新器分发包（保留服务端文件名；哈希不符时拒绝落盘）。</summary>
+    public Task<bool> DownloadUpdaterAsync(
+        Guid updaterId,
+        string filePath,
+        string? expectedSha256 = null,
+        string? ifNoneMatch = null,
+        CancellationToken cancellationToken = default) =>
+        DownloadAsync(
+            $"{UpdatersPath}/{updaterId:D}/download",
+            filePath,
+            expectedSha256,
             ifNoneMatch,
             cancellationToken);
 

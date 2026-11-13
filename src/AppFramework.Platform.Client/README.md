@@ -7,7 +7,7 @@
 ## 安装
 
 ```bash
-dotnet add package AppFramework.Platform.Client --version 0.1.0-preview.1
+dotnet add package AppFramework.Platform.Client --version 0.2.0-preview.1
 ```
 
 客户端仓库必须**精确 pin 版本**（不要用 `*` 或范围）。它与 `AppFramework.Platform.Contracts`

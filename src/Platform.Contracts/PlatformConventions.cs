@@ -77,6 +77,12 @@ public static class PlatformRateLimitPolicies
 
     /// <summary>扫码会话创建与状态轮询：匿名入口，按 IP 限流。</summary>
     public const string QrSession = "qr-session";
+
+    /// <summary>版本上传票据申请：管理端已认证入口，按用户 + 应用限流。</summary>
+    public const string VersionsUploadTicket = "versions-upload-ticket";
+
+    /// <summary>发布包/更新器登记：管理端已认证入口，按用户 + 应用限流。</summary>
+    public const string VersionsPackageFinalize = "versions-package-finalize";
 }
 
 /// <summary>JWT 声明短名。**必须配合 <c>MapInboundClaims=false</c>**，否则会被改写成 <c>ClaimTypes.*</c> URI。</summary>

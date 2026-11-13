@@ -66,7 +66,7 @@ dotnet pack src/Platform.Contracts/Platform.Contracts.csproj -c Release \
   -p:PackageId=AppFramework.Platform.Contracts -o artifacts/packages
 ```
 
-版本由 `Directory.Build.props` 的 `PlatformContractsVersion` 给出（当前 `0.1.0-preview.1`），
+版本由 `Directory.Build.props` 的 `PlatformContractsVersion` 给出（当前 `0.2.0-preview.1`），
 零第三方依赖，包内含：
 
 | 内容 | 类型 |
@@ -100,7 +100,7 @@ CI 会 `dotnet pack` 契约包与客户端 SDK 两个包，一起作为 `contrac
 dotnet pack src/AppFramework.Platform.Client/AppFramework.Platform.Client.csproj -c Release -o artifacts/packages
 
 # 客户端仓库
-dotnet add package AppFramework.Platform.Client --version 0.1.0-preview.1
+dotnet add package AppFramework.Platform.Client --version 0.2.0-preview.1
 ```
 
 版本线跟契约包一致（`Directory.Build.props` 的 `PlatformClientVersion`），
@@ -150,7 +150,7 @@ curl -s http://localhost:5080/api/v1/webhooks/info        # 单模块自述（�
 1. **拿 Scalar 调试通过就以为契约完整** —— Scalar 不会提醒你错误分支没有模型；业务失败仍然是 HTTP 200 + `isSuccess=false` 的情况在文档里完全看不出来。
 2. **用生成器代码接下载端点** —— 版本/备份/文档下载是流式 + Range + ETag，`Results.Stream` 不是 JSON 信封，生成器会按 200 schema 去反序列化。
 3. **忽略 `X-App-Key`** —— M2M 换发令牌靠 `X-App-Key` + `X-Api-Key` 两个头，OpenAPI 里没有它们。
-4. **把 `info.version` 当包版本** —— 它是 `v1`，与 `0.1.0-preview.1` 无关；pin 版本看 `Directory.Build.props`。
+4. **把 `info.version` 当包版本** —— 它是 `v1`，与 `0.2.0-preview.1` 无关；pin 版本看 `Directory.Build.props`。
 5. **改了端点没同步文档** —— CI 不校验 OpenAPI，`docs/integration/*` 才是人工同步点。
 
 ---

@@ -9,6 +9,7 @@ interface ChannelFormValues {
   name: string;
   description?: string;
   isEnabled: boolean;
+  allowDowngrade: boolean;
 }
 
 interface ChannelFormModalProps {
@@ -35,6 +36,7 @@ export function ChannelFormModal({ open, channel, onClose, onSaved }: ChannelFor
       name: channel?.name ?? '',
       description: channel?.description ?? '',
       isEnabled: channel?.isEnabled ?? true,
+      allowDowngrade: channel?.allowDowngrade ?? false,
     });
   }, [open, channel, form]);
 
@@ -45,6 +47,7 @@ export function ChannelFormModal({ open, channel, onClose, onSaved }: ChannelFor
           name: values.name,
           description: values.description ?? null,
           isEnabled: values.isEnabled,
+          allowDowngrade: values.allowDowngrade,
         };
         return versionsApi.updateChannel(channel.id, body);
       }
@@ -53,6 +56,7 @@ export function ChannelFormModal({ open, channel, onClose, onSaved }: ChannelFor
         key: values.key,
         name: values.name,
         description: values.description ?? null,
+        allowDowngrade: values.allowDowngrade,
       };
       return versionsApi.createChannel(body);
     },
@@ -117,6 +121,15 @@ export function ChannelFormModal({ open, channel, onClose, onSaved }: ChannelFor
 
         <Form.Item name="description" label="说明" rules={[{ max: 1024 }]}>
           <Input.TextArea rows={3} placeholder="可选，给运维/客户端同学看的用途说明" />
+        </Form.Item>
+
+        <Form.Item
+          name="allowDowngrade"
+          label="允许降级"
+          valuePropName="checked"
+          tooltip="归档最新版本后，客户端会收到 isDowngrade=true 并允许回退到上一版本。默认关闭，避免归档操作误让现场降级；仅在强制回退演练时临时打开。"
+        >
+          <Switch />
         </Form.Item>
 
         {isEdit ? (

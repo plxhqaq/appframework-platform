@@ -39,7 +39,10 @@ public static class InfrastructureServiceCollectionExtensions
             options.UseNpgsql(connectionString, npgsql => npgsql.CommandTimeout(60)));
 
         services.Configure<BlobStorageOptions>(configuration.GetSection(BlobStorageOptions.SectionName));
-        services.AddSingleton<IBlobStorage, LocalBlobStorage>();
+        services.AddSingleton<LocalBlobStorage>();
+        services.AddSingleton<IBlobStorage>(static provider => provider.GetRequiredService<LocalBlobStorage>());
+        services.AddSingleton<IBlobEnumerator>(static provider => provider.GetRequiredService<LocalBlobStorage>());
+        services.AddSingleton<IStorageCapacity>(static provider => provider.GetRequiredService<LocalBlobStorage>());
 
         // 单实例守卫按启动时的作用域取 DbContext；连接需活到进程退出，故不注册为单例。
         services.AddScoped<SingleInstanceGuard>();

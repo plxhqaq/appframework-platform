@@ -23,6 +23,9 @@ public sealed class ReleaseChannel : IAuditableEntity
     /// <summary>是否启用；停用后不再允许发布。</summary>
     public bool IsEnabled { get; set; } = true;
 
+    /// <summary>是否允许客户端降级到本渠道的最新版本（默认否，避免归档操作意外回退现场）。</summary>
+    public bool AllowDowngrade { get; set; }
+
     /// <inheritdoc />
     public DateTimeOffset CreatedAt { get; set; }
 
@@ -76,6 +79,9 @@ public sealed class Release : IAuditableEntity
 
     /// <summary>该版本的多平台产物。</summary>
     public List<ReleaseArtifact> Artifacts { get; set; } = [];
+
+    /// <summary>该版本的全量安装包与增量包。</summary>
+    public List<ReleasePackage> Packages { get; set; } = [];
 }
 
 /// <summary>某个版本在单个运行时（win-x64 等）下的产物与清单摘要。</summary>
@@ -132,6 +138,140 @@ public sealed class ReleaseFile : IAuditableEntity
 
     /// <summary>字节数。</summary>
     public long SizeBytes { get; set; }
+
+    /// <inheritdoc />
+    public DateTimeOffset CreatedAt { get; set; }
+
+    /// <inheritdoc />
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// 发布包：全量安装包或文件级增量包。整包字节仍按内容寻址存放；增量包经异步摄取后
+/// 把文件清单落到 <see cref="ReleaseArtifact"/> 与 <see cref="ReleaseFile"/>。
+/// </summary>
+public sealed class ReleasePackage : IAuditableEntity
+{
+    /// <summary>主键。</summary>
+    public Guid Id { get; set; } = Guid.CreateVersion7();
+
+    /// <summary>所属应用键。</summary>
+    public string AppKey { get; set; } = string.Empty;
+
+    /// <summary>所属版本。</summary>
+    public Guid ReleaseId { get; set; }
+
+    /// <summary>所属版本导航。</summary>
+    public Release Release { get; set; } = null!;
+
+    /// <summary>包类型：full / incremental。</summary>
+    public string Kind { get; set; } = string.Empty;
+
+    /// <summary>目标运行时；全量包可为 any。</summary>
+    public string Target { get; set; } = string.Empty;
+
+    /// <summary>包格式：exe / msi / msp / zip / 7z / bin。</summary>
+    public string Format { get; set; } = string.Empty;
+
+    /// <summary>上传原文件名（下载时 Content-Disposition 用）。</summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>整包内容 SHA-256（小写十六进制）。</summary>
+    public string Sha256 { get; set; } = string.Empty;
+
+    /// <summary>整包字节数。</summary>
+    public long SizeBytes { get; set; }
+
+    /// <summary>规范化清单的 SHA-256；无清单的人工登记为 null。</summary>
+    public string? ManifestHash { get; set; }
+
+    /// <summary>规范化清单原文（JSON）。</summary>
+    public string? ManifestJson { get; set; }
+
+    /// <summary>清单来源：embedded / zip / sidecar / manual / legacy。</summary>
+    public string ManifestSource { get; set; } = string.Empty;
+
+    /// <summary>摄取状态：pending / processing / ready / failed。</summary>
+    public string Status { get; set; } = string.Empty;
+
+    /// <summary>登记时是否请求摄取完成后自动发布（仅增量包有意义）。</summary>
+    public bool PublishRequested { get; set; }
+
+    /// <summary>清单文件数；无清单（人工登记的全量包）为 null。</summary>
+    public int? FileCount { get; set; }
+
+    /// <summary>失败错误码（<see cref="Platform.Contracts.ApiErrorCode"/> 的字符串形式）。</summary>
+    public string? ErrorCode { get; set; }
+
+    /// <summary>失败原因。</summary>
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>摄取尝试次数。</summary>
+    public int Attempts { get; set; }
+
+    /// <summary>Worker 认领租约到期时间。</summary>
+    public DateTimeOffset? LockedUntil { get; set; }
+
+    /// <summary>认领实例标识。</summary>
+    public string? LockedBy { get; set; }
+
+    /// <summary>登记主体。</summary>
+    public string? CreatedBy { get; set; }
+
+    /// <summary>摄取完成时间。</summary>
+    public DateTimeOffset? CompletedAt { get; set; }
+
+    /// <inheritdoc />
+    public DateTimeOffset CreatedAt { get; set; }
+
+    /// <inheritdoc />
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+/// <summary>更新器版本线：客户端先更新更新器，再应用增量包。与应用版本相互独立。</summary>
+public sealed class AppUpdaterRelease : IAuditableEntity
+{
+    /// <summary>主键。</summary>
+    public Guid Id { get; set; } = Guid.CreateVersion7();
+
+    /// <summary>所属应用键。</summary>
+    public string AppKey { get; set; } = string.Empty;
+
+    /// <summary>目标运行时（RID 或 any）。</summary>
+    public string Target { get; set; } = string.Empty;
+
+    /// <summary>更新器版本号（按语义版本比较）。</summary>
+    public string Version { get; set; } = string.Empty;
+
+    /// <summary>分发包文件名。</summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>zip 内容 SHA-256。</summary>
+    public string Sha256 { get; set; } = string.Empty;
+
+    /// <summary>zip 字节数。</summary>
+    public long SizeBytes { get; set; }
+
+    /// <summary>规范化清单摘要（可选）。</summary>
+    public string? ManifestHash { get; set; }
+
+    /// <summary>规范化清单原文（可选）。</summary>
+    public string? ManifestJson { get; set; }
+
+    /// <summary>状态：published / archived。</summary>
+    public string Status { get; set; } = "published";
+
+    /// <summary>发布说明。</summary>
+    public string? Notes { get; set; }
+
+    /// <summary>发布时间。</summary>
+    public DateTimeOffset? PublishedAt { get; set; }
+
+    /// <summary>归档时间。</summary>
+    public DateTimeOffset? ArchivedAt { get; set; }
+
+    /// <summary>登记主体。</summary>
+    public string? CreatedBy { get; set; }
 
     /// <inheritdoc />
     public DateTimeOffset CreatedAt { get; set; }

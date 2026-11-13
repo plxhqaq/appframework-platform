@@ -5,10 +5,14 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Platform.Contracts;
 using Platform.Contracts.Permissions;
 using Platform.Infrastructure.Persistence;
+using Platform.Kernel.Abstractions;
 using Platform.Kernel.Modules;
 using Platform.Modules.Versions.Endpoints;
+using Platform.Modules.Versions.Ingestion;
 using Platform.Modules.Versions.Options;
+using Platform.Modules.Versions.Packages;
 using Platform.Modules.Versions.Persistence;
+using Platform.Modules.Versions.Retention;
 using Platform.Modules.Versions.Services;
 
 namespace Platform.Modules.Versions;
@@ -50,11 +54,18 @@ public sealed class VersionsModule : IPlatformModule
 
         services.AddScoped<IReleaseChannelService, ReleaseChannelService>();
         services.AddScoped<IReleaseService, ReleaseService>();
+        services.AddScoped<IReleasePackageService, ReleasePackageService>();
+        services.AddScoped<IReleasePackageIngestionService, ReleasePackageIngestionService>();
+        services.AddScoped<IUpdaterReleaseService, UpdaterReleaseService>();
         services.AddScoped<IUploadTicketService, UploadTicketService>();
         services.AddScoped<IReleaseContentService, ReleaseContentService>();
+        services.AddSingleton<IPackageManifestProbe, PackageManifestProbe>();
+        services.AddHostedService<ReleasePackageIngestionWorker>();
 
         services.TryAddEnumerable(
             ServiceDescriptor.Scoped<IPlatformModelContributor, VersionsModelContributor>());
+        services.TryAddEnumerable(
+            ServiceDescriptor.Scoped<IRetentionCleanupTask, VersionsRetentionTask>());
     }
 
     /// <inheritdoc />

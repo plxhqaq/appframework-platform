@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Net.Http.Headers;
 using Platform.Contracts;
@@ -9,6 +10,7 @@ using Platform.Contracts.Versions;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
 using Platform.Kernel.Http;
+using Platform.Kernel.Metrics;
 using Platform.Kernel.Security;
 using Platform.Modules.Versions.Services;
 
@@ -27,6 +29,8 @@ internal static class VersionsEndpoints
 
         MapChannelEndpoints(admin);
         MapReleaseEndpoints(admin);
+        MapPackageEndpoints(admin);
+        MapUpdaterEndpoints(admin);
         MapUploadEndpoints(admin);
 
         var client = api
@@ -137,7 +141,7 @@ internal static class VersionsEndpoints
                     }
                 })
             .WithName("versions.channels.update")
-            .WithSummary("更新渠道名称/说明/启用状态")
+            .WithSummary("更新渠道名称/说明/启用状态/降级开关")
             .RequirePermission(PermissionCatalog.VersionsChannelManage);
     }
 
@@ -308,6 +312,289 @@ internal static class VersionsEndpoints
             .RequirePermission(PermissionCatalog.VersionsReleaseArchive);
     }
 
+    private static void MapPackageEndpoints(RouteGroupBuilder admin)
+    {
+        admin.MapGet(
+                "/packages",
+                async (
+                    HttpContext context,
+                    ICurrentPrincipal principal,
+                    IReleasePackageService packages,
+                    int page = 1,
+                    int pageSize = PageQuery.DefaultPageSize,
+                    string? channelKey = null,
+                    string? kind = null,
+                    string? status = null,
+                    CancellationToken cancellationToken = default) =>
+                {
+                    var query = new PageQuery { Page = page, PageSize = pageSize };
+                    return ApiResults.Ok(
+                        context,
+                        await packages.ListAsync(
+                            RequireAppKey(principal), query, channelKey, kind, status, cancellationToken));
+                })
+            .WithName("versions.packages.list")
+            .WithSummary("发布包列表（按渠道/类型/摄取状态）")
+            .RequirePermission(PermissionCatalog.VersionsReleaseRead);
+
+        admin.MapGet(
+                "/packages/{id:guid}",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IReleasePackageService packages,
+                    CancellationToken cancellationToken) =>
+                    ApiResults.Ok(
+                        context,
+                        await packages.GetAsync(RequireAppKey(principal), id, cancellationToken)))
+            .WithName("versions.packages.get")
+            .WithSummary("发布包详情与摄取状态")
+            .RequirePermission(PermissionCatalog.VersionsReleaseRead);
+
+        admin.MapPost(
+                "/packages",
+                async (
+                    HttpContext context,
+                    RegisterReleasePackageRequest request,
+                    ICurrentPrincipal principal,
+                    IReleasePackageService packages,
+                    IIdempotencyStore idempotency,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    return await IdempotentExecution.ExecuteAsync(
+                        context,
+                        idempotency,
+                        "versions.package.register",
+                        async ct =>
+                        {
+                            try
+                            {
+                                var registered = await packages.RegisterAsync(
+                                    appKey, request, principal.UserName, ct);
+                                await WriteAuditAsync(
+                                    context, audit, principal,
+                                    action: "versions.package.register",
+                                    targetType: "release_package",
+                                    targetId: registered.Id.ToString(),
+                                    result: AuditResults.Success,
+                                    message: $"{registered.Kind}/{registered.Target}/{registered.Format} {registered.Status}");
+                                return ApiResult.Ok(registered);
+                            }
+                            catch (BusinessException exception)
+                            {
+                                await WriteAuditAsync(
+                                    context, audit, principal,
+                                    action: "versions.package.register",
+                                    targetType: "release_package",
+                                    targetId: null,
+                                    result: AuditResults.Failure,
+                                    message: exception.Message);
+                                throw;
+                            }
+                        },
+                        IdempotencyTtl);
+                })
+            .WithName("versions.packages.register")
+            .WithSummary("登记发布包（内容须先经上传票据落盘；支持 Idempotency-Key）")
+            .RequirePermission(PermissionCatalog.VersionsArtifactUpload)
+            .RequireRateLimiting(PlatformRateLimitPolicies.VersionsPackageFinalize);
+
+        admin.MapDelete(
+                "/packages/{id:guid}",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IReleasePackageService packages,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var deleted = await packages.DeleteAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.package.delete",
+                            targetType: "release_package",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: deleted.FileName);
+                        return ApiResults.Ok(context, deleted);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.package.delete",
+                            targetType: "release_package",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("versions.packages.delete")
+            .WithSummary("删除草稿版本下的发布包（已发布/已归档版本不可删）")
+            .RequirePermission(PermissionCatalog.VersionsReleaseArchive);
+
+        admin.MapPost(
+                "/packages/{id:guid}/retry",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IReleasePackageService packages,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var retried = await packages.RetryAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.package.retry",
+                            targetType: "release_package",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: retried.FileName);
+                        return ApiResults.Ok(context, retried);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.package.retry",
+                            targetType: "release_package",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("versions.packages.retry")
+            .WithSummary("重试失败的增量包摄取（failed → pending）")
+            .RequirePermission(PermissionCatalog.VersionsArtifactUpload);
+    }
+
+    private static void MapUpdaterEndpoints(RouteGroupBuilder admin)
+    {
+        admin.MapGet(
+                "/updaters",
+                async (
+                    HttpContext context,
+                    ICurrentPrincipal principal,
+                    IUpdaterReleaseService updaters,
+                    int page = 1,
+                    int pageSize = PageQuery.DefaultPageSize,
+                    string? target = null,
+                    string? status = null,
+                    CancellationToken cancellationToken = default) =>
+                {
+                    var query = new PageQuery { Page = page, PageSize = pageSize };
+                    return ApiResults.Ok(
+                        context,
+                        await updaters.ListAsync(
+                            RequireAppKey(principal), query, target, status, cancellationToken));
+                })
+            .WithName("versions.updaters.list")
+            .WithSummary("更新器版本列表（按目标/状态）")
+            .RequirePermission(PermissionCatalog.VersionsReleaseRead);
+
+        admin.MapPost(
+                "/updaters",
+                async (
+                    HttpContext context,
+                    RegisterUpdaterRequest request,
+                    ICurrentPrincipal principal,
+                    IUpdaterReleaseService updaters,
+                    IIdempotencyStore idempotency,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    return await IdempotentExecution.ExecuteAsync(
+                        context,
+                        idempotency,
+                        "versions.updater.register",
+                        async ct =>
+                        {
+                            try
+                            {
+                                var registered = await updaters.RegisterAsync(
+                                    appKey, request, principal.UserName, ct);
+                                await WriteAuditAsync(
+                                    context, audit, principal,
+                                    action: "versions.updater.register",
+                                    targetType: "app_updater_release",
+                                    targetId: registered.Id.ToString(),
+                                    result: AuditResults.Success,
+                                    message: $"{registered.Target}/{registered.Version}");
+                                return ApiResult.Ok(registered);
+                            }
+                            catch (BusinessException exception)
+                            {
+                                await WriteAuditAsync(
+                                    context, audit, principal,
+                                    action: "versions.updater.register",
+                                    targetType: "app_updater_release",
+                                    targetId: null,
+                                    result: AuditResults.Failure,
+                                    message: exception.Message);
+                                throw;
+                            }
+                        },
+                        IdempotencyTtl);
+                })
+            .WithName("versions.updaters.register")
+            .WithSummary("登记更新器分发包（内容须先经上传票据落盘；版本缺失时从清单/PE 读取）")
+            .RequirePermission(PermissionCatalog.VersionsArtifactUpload)
+            .RequireRateLimiting(PlatformRateLimitPolicies.VersionsPackageFinalize);
+
+        admin.MapPost(
+                "/updaters/{id:guid}/archive",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IUpdaterReleaseService updaters,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var archived = await updaters.ArchiveAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.updater.archive",
+                            targetType: "app_updater_release",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: $"{archived.Target}/{archived.Version}");
+                        return ApiResults.Ok(context, archived);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.updater.archive",
+                            targetType: "app_updater_release",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("versions.updaters.archive")
+            .WithSummary("归档更新器版本（幂等；归档后 check 回退到上一版更新器）")
+            .RequirePermission(PermissionCatalog.VersionsReleaseArchive);
+    }
+
     private static void MapUploadEndpoints(RouteGroupBuilder admin)
     {
         const string uploadsPath = "/uploads";
@@ -360,7 +647,8 @@ internal static class VersionsEndpoints
                 })
             .WithName("versions.uploads.create")
             .WithSummary("申请上传票据（支持 Idempotency-Key）")
-            .RequirePermission(PermissionCatalog.VersionsArtifactUpload);
+            .RequirePermission(PermissionCatalog.VersionsArtifactUpload)
+            .RequireRateLimiting(PlatformRateLimitPolicies.VersionsUploadTicket);
 
         admin.MapPut(
                 $"{uploadsPath}/{{id:guid}}",
@@ -463,10 +751,12 @@ internal static class VersionsEndpoints
                     ICurrentPrincipal principal,
                     IReleaseContentService content,
                     IBlobStorage blobs,
+                    PlatformMetrics metrics,
                     CancellationToken cancellationToken) =>
                 {
                     var info = await content.ResolveAsync(
                         RequireAppKey(principal), sha256, cancellationToken);
+                    RecordDownload(metrics, "file", info.SizeBytes);
                     var stream = await blobs.OpenReadAsync(info.BlobPath, cancellationToken);
                     return Results.Stream(
                         stream,
@@ -479,7 +769,98 @@ internal static class VersionsEndpoints
             .WithName("versions.client.download")
             .WithSummary("按内容哈希下载文件（Range / ETag / 304）")
             .RequirePermission(PermissionCatalog.VersionsArtifactDownload);
+
+        client.MapGet(
+                "/packages/{id:guid}/download",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IReleasePackageService packages,
+                    IBlobStorage blobs,
+                    PlatformMetrics metrics,
+                    CancellationToken cancellationToken) =>
+                {
+                    var download = await packages.ResolveDownloadAsync(
+                        RequireAppKey(principal), id, cancellationToken);
+                    RecordDownload(metrics, "package", download.SizeBytes);
+                    var stream = await blobs.OpenReadAsync(download.BlobPath, cancellationToken);
+                    context.Response.Headers["X-Content-Sha256"] = download.Sha256;
+                    return Results.Stream(
+                        stream,
+                        contentType: "application/octet-stream",
+                        fileDownloadName: download.FileName,
+                        lastModified: null,
+                        entityTag: new EntityTagHeaderValue($"\"{download.Sha256}\""),
+                        enableRangeProcessing: true);
+                })
+            .WithName("versions.client.package.download")
+            .WithSummary("下载全量/增量包（Range / ETag / 304，保留原文件名）")
+            .RequirePermission(PermissionCatalog.VersionsArtifactDownload);
+
+        client.MapGet(
+                "/updater",
+                async (
+                    HttpContext context,
+                    ICurrentPrincipal principal,
+                    IUpdaterReleaseService updaters,
+                    string? runtimeIdentifier = null,
+                    CancellationToken cancellationToken = default) =>
+                {
+                    var rid = runtimeIdentifier?.Trim();
+                    if (!VersionConventions.IsSupportedRuntime(rid))
+                    {
+                        throw new BusinessException(
+                            ApiErrorCode.VersionsRuntimeIdentifierUnsupported,
+                            $"不支持的 runtimeIdentifier：{runtimeIdentifier}。");
+                    }
+
+                    var latest = await updaters.GetLatestAsync(
+                                     RequireAppKey(principal), rid!, cancellationToken)
+                                 ?? throw BusinessException.NotFound(
+                                     ApiErrorCode.VersionsUpdaterNotFound,
+                                     "没有可用的更新器版本。");
+                    return ApiResults.Ok(context, latest);
+                })
+            .WithName("versions.client.updater.latest")
+            .WithSummary("读取当前运行时下最新的已发布更新器")
+            .RequirePermission(PermissionCatalog.VersionsReleaseRead);
+
+        client.MapGet(
+                "/updaters/{id:guid}/download",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IUpdaterReleaseService updaters,
+                    IBlobStorage blobs,
+                    PlatformMetrics metrics,
+                    CancellationToken cancellationToken) =>
+                {
+                    var download = await updaters.ResolveDownloadAsync(
+                        RequireAppKey(principal), id, cancellationToken);
+                    RecordDownload(metrics, "updater", download.SizeBytes);
+                    var stream = await blobs.OpenReadAsync(download.BlobPath, cancellationToken);
+                    context.Response.Headers["X-Content-Sha256"] = download.Sha256;
+                    return Results.Stream(
+                        stream,
+                        contentType: "application/octet-stream",
+                        fileDownloadName: download.FileName,
+                        lastModified: null,
+                        entityTag: new EntityTagHeaderValue($"\"{download.Sha256}\""),
+                        enableRangeProcessing: true);
+                })
+            .WithName("versions.client.updater.download")
+            .WithSummary("下载更新器分发包（Range / ETag / 304，保留原文件名）")
+            .RequirePermission(PermissionCatalog.VersionsArtifactDownload);
     }
+
+    private static void RecordDownload(PlatformMetrics metrics, string kind, long sizeBytes) =>
+        metrics.Increment(
+            PlatformMetricNames.VersionsPackageDownloadBytes,
+            PlatformMetricNames.VersionsPackageDownloadBytesHelp,
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["kind"] = kind },
+            sizeBytes);
 
     private static string RequireAppKey(ICurrentPrincipal principal) =>
         string.IsNullOrWhiteSpace(principal.AppKey)

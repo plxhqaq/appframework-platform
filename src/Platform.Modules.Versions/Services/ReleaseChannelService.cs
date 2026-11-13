@@ -47,26 +47,54 @@ public sealed partial class ReleaseChannelService : IReleaseChannelService
         string appKey,
         CancellationToken cancellationToken = default)
     {
-        var rows = await _db.Set<ReleaseChannel>()
+        var channels = await _db.Set<ReleaseChannel>()
             .AsNoTracking()
             .Where(x => x.AppKey == appKey)
             .OrderBy(static x => x.Key)
-            .Select(static x => new
-            {
-                Channel = x,
-                ReleaseCount = x.Releases.Count,
-                LatestVersion = x.Releases
-                    .Where(static r => r.Status == VersionConventions.StatusPublished)
-                    .OrderByDescending(static r => r.PublishedAt)
-                    .Select(static r => r.Version)
-                    .FirstOrDefault(),
-            })
             .ToListAsync(cancellationToken);
 
-        return [.. rows.Select(static row => ToDto(
-            row.Channel,
-            row.ReleaseCount,
-            row.LatestVersion))];
+        if (channels.Count == 0)
+        {
+            return [];
+        }
+
+        var releaseCounts = await _db.Set<Release>()
+            .AsNoTracking()
+            .Where(x => x.AppKey == appKey)
+            .GroupBy(static x => x.ChannelId)
+            .Select(static group => new { ChannelId = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(static x => x.ChannelId, static x => x.Count, cancellationToken);
+
+        var published = await _db.Set<Release>()
+            .AsNoTracking()
+            .Where(x => x.AppKey == appKey && x.Status == VersionConventions.StatusPublished)
+            .Select(static x => new { x.ChannelId, x.Version, x.PublishedAt })
+            .ToListAsync(cancellationToken);
+
+        var latestVersions = new Dictionary<Guid, string>();
+        foreach (var group in published.GroupBy(static x => x.ChannelId))
+        {
+            var best = group.First();
+            foreach (var candidate in group.Skip(1))
+            {
+                if (ReleaseVersionOrdering.Compare(
+                        candidate.Version, candidate.PublishedAt,
+                        best.Version, best.PublishedAt) > 0)
+                {
+                    best = candidate;
+                }
+            }
+
+            latestVersions[group.Key] = best.Version;
+        }
+
+        return
+        [
+            .. channels.Select(channel => ToDto(
+                channel,
+                releaseCounts.GetValueOrDefault(channel.Id),
+                latestVersions.GetValueOrDefault(channel.Id))),
+        ];
     }
 
     /// <inheritdoc />
@@ -104,6 +132,7 @@ public sealed partial class ReleaseChannelService : IReleaseChannelService
             Key = key,
             Name = name,
             Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
+            AllowDowngrade = request.AllowDowngrade,
         };
 
         _db.Set<ReleaseChannel>().Add(channel);
@@ -160,16 +189,37 @@ public sealed partial class ReleaseChannelService : IReleaseChannelService
             channel.IsEnabled = enabled;
         }
 
+        if (request.AllowDowngrade is { } allowDowngrade)
+        {
+            channel.AllowDowngrade = allowDowngrade;
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
 
         var releaseCount = await _db.Set<Release>()
             .CountAsync(x => x.ChannelId == channel.Id, cancellationToken);
-        var latestVersion = await _db.Set<Release>()
+        var published = await _db.Set<Release>()
             .AsNoTracking()
             .Where(x => x.ChannelId == channel.Id && x.Status == VersionConventions.StatusPublished)
-            .OrderByDescending(static x => x.PublishedAt)
-            .Select(static x => x.Version)
-            .FirstOrDefaultAsync(cancellationToken);
+            .Select(static x => new { x.Version, x.PublishedAt })
+            .ToListAsync(cancellationToken);
+
+        string? latestVersion = null;
+        if (published.Count > 0)
+        {
+            var best = published[0];
+            foreach (var candidate in published.Skip(1))
+            {
+                if (ReleaseVersionOrdering.Compare(
+                        candidate.Version, candidate.PublishedAt,
+                        best.Version, best.PublishedAt) > 0)
+                {
+                    best = candidate;
+                }
+            }
+
+            latestVersion = best.Version;
+        }
 
         return ToDto(channel, releaseCount, latestVersion);
     }
@@ -184,5 +234,6 @@ public sealed partial class ReleaseChannelService : IReleaseChannelService
             releaseCount,
             latestVersion,
             channel.CreatedAt,
-            channel.UpdatedAt);
+            channel.UpdatedAt,
+            channel.AllowDowngrade);
 }

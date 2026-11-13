@@ -7,6 +7,7 @@ using Platform.Contracts.Webhooks;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
+using Platform.Kernel.Metrics;
 using Platform.Modules.Versions.Domain;
 using Platform.Modules.Versions.Options;
 
@@ -62,6 +63,8 @@ public sealed partial class ReleaseService : IReleaseService
     private readonly IClock _clock;
     private readonly VersionsOptions _options;
     private readonly IPlatformEventPublisher _events;
+    private readonly IUpdaterReleaseService _updaters;
+    private readonly PlatformMetrics _metrics;
 
     /// <summary>构造。</summary>
     public ReleaseService(
@@ -69,13 +72,17 @@ public sealed partial class ReleaseService : IReleaseService
         IBlobStorage blobs,
         IClock clock,
         IOptions<VersionsOptions> options,
-        IPlatformEventPublisher events)
+        IPlatformEventPublisher events,
+        IUpdaterReleaseService updaters,
+        PlatformMetrics metrics)
     {
         _db = db;
         _blobs = blobs;
         _clock = clock;
         _options = options.Value;
         _events = events;
+        _updaters = updaters;
+        _metrics = metrics;
     }
 
     [GeneratedRegex(VersionConventions.ChannelKeyPattern, RegexOptions.CultureInvariant)]
@@ -129,7 +136,9 @@ public sealed partial class ReleaseService : IReleaseService
                 x.Artifacts.Sum(static a => a.TotalSizeBytes),
                 x.PublishedAt,
                 x.CreatedAt,
-                x.UpdatedAt));
+                x.UpdatedAt,
+                x.Packages.Count,
+                x.Packages.Sum(static p => p.SizeBytes)));
 
         return await projection.ToPageResultAsync(page, cancellationToken);
     }
@@ -266,16 +275,19 @@ public sealed partial class ReleaseService : IReleaseService
                 $"版本 {release.Version} 已归档，不能重新发布。");
         }
 
-        if (release.Artifacts.Count == 0)
+        if (release.Artifacts.Count == 0 && !HasReadyInstaller(release))
         {
-            throw BusinessException.Invalid("版本没有任何产物，不能发布。");
+            throw BusinessException.Invalid("版本既没有产物也没有可用的全量安装包，不能发布。");
         }
 
-        var files = release.Artifacts
-            .SelectMany(static artifact => artifact.Files)
-            .Select(static file => new ReleaseFileDto(file.Path, file.Sha256, file.SizeBytes))
-            .ToList();
-        await EnsureBlobsAsync(appKey, [new ArtifactInput("all", files)], cancellationToken);
+        if (release.Artifacts.Count > 0)
+        {
+            var files = release.Artifacts
+                .SelectMany(static artifact => artifact.Files)
+                .Select(static file => new ReleaseFileDto(file.Path, file.Sha256, file.SizeBytes))
+                .ToList();
+            await EnsureBlobsAsync(appKey, [new ArtifactInput("all", files)], cancellationToken);
+        }
 
         release.Status = VersionConventions.StatusPublished;
         release.PublishedAt = _clock.UtcNow;
@@ -310,6 +322,32 @@ public sealed partial class ReleaseService : IReleaseService
         CheckUpdateRequest request,
         CancellationToken cancellationToken = default)
     {
+        CheckUpdateResponse response;
+        try
+        {
+            response = await CheckCoreAsync(appKey, request, cancellationToken);
+        }
+        catch
+        {
+            IncrementCheck("error");
+            throw;
+        }
+
+        IncrementCheck(response.HasUpdate ? "update" : "none");
+        return response;
+    }
+
+    private void IncrementCheck(string result) =>
+        _metrics.Increment(
+            PlatformMetricNames.VersionsCheck,
+            PlatformMetricNames.VersionsCheckHelp,
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["result"] = result });
+
+    private async Task<CheckUpdateResponse> CheckCoreAsync(
+        string appKey,
+        CheckUpdateRequest request,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(request);
 
         var channelKey = request.ChannelKey?.Trim();
@@ -335,28 +373,92 @@ public sealed partial class ReleaseService : IReleaseService
                           ApiErrorCode.VersionsChannelNotFound,
                           $"渠道 {channelKey} 不存在。");
 
-        var release = await _db.Set<Release>()
+        var published = await _db.Set<Release>()
             .AsNoTracking()
             .Include(static x => x.Artifacts)
             .ThenInclude(static x => x.Files)
+            .Include(static x => x.Packages)
             .Where(x => x.ChannelId == channel.Id && x.Status == VersionConventions.StatusPublished)
-            .OrderByDescending(static x => x.PublishedAt)
-            .ThenByDescending(static x => x.Version)
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? throw BusinessException.NotFound(
+            .ToListAsync(cancellationToken);
+
+        var currentVersion = request.CurrentVersion?.Trim();
+        var updater = await _updaters.GetLatestAsync(appKey, runtimeIdentifier!, cancellationToken);
+        var hasUpdaterUpdate = HasUpdaterUpdate(request.UpdaterVersion, updater);
+
+        if (published.Count == 0)
+        {
+            if (updater is not null)
+            {
+                // 本体还没有已发布版本，但更新器可以先补齐；不要用 212 阻断更新器下发。
+                return new CheckUpdateResponse(
+                    false,
+                    channelKey,
+                    currentVersion,
+                    null,
+                    HasUpdaterUpdate: hasUpdaterUpdate,
+                    Updater: updater);
+            }
+
+            throw BusinessException.NotFound(
                 ApiErrorCode.VersionsNoPublishedRelease,
                 $"渠道 {channelKey} 没有已发布版本。");
-
-        var artifact = release.Artifacts.FirstOrDefault(x => x.RuntimeIdentifier == runtimeIdentifier);
-        if (artifact is null)
-        {
-            return new CheckUpdateResponse(false, channelKey, request.CurrentVersion?.Trim(), null);
         }
 
-        var manifest = ToManifest(release, channelKey, artifact);
-        var currentVersion = request.CurrentVersion?.Trim();
-        var hasUpdate = !string.Equals(currentVersion, release.Version, StringComparison.Ordinal);
-        return new CheckUpdateResponse(hasUpdate, channelKey, currentVersion, manifest);
+        var latest = published[0];
+        foreach (var candidate in published.Skip(1))
+        {
+            // 语义版本优先，同版本再取更晚发布的；避免「先发 1.10 后发 1.9」时 1.9 被当成最新。
+            if (ReleaseVersionOrdering.Compare(
+                    candidate.Version, candidate.PublishedAt,
+                    latest.Version, latest.PublishedAt) > 0)
+            {
+                latest = candidate;
+            }
+        }
+
+        var latestVersion = latest.Version;
+        var currentKnown = VersionComparer.TryCompare(currentVersion, latestVersion, out var comparison);
+        var isDowngrade = currentKnown && comparison > 0;
+        var allowDowngrade = request.AllowDowngrade || channel.AllowDowngrade;
+        var hasUpdate = !currentKnown || comparison < 0 || (isDowngrade && allowDowngrade);
+
+        var artifact = latest.Artifacts.FirstOrDefault(x => x.RuntimeIdentifier == runtimeIdentifier);
+        var installer = ReleasePackageService.SelectInstaller(latest.Packages, runtimeIdentifier!);
+        var incremental = ReleasePackageService.SelectIncremental(latest.Packages, runtimeIdentifier!);
+        if (artifact is null && installer is null)
+        {
+            // 最新版本对该运行时没有可下载内容：不冒充「有更新」，也不回退到更老的版本。
+            return new CheckUpdateResponse(
+                false,
+                channelKey,
+                currentVersion,
+                null,
+                latestVersion,
+                isDowngrade,
+                HasUpdaterUpdate: hasUpdaterUpdate,
+                Updater: updater,
+                Notes: latest.Notes,
+                PublishedAt: latest.PublishedAt);
+        }
+
+        var manifest = artifact is null ? null : ToManifest(latest, channelKey, artifact);
+        return new CheckUpdateResponse(
+            hasUpdate,
+            channelKey,
+            currentVersion,
+            manifest,
+            latestVersion,
+            isDowngrade,
+            Installer: installer is null
+                ? null
+                : ReleasePackageService.ToDto(installer, channelKey, latest.Version, reused: false),
+            IncrementalPackage: incremental is null || !hasUpdate
+                ? null
+                : ReleasePackageService.ToDto(incremental, channelKey, latest.Version, reused: false),
+            HasUpdaterUpdate: hasUpdaterUpdate,
+            Updater: updater,
+            Notes: latest.Notes,
+            PublishedAt: latest.PublishedAt);
     }
 
     /// <inheritdoc />
@@ -423,10 +525,30 @@ public sealed partial class ReleaseService : IReleaseService
                    .Include(static x => x.Channel)
                    .Include(static x => x.Artifacts)
                    .ThenInclude(static x => x.Files)
+                   .Include(static x => x.Packages)
                    .FirstOrDefaultAsync(x => x.Id == id && x.AppKey == appKey, cancellationToken)
                ?? throw BusinessException.NotFound(
                    ApiErrorCode.VersionsReleaseNotFound,
                    $"版本 {id} 不存在。");
+    }
+
+    private static bool HasReadyInstaller(Release release) =>
+        release.Packages.Any(static x => x.Kind == VersionConventions.PackageKindFull
+                                         && x.Status == VersionConventions.PackageStatusReady);
+
+    /// <summary>
+    /// 未上报更新器版本（首次安装）或版本号无法解析时都按下发处理；
+    /// 只有明确不旧于最新版才判否。
+    /// </summary>
+    private static bool HasUpdaterUpdate(string? currentVersion, UpdaterInfoDto? latest)
+    {
+        if (latest is null)
+        {
+            return false;
+        }
+
+        return !VersionComparer.TryCompare(currentVersion, latest.Version, out var comparison)
+               || comparison < 0;
     }
 
     private Task PublishReleasedAsync(
@@ -596,6 +718,13 @@ public sealed partial class ReleaseService : IReleaseService
                     .Select(static file => new ReleaseFileDto(file.Path, file.Sha256, file.SizeBytes))]))
             .ToList();
 
+        var packages = release.Packages
+            .OrderBy(static x => x.Kind, StringComparer.Ordinal)
+            .ThenBy(static x => x.Target, StringComparer.Ordinal)
+            .ThenBy(static x => x.Format, StringComparer.Ordinal)
+            .Select(x => ReleasePackageService.ToDto(x, release.Channel.Key, release.Version, reused: false))
+            .ToList();
+
         return new ReleaseDetailDto(
             release.Id,
             release.Channel.Key,
@@ -610,7 +739,8 @@ public sealed partial class ReleaseService : IReleaseService
             release.CreatedBy,
             release.CreatedAt,
             release.UpdatedAt,
-            artifacts);
+            artifacts,
+            packages);
     }
 
     private static ReleaseManifestDto ToManifest(Release release, string channelKey, ReleaseArtifact artifact)

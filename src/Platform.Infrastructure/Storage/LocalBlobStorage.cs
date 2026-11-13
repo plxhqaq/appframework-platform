@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using Platform.Kernel.Abstractions;
@@ -28,7 +29,7 @@ public sealed class BlobStorageOptions
 /// <see cref="File.Move(string, string, bool)"/> 原子替换。任何中途失败都不会留下可被读到的半成品。
 /// 后续接入 S3/MinIO 时只需替换本类实现，接口不变。
 /// </remarks>
-public sealed class LocalBlobStorage : IBlobStorage
+public sealed class LocalBlobStorage : IBlobStorage, IBlobEnumerator, IStorageCapacity
 {
     /// <summary>待发布文件后缀；发布即 rename 到最终路径。</summary>
     private const string PendingSuffix = ".pending";
@@ -201,6 +202,96 @@ public sealed class LocalBlobStorage : IBlobStorage
     {
         TryDelete(Resolve(relativePath));
         return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task<long> GetAvailableFreeBytesAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // 取覆盖根目录的挂载点里最长的一个：容器里 /data 独立挂载时不能误报根卷容量。
+        DriveInfo? best = null;
+        foreach (var drive in DriveInfo.GetDrives())
+        {
+            if (!drive.IsReady)
+            {
+                continue;
+            }
+
+            var mount = drive.RootDirectory.FullName;
+            if (!_root.StartsWith(mount, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (best is null || mount.Length > best.RootDirectory.FullName.Length)
+            {
+                best = drive;
+            }
+        }
+
+        try
+        {
+            return Task.FromResult(best?.AvailableFreeSpace ?? long.MaxValue);
+        }
+        catch (IOException)
+        {
+            return Task.FromResult(long.MaxValue);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Task.FromResult(long.MaxValue);
+        }
+    }
+
+    /// <inheritdoc />
+    public async IAsyncEnumerable<BlobEntry> EnumerateAsync(
+        string prefix,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var directory = Resolve(prefix);
+        if (!Directory.Exists(directory))
+        {
+            yield break;
+        }
+
+        // 大目录枚举是同步 IO，先让出调用线程，避免 README/维护任务长时间占住。
+        await Task.Yield();
+
+        var enumeration = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+            AttributesToSkip = FileAttributes.ReparsePoint,
+        };
+
+        foreach (var path in Directory.EnumerateFiles(directory, "*", enumeration))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // 未提交的 .pending 与写入中的临时文件不属于业务内容，不参与盘点/清理。
+            if (path.EndsWith(PendingSuffix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var relative = Path.GetRelativePath(_root, path).Replace('\\', '/');
+            if (relative.StartsWith(_options.TempDirectoryName + "/", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var info = new FileInfo(path);
+            if (!info.Exists)
+            {
+                continue;
+            }
+
+            yield return new BlobEntry(
+                relative,
+                info.Length,
+                new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero));
+        }
     }
 
     private static FileStream OpenFile(string path, FileOptions options) =>

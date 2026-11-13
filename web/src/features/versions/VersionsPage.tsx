@@ -1,4 +1,4 @@
-import { AppstoreOutlined, PlusOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, CloudUploadOutlined, PlusOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -20,6 +20,7 @@ import { formatBytes } from '../../shared/format';
 import { PERMISSIONS } from '../../shared/permissions';
 import { useAuthStore } from '../../stores/auth';
 import { ChannelFormModal } from './ChannelFormModal';
+import { PackageUploadModal } from './PackageUploadModal';
 import { ReleaseCreateModal } from './ReleaseCreateModal';
 import { ReleaseDetailDrawer } from './ReleaseDetailDrawer';
 
@@ -45,6 +46,9 @@ export function VersionsPage() {
   const canPublish = useAuthStore((state) => state.hasPermission(PERMISSIONS.versionsReleasePublish));
   const canArchive = useAuthStore((state) => state.hasPermission(PERMISSIONS.versionsReleaseArchive));
   const canUpload = useAuthStore((state) => state.hasPermission(PERMISSIONS.versionsArtifactUpload));
+  const canDownload = useAuthStore((state) =>
+    state.hasPermission(PERMISSIONS.versionsArtifactDownload),
+  );
 
   const appKeys = session?.appKeys ?? [];
   const appKey = session?.appKey ?? appKeys[0] ?? null;
@@ -52,6 +56,7 @@ export function VersionsPage() {
   const [channelFormOpen, setChannelFormOpen] = useState(false);
   const [editingChannel, setEditingChannel] = useState<ReleaseChannel | null>(null);
   const [releaseFormOpen, setReleaseFormOpen] = useState(false);
+  const [packageFormOpen, setPackageFormOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [channelFilter, setChannelFilter] = useState<string | undefined>();
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
@@ -178,6 +183,7 @@ export function VersionsPage() {
       },
     },
     { title: '产物', dataIndex: 'artifactCount', key: 'artifactCount', width: 70 },
+    { title: '安装包', dataIndex: 'packageCount', key: 'packageCount', width: 80 },
     { title: '文件数', dataIndex: 'fileCount', key: 'fileCount', width: 80 },
     {
       title: '总大小',
@@ -289,11 +295,18 @@ export function VersionsPage() {
         size="small"
         title="版本"
         extra={
-          canPublish && canUpload ? (
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setReleaseFormOpen(true)}>
-              新建版本
-            </Button>
-          ) : null
+          <Space>
+            {canUpload ? (
+              <Button icon={<CloudUploadOutlined />} onClick={() => setPackageFormOpen(true)}>
+                上传安装包
+              </Button>
+            ) : null}
+            {canPublish && canUpload ? (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setReleaseFormOpen(true)}>
+                新建版本
+              </Button>
+            ) : null}
+          </Space>
         }
       >
         <Space wrap style={{ marginBottom: 12 }}>
@@ -352,10 +365,20 @@ export function VersionsPage() {
         onSaved={() => void refresh()}
       />
 
+      <PackageUploadModal
+        open={packageFormOpen}
+        channels={(channels.data ?? []).filter((channel) => channel.isEnabled)}
+        canPublish={canPublish}
+        onClose={() => setPackageFormOpen(false)}
+        onSaved={() => void refresh()}
+      />
+
       <ReleaseDetailDrawer
         releaseId={detailId}
         canPublish={canPublish}
         canArchive={canArchive}
+        canDownload={canDownload}
+        canUpload={canUpload}
         onClose={() => setDetailId(null)}
         onChanged={() => void refresh()}
       />

@@ -308,6 +308,7 @@ export interface ReleaseChannel {
   latestVersion?: string | null;
   createdAt: string;
   updatedAt: string;
+  allowDowngrade: boolean;
 }
 
 /** 创建渠道。 */
@@ -315,6 +316,7 @@ export interface CreateReleaseChannelRequest {
   key: string;
   name: string;
   description?: string | null;
+  allowDowngrade?: boolean;
 }
 
 /** 更新渠道；字段缺省表示不修改。 */
@@ -322,6 +324,7 @@ export interface UpdateReleaseChannelRequest {
   name?: string | null;
   description?: string | null;
   isEnabled?: boolean | null;
+  allowDowngrade?: boolean;
 }
 
 /** 版本状态：draft / published / archived。 */
@@ -344,6 +347,8 @@ export interface ReleaseSummary {
   artifactCount: number;
   fileCount: number;
   totalSizeBytes: number;
+  packageCount: number;
+  packageSizeBytes: number;
   publishedAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -363,6 +368,7 @@ export interface ReleaseDetail extends ReleaseSummary {
   archivedAt?: string | null;
   createdBy?: string | null;
   artifacts: ReleaseArtifact[];
+  packages?: ReleasePackage[] | null;
 }
 
 /** 发布时提交的单个文件条目。 */
@@ -405,6 +411,85 @@ export interface UploadResult {
   sha256: string;
   sizeBytes: number;
   reused: boolean;
+}
+
+/** 包类型：full（全量安装包）/ incremental（文件级增量包）。 */
+export type ReleasePackageKind = 'full' | 'incremental';
+
+/** 摄取状态：pending / processing / ready / failed。 */
+export type ReleasePackageStatus = 'pending' | 'processing' | 'ready' | 'failed';
+
+/** 清单来源：embedded（重写进 PE）/ zip（包内 JSON）/ sidecar / manual（人工全量）/ legacy。 */
+export type PackageManifestSource = 'embedded' | 'zip' | 'sidecar' | 'manual' | 'legacy';
+
+/** 发布包（管理台登记与 check 下发用）。 */
+export interface ReleasePackage {
+  id: string;
+  releaseId: string;
+  channelKey: string;
+  version: string;
+  kind: ReleasePackageKind;
+  target: string;
+  format: string;
+  fileName: string;
+  sha256: string;
+  sizeBytes: number;
+  status: ReleasePackageStatus;
+  manifestSource: PackageManifestSource;
+  manifestHash?: string | null;
+  /** 摄取完成后的清单文件数；全量包或尚未完成时为 null。 */
+  fileCount?: number | null;
+  reused: boolean;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 登记发布包；字节须先经上传票据直传。 */
+export interface RegisterReleasePackageRequest {
+  sha256: string;
+  sizeBytes: number;
+  fileName: string;
+  kind?: ReleasePackageKind | null;
+  target?: string | null;
+  format?: string | null;
+  channelKey?: string | null;
+  version?: string | null;
+  manifestSha256?: string | null;
+  publish: boolean;
+  notes?: string | null;
+}
+
+/** 更新器版本状态：published（客户端可见）/ archived（回退到上一版）。 */
+export type UpdaterStatus = 'published' | 'archived';
+
+/** 更新器分发包；独立版本线，客户端先更更新器再更应用。 */
+export interface UpdaterInfo {
+  id: string;
+  target: string;
+  version: string;
+  fileName: string;
+  sha256: string;
+  sizeBytes: number;
+  manifestHash?: string | null;
+  status: UpdaterStatus;
+  notes?: string | null;
+  publishedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 登记更新器；版本留空时服务端依次取清单、PE FileVersion。 */
+export interface RegisterUpdaterRequest {
+  target?: string | null;
+  version?: string | null;
+  fileName: string;
+  sha256: string;
+  sizeBytes: number;
+  manifestSha256?: string | null;
+  notes?: string | null;
 }
 
 /** 授权产品（同一应用下按产品分别签发授权）。 */

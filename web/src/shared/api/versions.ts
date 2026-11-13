@@ -1,13 +1,17 @@
-import { request } from './client';
+import { request, uploadWithProgress } from './client';
 import type {
   CreateReleaseChannelRequest,
   CreateReleaseRequest,
   CreateUploadTicketRequest,
   PageResult,
+  RegisterReleasePackageRequest,
+  RegisterUpdaterRequest,
   ReleaseChannel,
   ReleaseDetail,
+  ReleasePackage,
   ReleaseSummary,
   UpdateReleaseChannelRequest,
+  UpdaterInfo,
   UploadResult,
   UploadTicket,
 } from './types';
@@ -26,6 +30,21 @@ export interface ReleaseListQuery {
   page?: number;
   pageSize?: number;
   channelKey?: string;
+  status?: string;
+}
+
+export interface ReleasePackageListQuery {
+  page?: number;
+  pageSize?: number;
+  channelKey?: string;
+  kind?: string;
+  status?: string;
+}
+
+export interface UpdaterListQuery {
+  page?: number;
+  pageSize?: number;
+  target?: string;
   status?: string;
 }
 
@@ -90,4 +109,62 @@ export const versionsApi = {
   /** 凭票据上传文件内容（一次性；内容寻址去重）。 */
   upload: (ticket: UploadTicket, file: Blob) =>
     request<UploadResult>(ticket.uploadUrl, { method: 'PUT', rawBody: file }),
+
+  /** 带进度的票据上传；大安装包需要进度反馈。 */
+  uploadWithProgress: (
+    ticket: UploadTicket,
+    file: Blob,
+    onProgress?: (loaded: number, total: number) => void,
+    signal?: AbortSignal,
+  ) =>
+    uploadWithProgress<UploadResult>(ticket.uploadUrl, file, { onProgress, signal }),
+
+  listPackages: (query: ReleasePackageListQuery, signal?: AbortSignal) =>
+    request<PageResult<ReleasePackage>>(
+      `/api/v1/admin/versions/packages${toQueryString({ ...query })}`,
+      { signal },
+    ),
+
+  getPackage: (id: string, signal?: AbortSignal) =>
+    request<ReleasePackage>(`/api/v1/admin/versions/packages/${id}`, { signal }),
+
+  /** 登记发布包；内容须先经上传票据落盘，清单为空时服务端尝试从包内探测。 */
+  registerPackage: (body: RegisterReleasePackageRequest) =>
+    request<ReleasePackage>('/api/v1/admin/versions/packages', {
+      method: 'POST',
+      body,
+      headers: { 'Idempotency-Key': idempotencyKey() },
+    }),
+
+  /** 删除包登记（仅草稿版本）；已发布版本须先归档。 */
+  deletePackage: (id: string) =>
+    request<ReleasePackage>(`/api/v1/admin/versions/packages/${id}`, { method: 'DELETE' }),
+
+  /** 重试失败的增量包摄取（failed → pending；其他状态由服务端拒绝）。 */
+  retryPackage: (id: string) =>
+    request<ReleasePackage>(`/api/v1/admin/versions/packages/${id}/retry`, { method: 'POST' }),
+
+  listUpdaters: (query: UpdaterListQuery, signal?: AbortSignal) =>
+    request<PageResult<UpdaterInfo>>(
+      `/api/v1/admin/versions/updaters${toQueryString({ ...query })}`,
+      { signal },
+    ),
+
+  /** 登记更新器；内容须先经上传票据落盘。 */
+  registerUpdater: (body: RegisterUpdaterRequest) =>
+    request<UpdaterInfo>('/api/v1/admin/versions/updaters', {
+      method: 'POST',
+      body,
+      headers: { 'Idempotency-Key': idempotencyKey() },
+    }),
+
+  archiveUpdater: (id: string) =>
+    request<UpdaterInfo>(`/api/v1/admin/versions/updaters/${id}/archive`, { method: 'POST' }),
+
+  /** 某运行时下客户端实际会拿到的更新器（同 RID 优先、再回退 any）。 */
+  latestUpdater: (runtimeIdentifier: string, signal?: AbortSignal) =>
+    request<UpdaterInfo>(
+      `/api/v1/client/versions/updater${toQueryString({ runtimeIdentifier })}`,
+      { signal },
+    ),
 };

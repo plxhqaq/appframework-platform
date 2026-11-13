@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Platform.PostgresTests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Platform.Kernel\Platform.Kernel.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Infrastructure\Platform.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Modules.Apps\Platform.Modules.Apps.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Modules.Backups\Platform.Modules.Backups.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Modules.Documents\Platform.Modules.Documents.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Modules.Identity\Platform.Modules.Identity.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Modules.Licensing\Platform.Modules.Licensing.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Modules.Versions\Platform.Modules.Versions.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Modules.Webhooks\Platform.Modules.Webhooks.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

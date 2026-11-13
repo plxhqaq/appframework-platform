@@ -13,6 +13,7 @@ import { QrApprovalPage } from '../features/identity/QrApprovalPage';
 import { QrSessionDetailPage } from '../features/identity/QrSessionDetailPage';
 import { SingleKeyPage } from '../features/identity/SingleKeyPage';
 import { LicensingPage } from '../features/licensing/LicensingPage';
+import { UpdatersPage } from '../features/updaters/UpdatersPage';
 import { VersionsPage } from '../features/versions/VersionsPage';
 import { WebhooksPage } from '../features/webhooks/WebhooksPage';
 import { PERMISSIONS, hasAnyPermissionCode } from '../shared/permissions';
@@ -77,6 +78,7 @@ const router = createBrowserRouter([
       { path: 'apps', element: <Guarded path="/apps"><AppsPage /></Guarded> },
       { path: 'identity', element: <Guarded path="/identity"><IdentityPage /></Guarded> },
       { path: 'versions', element: <Guarded path="/versions"><VersionsPage /></Guarded> },
+      { path: 'updaters', element: <Guarded path="/updaters"><UpdatersPage /></Guarded> },
       { path: 'backups', element: <Guarded path="/backups"><BackupsPage /></Guarded> },
       { path: 'documents', element: <Guarded path="/documents"><DocumentsPage /></Guarded> },
       { path: 'licensing', element: <Guarded path="/licensing"><LicensingPage /></Guarded> },

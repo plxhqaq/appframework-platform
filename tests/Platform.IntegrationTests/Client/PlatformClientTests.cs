@@ -1,8 +1,10 @@
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using AppFramework.Platform.Client;
+using Microsoft.Extensions.DependencyInjection;
 using Platform.Contracts;
 using Platform.Contracts.Apps;
 using Platform.Contracts.Backups;
@@ -12,6 +14,7 @@ using Platform.Contracts.Licensing;
 using Platform.Contracts.Permissions;
 using Platform.Contracts.Versions;
 using Platform.IntegrationTests.Support;
+using Platform.Modules.Versions.Services;
 
 namespace Platform.IntegrationTests.Client;
 
@@ -208,6 +211,108 @@ public sealed class PlatformClientTests : IClassFixture<PlatformApiFactory>, IDi
             Assert.Equal(ReleaseBytes, await File.ReadAllBytesAsync(target));
 
             // 失败路径只留临时文件，成功路径必须没有残留
+            Assert.Empty(Directory.GetFiles(_downloadDir, "*.tmp"));
+        }
+    }
+
+    [Fact]
+    public async Task 更新器与增量包可经SDK查询并校验下载()
+    {
+        var (raw, sdk) = CreatePair();
+        using (raw)
+        {
+            var adminToken = await IdentityTestHelpers.LoginAsAdminAsync(raw);
+            const string channelKey = "sdk-inc";
+            await CreateChannelAsync(raw, adminToken, channelKey);
+
+            var updaterZip = BuildZip(
+                ("af-package.json", """
+                {
+                  "schema": "af-package/1",
+                  "kind": "updater",
+                  "version": "2.0.0",
+                  "runtimeIdentifier": "win-x64",
+                  "entryPoint": "Updater.exe"
+                }
+                """),
+                ("Updater.exe", Encoding.UTF8.GetString(ReleaseBytes)));
+            var updaterSha = await UploadAsync(raw, adminToken, updaterZip);
+            var updater = await IdentityTestHelpers.ReadDataAsync<UpdaterInfoDto>(
+                await raw.SendAsync(IdentityTestHelpers.Authorized(
+                    HttpMethod.Post,
+                    "/api/v1/admin/versions/updaters",
+                    adminToken,
+                    new RegisterUpdaterRequest(
+                        "win-x64", null, "AppFramework.Updater-2.0.0.zip", updaterSha, updaterZip.Length))));
+            Assert.Equal("2.0.0", updater.Version);
+
+            var payloadSha = Convert.ToHexString(SHA256.HashData(ReleaseBytes)).ToLowerInvariant();
+            var manifest = $$"""
+            {
+              "schema": "af-package/1",
+              "kind": "incremental",
+              "channelKey": "{{channelKey}}",
+              "version": "3.0.0",
+              "runtimeIdentifier": "win-x64",
+              "files": [
+                { "path": "App.exe", "sha256": "{{payloadSha}}", "sizeBytes": {{ReleaseBytes.Length}} }
+              ]
+            }
+            """;
+            var incrementalZip = BuildZip(
+                ("af-package.json", manifest),
+                ("App.exe", Encoding.UTF8.GetString(ReleaseBytes)));
+            var incrementalSha = await UploadAsync(raw, adminToken, incrementalZip);
+            var registered = await IdentityTestHelpers.ReadDataAsync<ReleasePackageDto>(
+                await raw.SendAsync(IdentityTestHelpers.Authorized(
+                    HttpMethod.Post,
+                    "/api/v1/admin/versions/packages",
+                    adminToken,
+                    new RegisterReleasePackageRequest(
+                        incrementalSha,
+                        incrementalZip.Length,
+                        $"Update-{channelKey}-3.0.0.zip",
+                        VersionConventions.PackageKindIncremental,
+                        Target: "win-x64",
+                        Format: "zip",
+                        ChannelKey: channelKey,
+                        Version: "3.0.0",
+                        Publish: true))));
+
+            // 宿主里摄取循环关闭，直接驱动一次
+            using (var scope = _factory.Services.CreateScope())
+            {
+                var ingestion = scope.ServiceProvider.GetRequiredService<IReleasePackageIngestionService>();
+                var processed = await ingestion.ProcessNextAsync();
+                Assert.NotNull(processed);
+                Assert.Equal(registered.Id, processed!.Id);
+                Assert.Equal(VersionConventions.PackageStatusReady, processed.Status);
+            }
+
+            await sdk.SignInAsync("admin", IdentityTestHelpers.AdminPassword, AppKey);
+
+            var latestUpdater = await sdk.GetLatestUpdaterAsync("win-x64");
+            Assert.Equal(updater.Id, latestUpdater.Id);
+
+            var updaterPath = Path.Combine(_downloadDir, "updater.zip");
+            Assert.True(await sdk.DownloadUpdaterAsync(updater.Id, updaterPath, updaterSha));
+            Assert.Equal(updaterZip, await File.ReadAllBytesAsync(updaterPath));
+            Assert.False(await sdk.DownloadUpdaterAsync(updater.Id, updaterPath, updaterSha, ifNoneMatch: updaterSha));
+
+            var check = await sdk.CheckUpdateAsync(channelKey, "2.9.0", "win-x64", updaterVersion: "1.0.0");
+            Assert.True(check.HasUpdate);
+            Assert.True(check.HasUpdaterUpdate);
+            Assert.NotNull(check.IncrementalPackage);
+
+            var packagePath = Path.Combine(_downloadDir, "incremental.zip");
+            Assert.True(await sdk.DownloadReleasePackageAsync(
+                check.IncrementalPackage!.Id, packagePath, incrementalSha));
+            Assert.Equal(incrementalZip, await File.ReadAllBytesAsync(packagePath));
+
+            var upToDate = await sdk.CheckUpdateAsync(channelKey, "3.0.0", "win-x64", updaterVersion: "2.0.0");
+            Assert.False(upToDate.HasUpdaterUpdate);
+            Assert.Null(upToDate.IncrementalPackage);
+
             Assert.Empty(Directory.GetFiles(_downloadDir, "*.tmp"));
         }
     }
@@ -507,6 +612,23 @@ public sealed class PlatformClientTests : IClassFixture<PlatformApiFactory>, IDi
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return await IdentityTestHelpers.ReadDataAsync<DocumentDetailDto>(await client.SendAsync(request));
+    }
+
+    private static byte[] BuildZip(params (string Name, string Content)[] entries)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var (name, content) in entries)
+            {
+                var entry = archive.CreateEntry(name);
+                using var stream = entry.Open();
+                using var writer = new StreamWriter(stream, new UTF8Encoding(false));
+                writer.Write(content);
+            }
+        }
+
+        return buffer.ToArray();
     }
 
     /// <inheritdoc />

@@ -26,7 +26,10 @@ jobs:
         run: dotnet build Platform.slnx -c Release --disable-build-servers -warnaserror
 
       - name: 单元测试
-        run: dotnet test Platform.slnx -c Release --no-build --disable-build-servers --logger "trx;LogFileName=unit-tests.trx"
+        run: >-
+          dotnet test Platform.slnx -c Release --no-build --disable-build-servers
+          --filter "FullyQualifiedName!~Platform.PostgresTests"
+          --logger "trx;LogFileName=unit-tests.trx"
 
       # 跨端契约包必须能独立产出，否则客户端仓库无法 pin 版本
       - name: 打包契约包
@@ -58,6 +61,31 @@ jobs:
           name: contracts-nupkg
           path: artifacts/packages/*.nupkg
           if-no-files-found: error
+
+  postgres:
+    name: PostgreSQL 集成（Testcontainers）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # 真 PostgreSQL 上验证迁移、jsonb、唯一索引与 SKIP LOCKED；InMemory 覆盖不到这些
+      - name: PostgreSQL 用例
+        run: >-
+          dotnet test tests/Platform.PostgresTests/Platform.PostgresTests.csproj
+          -c Release --disable-build-servers
+          --logger "trx;LogFileName=postgres-tests.trx"
+
+      - name: 上传测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-trx
+          path: '**/*.trx'
+          if-no-files-found: ignore
 
   web:
     name: React 管理台 校验 / 构建

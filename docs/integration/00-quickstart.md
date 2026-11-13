@@ -735,7 +735,7 @@ dotnet pack src/AppFramework.Platform.Client/AppFramework.Platform.Client.csproj
 `AppFramework.Platform.Contracts` 内含 DTO、错误码、权限码目录、Hub 契约与分页类型；
 `AppFramework.Platform.Client` 是薄 SDK（令牌 + 自动续期 + 下载 + `LicenseVerifier`）。
 两者版本号都由 `Directory.Build.props` 的 `PlatformContractsVersion` / `PlatformClientVersion` 单点控制，
-当前 `0.1.0-preview.1`。客户端仓库应**精确 pin 版本**（不用 `*` 或范围），破坏性变更必须主版本 +1。
+当前 `0.2.0-preview.1`。客户端仓库应**精确 pin 版本**（不用 `*` 或范围），破坏性变更必须主版本 +1。
 在线文档（OpenAPI / Scalar）与包的完整清单见 [`07-openapi.md`](07-openapi.md)。
 
 ---

@@ -12,13 +12,14 @@ src/
   AppFramework.Platform.Client/  桌面客户端 SDK（令牌 + 自动续期 + 下载 + 授权快照验签）
   Platform.Kernel/         内核（模块契约、统一返回、权限、认证、中间件）
   Platform.Infrastructure/ 基础设施（EF Core、Blob、审计、幂等、迁移）
-  Platform.Workers/        后台任务（过期幂等记录/审计日志清理）
+  Platform.Workers/        后台任务（幂等/审计/保留清理、Blob 孤儿扫描、增量包摄取）
   Platform.Modules.*/      七个业务模块
   Platform.Api/            宿主（端点装配、认证、限流、OpenAPI、托管静态资源）
 tests/
   Platform.UnitTests/      纯逻辑单元测试
   Platform.ContractTests/  跨端契约测试（错误码/权限码唯一性与分段）
   Platform.IntegrationTests/ 数据库集成测试（EF InMemory）
+  Platform.PostgresTests/  真实 PostgreSQL 测试（Testcontainers，需 Docker，CI 独立 job）
 samples/
   ConsoleQuickstart/       一条命令跑通全链路的验收脚本（SDK 的消费示例）
 web/                       React 18 + Ant Design 5 + Vite 管理台
@@ -76,9 +77,10 @@ dotnet ef database update \
 `IPlatformModelContributor`。**不要**把工厂移回 Infrastructure：那样生成出来的迁移只包含横切表。
 
 生产环境由部署流程显式执行迁移，`Database:AutoMigrate` 保持 `false`（多副本同时迁移会冲突）。
-**当前版本仅支持单副本**：启动时用 PostgreSQL advisory lock 抢占唯一实例锁，第二个共用同一数据库的
-进程会直接启动失败并打印原因。Webhook 投递没有行级认领、回执与 SignalR 推送是进程内状态，
-扩容前先补这两项再关闭 `Deployment:RequireSingleInstance`。
+**默认仍按单副本部署**：启动时用 PostgreSQL advisory lock 抢占唯一实例锁，第二个共用同一数据库的
+进程会直接启动失败并打印原因。增量包摄取已经改成行级认领（`FOR UPDATE SKIP LOCKED` + 租约，
+多副本同时跑 Worker 不会重复摄取，见 `tests/Platform.PostgresTests`），但 Webhook 投递没有行级认领、
+回执与 SignalR 推送仍是进程内状态，扩容前先补这两项再关闭 `Deployment:RequireSingleInstance`。
 EF 迁移**只向前**：没有 down-migration 流程，含破坏性 DDL 的版本回滚前必须先做全量备份。
 
 ## 一键部署
@@ -200,6 +202,12 @@ cd web && pnpm install --frozen-lockfile && pnpm verify && pnpm build
 CI（`.github/workflows/ci.yml`）执行同一组命令，并额外产出 `AppFramework.Platform.Contracts`
 与 `AppFramework.Platform.Client` 两个 nupkg。
 
+`tests/Platform.PostgresTests` 需要本机 Docker（Testcontainers 起 `postgres:17-alpine`）：
+没有 Docker 时该项目的用例在发现阶段就带 `Skip`，不影响 `dotnet test Platform.slnx`；
+想显式关掉（例如 CI 自检）设 `POSTGRES_TESTS=0`。CI 里它们被拆成独立的 `postgres` job
+（主 job 用 `--filter "FullyQualifiedName!~Platform.PostgresTests"` 排除）。
+这组用例覆盖 jsonb 查询、并发唯一约束、`SKIP LOCKED` 认领与迁移落地，是 InMemory 测不到的部分。
+
 ## 客户端接入
 
 ```bash
@@ -223,13 +231,19 @@ PLATFORM_PASSWORD=Admin@12345 dotnet run --project samples/ConsoleQuickstart   #
   离线码签发返回 `305`；私钥只在启动时读取，换钥必须重启。
 - `Metrics:ScrapeToken` 一旦设置，`/metrics` 就要求 `X-Metrics-Token`（或 `Bearer`）。
 - `Deployment:RequireSingleInstance`（默认 `true`）**把平台锁死在单副本**：启动时用 PostgreSQL
-  会话级 advisory lock 互斥，第二个实例启动即失败。关闭它之前必须先实现 Webhook 投递的行级认领与
-  SignalR 背板，否则多副本会重复外呼、丢备份回执。
+  会话级 advisory lock 互斥，第二个实例启动即失败。增量包摄取已是行级认领、可多副本并行；
+  但关闭守卫之前仍必须先实现 Webhook 投递的行级认领与 SignalR 背板，否则多副本会重复外呼、丢备份回执。
 - `Webhooks:DispatcherEnabled` 在单副本里保持 `true`；关闭守卫的多副本部署只能有一个副本为 `true`。
 - Webhook 出站地址默认拒绝环回/私网/链路本地/保留地址（创建时与每次投递前各校验一次）；
  内网回调必须显式列入 `Webhooks:AllowedHosts`（主机名、`*.` 通配子域、IP 或 CIDR，逗号分隔，
   容器里用 `WEBHOOKS_ALLOWED_HOSTS`）。
 - Blob 存储默认落在 `data/blobs`，容器里挂命名卷。
+- **磁盘规划**：包字节按 `versions/{appKey}/{sha256}` 内容寻址长期保留（`RetainRawPackage` 默认保留原包），
+  上传票据预留取 `max(MaxFileSizeBytes, MaxPackageSizeBytes)`；同一块盘上还要留
+  `Versions:MinFreeDiskBytes`（默认 5 GiB）的余量，低于它上传返回 `227`/507、摄取直接失败。
+  孤儿 Blob 由保留任务扫描，`Versions:BlobSweepDryRun` 默认 `true`，先看报告再关掉。
+- 后台任务都在 `Platform.Workers`：保留清理每 600 s，增量包摄取按 `Versions:IngestionConcurrency`
+  并行，Blob 扫描受 advisory lock 约束单实例执行。
 
 ## 文档索引
 
@@ -237,14 +251,14 @@ PLATFORM_PASSWORD=Admin@12345 dotnet run --project samples/ConsoleQuickstart   #
 |---|---|
 | [`docs/integration/00-quickstart.md`](docs/integration/00-quickstart.md) | 15 分钟全链路验证、错误码/权限码分段、质量门 |
 | [`01-identity.md`](docs/integration/01-identity.md) | 令牌链路、单次密钥、扫码审批、用户/角色/会话 |
-| [`02-versions.md`](docs/integration/02-versions.md) | 渠道、上传票据、发布与归档、下载与缓存语义 |
+| [`02-versions.md`](docs/integration/02-versions.md) | 渠道、上传票据、发布与归档、增量摄取、保留与孤儿回收、下载与缓存语义 |
 | [`03-licensing.md`](docs/integration/03-licensing.md) | 产品/授权主体/试用与席位、ECDSA 快照、离线码、密钥轮换 |
 | [`04-backups.md`](docs/integration/04-backups.md) | 命名空间备份、下发与 Ack、兼容矩阵 |
 | [`05-documents.md`](docs/integration/05-documents.md) | 集合/修订/服务端强制可见性、保留清理 |
 | [`06-webhooks-and-audit.md`](docs/integration/06-webhooks-and-audit.md) | 事件目录、HMAC 签名、退避与死信、审计查询 |
 | [`07-openapi.md`](docs/integration/07-openapi.md) | OpenAPI/Scalar 覆盖范围与限制、两个 nupkg 与 SDK 入口 |
-| [`08-observability.md`](docs/integration/08-observability.md) | 探针、`/metrics` 清单、Prometheus 告警规则、日志与 traceId |
-| [`09-operations-drills.md`](docs/integration/09-operations-drills.md) | 三板斧演练：备份恢复 / 密钥轮换 / 版本回滚 |
+| [`08-observability.md`](docs/integration/08-observability.md) | 探针、`/metrics` 清单（含 `versions_*`）、Prometheus 告警规则、日志与 traceId |
+| [`09-operations-drills.md`](docs/integration/09-operations-drills.md) | 演练手册：备份恢复 / 密钥轮换 / 版本回滚 / 容量与故障 |
 | [`src/AppFramework.Platform.Client/README.md`](src/AppFramework.Platform.Client/README.md) | SDK 用法与边界 |
 
 ## 仓库搬移后

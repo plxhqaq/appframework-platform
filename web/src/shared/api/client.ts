@@ -51,6 +51,18 @@ export interface RequestOptions {
   headers?: Record<string, string>;
 }
 
+function parsePayload<T>(text: string): ApiResult<T> | null {
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text) as ApiResult<T>;
+  } catch {
+    return null;
+  }
+}
+
 async function execute<T>(path: string, options: RequestOptions, retried: boolean): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json', ...options.headers };
 
@@ -80,14 +92,7 @@ async function execute<T>(path: string, options: RequestOptions, retried: boolea
   });
 
   const text = await response.text();
-  let payload: ApiResult<T> | null = null;
-  if (text) {
-    try {
-      payload = JSON.parse(text) as ApiResult<T>;
-    } catch {
-      payload = null;
-    }
-  }
+  const payload = parsePayload<T>(text);
 
   if (!response.ok || !payload || payload.isSuccess === false) {
     // 访问令牌过期：尝试用 httpOnly 刷新令牌静默续期并重放一次
@@ -134,15 +139,7 @@ export async function requestBlob(path: string, retried = false): Promise<Blob> 
       }
     }
 
-    const text = await response.text();
-    let payload: ApiResult<unknown> | null = null;
-    if (text) {
-      try {
-        payload = JSON.parse(text) as ApiResult<unknown>;
-      } catch {
-        payload = null;
-      }
-    }
+    const payload = parsePayload<unknown>(await response.text());
 
     throw new ApiError(
       payload?.code ?? -1,
@@ -153,4 +150,98 @@ export async function requestBlob(path: string, retried = false): Promise<Blob> 
   }
 
   return response.blob();
+}
+
+/** 上传进度回调（已发送字节 / 总字节）。 */
+export type UploadProgressHandler = (loaded: number, total: number) => void;
+
+export interface UploadOptions {
+  onProgress?: UploadProgressHandler;
+  signal?: AbortSignal;
+}
+
+/**
+ * 带进度的二进制上传（上传票据 PUT）。
+ *
+ * `fetch` 无法上报请求体进度，只能用 XHR；鉴权与 401 续期口径与 `request` 保持一致。
+ */
+export function uploadWithProgress<T>(
+  path: string,
+  blob: Blob,
+  options: UploadOptions = {},
+): Promise<T> {
+  const send = (retried: boolean): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', `${API_BASE_URL}${path}`);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader('Accept', 'application/json');
+      xhr.setRequestHeader('Content-Type', blob.type || 'application/octet-stream');
+
+      const token = tokenProvider();
+      if (token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      }
+
+      const abort = () => xhr.abort();
+      if (options.signal?.aborted) {
+        reject(new DOMException('上传已取消', 'AbortError'));
+        return;
+      }
+      options.signal?.addEventListener('abort', abort, { once: true });
+
+      const finish = () => options.signal?.removeEventListener('abort', abort);
+
+      if (options.onProgress) {
+        xhr.upload.onprogress = (event) => {
+          options.onProgress!(event.loaded, event.lengthComputable ? event.total : blob.size);
+        };
+      }
+
+      xhr.onerror = () => {
+        finish();
+        reject(new ApiError(-1, '网络异常，上传失败', 0));
+      };
+      xhr.onabort = () => {
+        finish();
+        reject(new DOMException('上传已取消', 'AbortError'));
+      };
+      xhr.onload = () => {
+        finish();
+        const payload = parsePayload<T>(xhr.responseText);
+
+        if (xhr.status === 401 && !retried && refreshHandler) {
+          void refreshHandler()
+            .catch(() => null)
+            .then((renewed) => {
+              if (renewed) {
+                send(true).then(resolve, reject);
+              } else {
+                reject(toError(payload, xhr.status, '上传失败'));
+              }
+            });
+          return;
+        }
+
+        if (xhr.status < 200 || xhr.status >= 300 || !payload || payload.isSuccess === false) {
+          reject(toError(payload, xhr.status, '上传失败'));
+          return;
+        }
+
+        resolve(payload.data as T);
+      };
+
+      xhr.send(blob);
+    });
+
+  return send(false);
+}
+
+function toError(payload: ApiResult<unknown> | null, status: number, fallback: string): ApiError {
+  return new ApiError(
+    payload?.code ?? -1,
+    payload?.message ?? `${fallback}（HTTP ${status}）`,
+    status,
+    payload?.traceId,
+  );
 }

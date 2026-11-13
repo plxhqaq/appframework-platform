@@ -119,9 +119,20 @@ public sealed class VersionsEndpointsTests : IClassFixture<PlatformApiFactory>
                 $"/api/v1/admin/versions/releases/{v101.Id}/archive",
                 token)));
 
+        // 归档后默认不降级：客户端版本更高时只标记 isDowngrade
         var rollback = await CheckAsync(client, token, ChannelKey, "1.0.1");
-        Assert.True(rollback.HasUpdate);
+        Assert.False(rollback.HasUpdate);
+        Assert.True(rollback.IsDowngrade);
         Assert.Equal("1.0.0", rollback.Release!.Version);
+
+        var forcedRollback = await ReadDataAsync<CheckUpdateResponse>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                "/api/v1/client/versions/check",
+                token,
+                new CheckUpdateRequest(ChannelKey, "1.0.1", "win-x64", AllowDowngrade: true))));
+        Assert.True(forcedRollback.HasUpdate);
+        Assert.True(forcedRollback.IsDowngrade);
 
         var sameVersion = await CheckAsync(client, token, ChannelKey, "1.0.0");
         Assert.False(sameVersion.HasUpdate);
@@ -140,6 +151,69 @@ public sealed class VersionsEndpointsTests : IClassFixture<PlatformApiFactory>
         Assert.Equal(
             (int)ApiErrorCode.VersionsNoPublishedRelease,
             await IdentityTestHelpers.ReadErrorCodeAsync(empty, HttpStatusCode.NotFound));
+    }
+
+    [Fact]
+    public async Task 检查更新按语义版本选版且默认不降级()
+    {
+        using var client = _factory.CreateClient();
+        var token = await LoginAsync(client);
+
+        var channel = await CreateChannelAsync(client, token, "semver");
+        var sha = await UploadAsync(client, token, AppBytes);
+
+        // 先发 1.10.0 再发 1.9.0：按发布时间选版会错选 1.9.0。
+        await CreateReleaseAsync(
+            client, token, "semver", "1.10.0", publish: true,
+            Artifact("win-x64", ("App.exe", AppBytes, sha)));
+        await CreateReleaseAsync(
+            client, token, "semver", "1.9.0", publish: true,
+            Artifact("win-x64", ("App.exe", AppBytes, sha)));
+
+        var check = await CheckAsync(client, token, "semver", "1.0.0");
+        Assert.True(check.HasUpdate);
+        Assert.Equal("1.10.0", check.LatestVersion);
+        Assert.Equal("1.10.0", check.Release!.Version);
+        Assert.False(check.IsDowngrade);
+
+        var same = await CheckAsync(client, token, "semver", "1.10.0");
+        Assert.False(same.HasUpdate);
+        Assert.Equal("1.10.0", same.Release!.Version);
+
+        // 四段与三段等价：1.10.0.0 == 1.10.0
+        var fourSegment = await CheckAsync(client, token, "semver", "1.10.0.0");
+        Assert.False(fourSegment.HasUpdate);
+
+        var unknown = await CheckAsync(client, token, "semver", null);
+        Assert.True(unknown.HasUpdate);
+
+        // 当前版本更高：默认不降级，但如实标记 isDowngrade
+        var newer = await CheckAsync(client, token, "semver", "2.0.0");
+        Assert.False(newer.HasUpdate);
+        Assert.True(newer.IsDowngrade);
+        Assert.Equal("1.10.0", newer.Release!.Version);
+
+        // 请求显式允许降级
+        var requested = await ReadDataAsync<CheckUpdateResponse>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                "/api/v1/client/versions/check",
+                token,
+                new CheckUpdateRequest("semver", "2.0.0", "win-x64", AllowDowngrade: true))));
+        Assert.True(requested.HasUpdate);
+        Assert.True(requested.IsDowngrade);
+
+        // 渠道级 allowDowngrade 一旦打开，客户端无需再传请求参数
+        await ReadDataAsync<ReleaseChannelDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Patch,
+                $"/api/v1/admin/versions/channels/{channel.Id}",
+                token,
+                new UpdateReleaseChannelRequest(null, null, null, AllowDowngrade: true))));
+
+        var channelAllowed = await CheckAsync(client, token, "semver", "2.0.0");
+        Assert.True(channelAllowed.HasUpdate);
+        Assert.True(channelAllowed.IsDowngrade);
     }
 
     [Fact]

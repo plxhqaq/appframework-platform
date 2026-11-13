@@ -13,11 +13,21 @@ namespace Platform.IntegrationTests.Support;
 /// <summary>
 /// 宿主级集成测试：用 InMemory 替换 PostgreSQL，其余装配（认证、权限、模块、限流）保持真实。
 /// </summary>
-public sealed class PlatformApiFactory : WebApplicationFactory<Program>
+public class PlatformApiFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName = $"api-tests-{Guid.NewGuid():N}";
     private readonly string _blobRoot = Path.Combine(
         Path.GetTempPath(), "platform-blob-tests", Guid.NewGuid().ToString("N"));
+
+    /// <summary>子类按用例族追加/覆盖配置（键与 appsettings 同名）。</summary>
+    protected virtual void ConfigureTestSettings(IDictionary<string, string?> settings)
+    {
+    }
+
+    /// <summary>子类在基础装配完成后追加/替换服务（例如可控时钟）。</summary>
+    protected virtual void ConfigureTestServices(IServiceCollection services)
+    {
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -26,7 +36,7 @@ public sealed class PlatformApiFactory : WebApplicationFactory<Program>
         builder.ConfigureLogging(static logging => logging.ClearProviders());
         builder.ConfigureAppConfiguration((_, configuration) =>
         {
-            configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            var settings = new Dictionary<string, string?>
             {
                 // InMemory 不支持 Migrate，也不能让测试去连真实库
                 ["Database:AutoMigrate"] = "false",
@@ -56,7 +66,17 @@ public sealed class PlatformApiFactory : WebApplicationFactory<Program>
                 ["Documents:CleanupGraceMinutes"] = "1",
                 // Webhook 后台循环在测试里关闭，用例直接驱动 IWebhookDispatcher
                 ["Webhooks:DispatcherEnabled"] = "false",
-            });
+                // 摄取循环在测试里关闭，用例直接驱动 IReleasePackageIngestionService，避免时序抖动
+                ["Versions:IngestionEnabled"] = "false",
+                // 测试机的临时盘容量不可控，磁盘保护用配置关掉；默认值在生产仍是 5 GiB
+                ["Versions:MinFreeDiskBytes"] = "0",
+                // 登记类用例在一次宿主内会连续发多个请求，放大版本入口配额避免误触 429
+                ["RateLimits:VersionsUploadTicketPerMinute"] = "1000",
+                ["RateLimits:VersionsPackageFinalizePerMinute"] = "1000",
+            };
+
+            ConfigureTestSettings(settings);
+            configuration.AddInMemoryCollection(settings);
         });
 
         builder.ConfigureServices(services =>
@@ -68,6 +88,7 @@ public sealed class PlatformApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<PlatformDbContext>();
             services.RemoveAll<IDbContextOptionsConfiguration<PlatformDbContext>>();
             services.AddDbContext<PlatformDbContext>(options => options.UseInMemoryDatabase(_databaseName));
+            ConfigureTestServices(services);
         });
     }
 

@@ -7,6 +7,7 @@ import {
   KeyOutlined,
   MobileOutlined,
   QrcodeOutlined,
+  RocketOutlined,
   SafetyOutlined,
   SendOutlined,
   SwapOutlined,
@@ -63,6 +64,12 @@ export const NAV_ITEMS: NavItem[] = [
     icon: <SwapOutlined />,
     label: '版本与渠道',
     anyOf: [PERMISSIONS.versionsChannelRead, PERMISSIONS.versionsReleaseRead],
+  },
+  {
+    key: '/updaters',
+    icon: <RocketOutlined />,
+    label: '更新器',
+    anyOf: [PERMISSIONS.versionsReleaseRead],
   },
   {
     key: '/backups',

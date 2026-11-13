@@ -54,6 +54,24 @@ public sealed class PlatformMetrics
         series.Set(value);
     }
 
+    /// <summary>记录一次耗时/分布值（未指定分桶时复用 HTTP 耗时分桶）。</summary>
+    public void Observe(
+        string name,
+        string help,
+        double value,
+        IReadOnlyDictionary<string, string>? labels = null,
+        double[]? buckets = null)
+    {
+        var family = GetOrCreate(
+            name,
+            help,
+            MetricType.Histogram,
+            labels,
+            labels is null ? null : labels.Keys.ToList(),
+            buckets ?? DurationBuckets);
+        family.SeriesOf(labels).Observe(value);
+    }
+
     /// <summary>记录一次 HTTP 请求。</summary>
     public void ObserveHttp(string method, string route, int statusCode, double durationSeconds)
     {

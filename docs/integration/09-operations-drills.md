@@ -1,6 +1,7 @@
-# 三板斧演练：备份恢复 / 密钥轮换 / 版本回滚
+# 演练手册：备份恢复 / 密钥轮换 / 版本回滚 / 容量与故障
 
 > B7 出口要求：这三件事**必须能在 30 分钟内照着本文做完**，并且每步都有可验证的信号。
+> B10 追加 §四「容量与故障演练」：大文件、条目上限、并发检查、摄取中断、磁盘不足、多副本。
 > 演练环境用本地 compose 栈即可（`bash deploy/deploy.sh up`），不要第一次就在生产做。
 > 相关：部署 [`00-quickstart.md`](00-quickstart.md)、告警 [`08-observability.md`](08-observability.md)、
 > Webhook/审计 [`06-webhooks-and-audit.md`](06-webhooks-and-audit.md)。
@@ -246,7 +247,20 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" \
 curl -s -X POST -H "Authorization: Bearer $CLIENT_TOKEN" -H 'Content-Type: application/json' \
   "$API/api/v1/client/versions/check" \
   -d '{"channelKey":"stable","currentVersion":"9.9.9","runtimeIdentifier":"win-x64"}' \
-  | jq '.data | {hasUpdate, version: .release.version}'
+  | jq '.data | {hasUpdate, isDowngrade, version: .release.version}'
+
+# 4) 强制回退演练：临时打开渠道降级开关，再以「现场已装高版本」的视角检查
+curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  "$API/api/v1/admin/versions/channels/$CHANNEL_ID" \
+  -d '{"allowDowngrade":true}' | jq '.data | {key,allowDowngrade}'
+curl -s -X POST -H "Authorization: Bearer $CLIENT_TOKEN" -H 'Content-Type: application/json' \
+  "$API/api/v1/client/versions/check" \
+  -d '{"channelKey":"stable","currentVersion":"9.9.10","runtimeIdentifier":"win-x64"}' \
+  | jq '.data | {hasUpdate, isDowngrade, version: .release.version}'
+# 演练完成后关闭开关
+curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  "$API/api/v1/admin/versions/channels/$CHANNEL_ID" \
+  -d '{"allowDowngrade":false}' | jq '.data | {key,allowDowngrade}'
 ```
 
 必须知道的三个语义（都和直觉不符）：
@@ -260,6 +274,10 @@ curl -s -X POST -H "Authorization: Bearer $CLIENT_TOKEN" -H 'Content-Type: appli
 3. `check` 的 `release` 可能为 `null` 而渠道其实有已发布版本：
    **最新版本没有请求的那个 `runtimeIdentifier` 产物**时按「无更新」返回，不是错误。
    真正的「渠道没有已发布版本」是 `404`/`212`。
+4. **默认不降级**。归档后已装高版本的机器拿到的是 `hasUpdate=false` + `isDowngrade=true`，
+   只做提示不动文件。真要强制回退，先把渠道的 `allowDowngrade` 打开（管理台渠道表单「允许降级」
+   或 `PATCH /api/v1/admin/versions/channels/{id}`），客户端再检查一次就会拿到上一版清单；
+   演练结束务必关掉，避免后续归档操作意外降级现场。客户端也可单次显式传 `allowDowngrade=true`。
 
 ### 3.2 演练必做的回归项
 
@@ -303,13 +321,143 @@ EF 迁移**只向前**：本仓没有 down-migration 流程，含破坏性 DDL �
 
 ---
 
-## 四、演练记录模板
+## 四、容量与故障演练
+
+发布链路的风险集中在「大、多、并发、半途死」。下面每项都给出触发方式、**预期信号**与恢复动作；
+先在演练环境做，生产只做只读观察与阈值核对。
+
+### 4.1 1 GiB 级上传 / 下载
+
+```bash
+head -c 1073741824 /dev/urandom > big.zip                  # 1 GiB
+SHA=$(sha256sum big.zip | cut -d' ' -f1)
+
+# 1) 申请票据（30 分钟有效，声明哈希与长度）
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  "$API/api/v1/admin/versions/uploads" \
+  -d "{\"sha256\":\"$SHA\",\"sizeBytes\":1073741824}" | jq -r '.data.uploadUrl' > /tmp/upload-url
+
+# 2) 凭票据直传（一次性，PUT 完即消费）
+curl -s -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/octet-stream' \
+  --data-binary @big.zip "$(cat /tmp/upload-url)" | jq
+
+# 3) 登记为 full 包并下载回验
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  "$API/api/v1/admin/versions/packages" \
+  -d "{\"sha256\":\"$SHA\",\"sizeBytes\":1073741824,\"fileName\":\"Setup-stable-9.9.9.zip\",\"kind\":\"full\",\"target\":\"win-x64\",\"format\":\"zip\",\"channelKey\":\"stable\",\"version\":\"9.9.9\"}" | jq '.data | {id,status}'
+curl -s -H "Authorization: Bearer $TOKEN" -o big-back.zip "$API/api/v1/client/versions/packages/<id>/download"
+sha256sum big-back.zip                                      # 必须等于 $SHA
+```
+
+预期与注意：
+- 默认上限是**单包 4 GiB / 单文件 4 GiB**（`Versions:MaxPackageSizeBytes`、`MaxFileSizeBytes`），
+  超过分别返回 `221`（413）。反向代理的 `client_max_body_size` 与 `proxy_read_timeout` 必须同步放大。
+- 下载走 `Results.Stream` + Range/ETag，**不要用 HTTP P95 判断健康度**（长连接会把分位数拉满）；
+  看 `versions_package_download_bytes_total{kind="package"}` 增量是否约等于文件大小。
+- 记录首字节时间与吞吐；Blob 卷与库在同一磁盘时应低于本机写带宽的 1/2。
+
+### 4.2 条目/文件数上限（100 000 条目、50 000 文件）
+
+```bash
+# 100 001 个空条目：zip 安全校验直接拒绝
+python - <<'PY'
+import zipfile
+with zipfile.ZipFile('entries-over.zip', 'w') as z:
+    for i in range(100001):
+        z.writestr(f'f{i}.txt', '')
+PY
+# 登记时返回 220 / 422（VersionsPackageUnsafeArchive），提示「zip 条目数 … 超过上限」
+```
+
+清单文件数上限是 **50 000**（`VersionConventions.MaxFilesPerArtifact`）：清单 `files` 超过时增量包被拒，
+全量包以文件数做展示但不逐文件摄取。两个上限都**先在登记阶段拒绝**，
+不会进入摄取队列，所以演练后 `release_packages` 里应只有一条 `failed`（或直接 422 无行）。
+
+### 4.3 检查更新风暴（100 并发）
+
+```bash
+seq 1 100 | xargs -P 100 -I{} curl -s -o /dev/null -w '%{http_code}\n' \
+  -X POST -H "Authorization: Bearer $CLIENT_TOKEN" -H 'Content-Type: application/json' \
+  "$API/api/v1/client/versions/check" \
+  -d '{"channelKey":"stable","currentVersion":"1.0.0","runtimeIdentifier":"win-x64"}'
+```
+
+预期：全部 `200`（check 不在限流策略内），`versions_check_total{result="update"}` 增加 100；
+库连接池不应打满（`pg_stat_activity` 峰值远低于 `MaxPoolSize`）。出现零星 `5xx` 先看
+`platform_http_request_duration_seconds{route=...,status_class="5xx"}` 与日志 `traceId`。
+
+### 4.4 摄取中 `kill -9`
+
+```bash
+# 1) 提交一个较大的增量包并确认进入 processing
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$API/api/v1/admin/versions/packages?status=processing" | jq '.data.items[] | {id,attempts}'
+
+# 2) 直接杀进程（systemd 会拉起；compose 用 docker kill）
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env kill api
+```
+
+预期：
+- 行留在 `processing`，`locked_until` 到期（`Versions:IngestionLockMinutes`，默认 10 分钟）后
+  `RecoverStaleAsync` 把 `attempts < MaxAttempts` 的行改回 `pending`，否则置 `failed`。
+- 同一包最终 `attempts` 递增，文件 Blob 按哈希去重，不会因重试产生重复内容。
+- 想立刻恢复可把 `IngestionLockMinutes` 临时调小后重启，或直接改库把 `locked_until` 置空（演练专用）。
+
+### 4.5 磁盘不足（不真填满生产盘）
+
+优先用配置**模拟**，比真的写满安全：
+
+```bash
+# 让「最小剩余空间」阈值高于实际可用空间，上传票据立即被拒
+export Versions__MinFreeDiskBytes=10995116277760        # 10 TiB
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d api
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  "$API/api/v1/admin/versions/uploads" -d '{"sha256":"'$SHA'","sizeBytes":1024}' | jq '.code'
+# 预期 227 / 507（VersionsStorageInsufficient）
+```
+
+真实写满（限演练机）：摄取写文件时 IOException/ENOSPC 会转成 `227`，可重试错误按
+`IngestionMaxAttempts` 退避；清出空间后包自动回到 `pending` 继续。收尾务必恢复默认 5 GiB。
+
+### 4.6 多副本并发摄取
+
+```bash
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --scale api=2
+# 连续提交 20 个增量包（见 4.2 的脚本，逐个改文件名/版本），观察：
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$API/api/v1/admin/versions/packages?pageSize=50" | jq '[.data.items[] | {id,status,attempts}]'
+```
+
+预期：每个包 `attempts == 1`、终态为 `ready`/`failed` 之一；不出现同一包被两个副本同时处理
+（PostgreSQL `FOR UPDATE SKIP LOCKED`）。`versions_package_ingest_total{result="ready"}` 增量等于成功包数。
+该语义在 `tests/Platform.PostgresTests` 有 16 副本并发用例，InMemory 集成测试覆盖不到，别只跑本地测试就下结论。
+
+### 4.7 归档回滚
+
+按 §三 3.1–3.3 执行；额外核对归档后**下载立即失效**（404/`205`）、
+`versions_check_total{result="none"}` 上升且 `isDowngrade=true` 的响应只做提示。
+
+### 4.8 演练判定表
+
+| 演练 | 通过信号 | 失败信号（先查什么） |
+|---|---|---|
+| 4.1 大文件 | 回验哈希一致；下载字节指标 ≈ 文件大小 | 413 → 代理/上限；超时 → `proxy_read_timeout` |
+| 4.2 条目/文件数 | 422 / `220`，无摄取排队 | 进入 `pending` → 校验被绕过 |
+| 4.3 100 并发 check | 全 200，P95 在桶边界内 | 5xx → 连接池/库；429 → 误配限流策略 |
+| 4.4 kill -9 | 租约到期后回到 `pending` 并完成，`attempts+1` | 永久 `processing` → Worker 没跑/租约配置过大 |
+| 4.5 磁盘不足 | `227`/507，清空间后自动续跑 | 500 → 磁盘异常没被识别成可重试 |
+| 4.6 多副本 | 每包 `attempts=1`，无重复产物 | `attempts>1` → 认领没走 SKIP LOCKED |
+| 4.7 归档回滚 | 下载 404/`205`，check 落到上一版 | 仍能下载 → 状态判断失效 |
+
+---
+
+## 五、演练记录模板
 
 | 项 | 值 |
 |---|---|
 | 演练日期 / 执行人 | |
 | 环境（compose / 生产） | |
-| 板斧（备份恢复 / 密钥轮换 / 版本回滚） | |
+| 板斧（备份恢复 / 密钥轮换 / 版本回滚 / 容量与故障） | |
 | 开始—结束耗时 | |
 | 各验证步骤结果（逐条勾选） | |
 | 非预期现象与处置 | |

@@ -213,8 +213,9 @@ export function ReleaseCreateModal({ open, channels, onClose, onSaved }: Release
             rules={[
               { required: true, message: '请输入版本号' },
               {
-                pattern: /^\d{1,5}\.\d{1,5}\.\d{1,5}(-[0-9A-Za-z.-]{1,32})?$/,
-                message: '例如 1.2.3 或 1.2.3-rc.1',
+                pattern:
+                  /^\d{1,5}\.\d{1,5}\.\d{1,5}(\.\d{1,5})?(-[0-9A-Za-z.-]{1,32})?(\+[0-9A-Za-z.-]{1,32})?$/,
+                message: '例如 1.2.3、1.2.3.0 或 1.2.3-rc.1',
               },
             ]}
           >

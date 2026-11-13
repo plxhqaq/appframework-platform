@@ -60,6 +60,7 @@ public sealed partial class UploadTicketService : IUploadTicketService
 
     private readonly PlatformDbContext _db;
     private readonly IBlobStorage _blobs;
+    private readonly IStorageCapacity _capacity;
     private readonly IClock _clock;
     private readonly VersionsOptions _options;
 
@@ -67,11 +68,13 @@ public sealed partial class UploadTicketService : IUploadTicketService
     public UploadTicketService(
         PlatformDbContext db,
         IBlobStorage blobs,
+        IStorageCapacity capacity,
         IClock clock,
         IOptions<VersionsOptions> options)
     {
         _db = db;
         _blobs = blobs;
+        _capacity = capacity;
         _clock = clock;
         _options = options.Value;
     }
@@ -103,6 +106,16 @@ public sealed partial class UploadTicketService : IUploadTicketService
             throw new BusinessException(
                 ApiErrorCode.PayloadTooLarge,
                 $"文件大小必须大于 0 且不超过 {maxSizeBytes} 字节。");
+        }
+
+        // 票据是磁盘保护的入口：放行前确认剩余空间够放整包并留出配置的安全余量。
+        var required = request.SizeBytes + Math.Max(0, _options.MinFreeDiskBytes);
+        var available = await _capacity.GetAvailableFreeBytesAsync(cancellationToken);
+        if (available < required)
+        {
+            throw new BusinessException(
+                ApiErrorCode.VersionsStorageInsufficient,
+                $"剩余磁盘 {available} 字节，不足以容纳 {request.SizeBytes} 字节并保留 {_options.MinFreeDiskBytes} 字节余量。");
         }
 
         var now = _clock.UtcNow;

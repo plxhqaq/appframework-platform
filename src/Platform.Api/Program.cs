@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -159,6 +160,33 @@ try
                 AutoReplenishment = true,
             });
         });
+        options.AddPolicy(PlatformRateLimitPolicies.VersionsUploadTicket, httpContext =>
+        {
+            // 已认证的管理端入口：按用户 + 应用分区，避免一个脚本刷爆整个应用的配额。
+            var permitLimit = httpContext.RequestServices.GetRequiredService<IConfiguration>()
+                .GetValue("RateLimits:VersionsUploadTicketPerMinute", 60);
+            var partitionKey = VersionRateLimitPartitioning.For(httpContext, "upload-ticket");
+            return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = permitLimit,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true,
+            });
+        });
+        options.AddPolicy(PlatformRateLimitPolicies.VersionsPackageFinalize, httpContext =>
+        {
+            var permitLimit = httpContext.RequestServices.GetRequiredService<IConfiguration>()
+                .GetValue("RateLimits:VersionsPackageFinalizePerMinute", 30);
+            var partitionKey = VersionRateLimitPartitioning.For(httpContext, "package-finalize");
+            return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = permitLimit,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true,
+            });
+        });
         options.OnRejected = async (context, cancellationToken) =>
         {
             context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
@@ -295,3 +323,17 @@ finally
 
 /// <summary>宿主入口标记类型：供集成测试用 <c>WebApplicationFactory&lt;Program&gt;</c> 引用。</summary>
 public partial class Program;
+
+/// <summary>版本入口限流的分区键：同一用户在同一应用内共享额度。</summary>
+internal static class VersionRateLimitPartitioning
+{
+    public static string For(HttpContext context, string scope)
+    {
+        var user = context.User.FindFirst("sub")?.Value
+                   ?? context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                   ?? context.User.Identity?.Name
+                   ?? "anonymous";
+        var app = context.Request.Headers[PlatformHeaders.AppKey].ToString();
+        return $"{scope}:user:{user}|app:{app}";
+    }
+}

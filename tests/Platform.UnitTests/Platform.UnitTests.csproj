@@ -4,6 +4,8 @@
     <RootNamespace>Platform.UnitTests</RootNamespace>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- PE 内嵌清单探测的样本：AssemblyDescription → VERSIONINFO Comments（与安装包同一机制）。 -->
+    <Description>AF-PACKAGE/1|kind=full|version=0.0.0.1|channel=test|rid=win-x64|modules=HipotTest|hardware=TH9110|publishTime=2026-01-01|gitVersion=0.0.0-1|gitCommit=test</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,6 +15,7 @@
     <ProjectReference Include="..\..\src\Platform.Modules.Identity\Platform.Modules.Identity.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Backups\Platform.Modules.Backups.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Webhooks\Platform.Modules.Webhooks.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Modules.Versions\Platform.Modules.Versions.csproj" />
     <ProjectReference Include="..\..\src\Platform.Api\Platform.Api.csproj" />
   </ItemGroup>
 
