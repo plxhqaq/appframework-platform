@@ -11,6 +11,8 @@ import type {
 } from '../../shared/api/types';
 import { useState } from 'react';
 import { formatBytes } from '../../shared/format';
+import { responsivePagination, responsiveWidth } from '../../shared/responsive';
+import { useResponsive } from '../../shared/useResponsive';
 import { manifestSourceLabel, packageKindMeta, packageStatusMeta, safeDownloadName } from './packageUi';
 
 interface ReleaseDetailDrawerProps {
@@ -40,6 +42,7 @@ export function ReleaseDetailDrawer({
   onChanged,
 }: ReleaseDetailDrawerProps) {
   const { message, modal } = App.useApp();
+  const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
@@ -126,9 +129,10 @@ export function ReleaseDetailDrawer({
   return (
     <Drawer
       open={releaseId !== null}
-      width={760}
+      width={responsiveWidth(isMobile, 760)}
       title={release ? `版本 ${release.version}` : '版本详情'}
       onClose={onClose}
+      styles={{ body: { padding: isMobile ? 12 : 24 } }}
       extra={
         release ? (
           <Space>
@@ -147,7 +151,17 @@ export function ReleaseDetailDrawer({
       }
     >
       {detail.isError ? (
-        <Alert type="error" showIcon message={(detail.error as Error).message} />
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={(detail.error as Error).message}
+          action={
+            <Button size="small" onClick={() => void detail.refetch()}>
+              重试
+            </Button>
+          }
+        />
       ) : null}
 
       {release ? (
@@ -243,6 +257,7 @@ export function ReleaseDetailDrawer({
                 dataIndex: 'fileCount',
                 key: 'fileCount',
                 width: 100,
+                responsive: ['md'],
                 render: (fileCount: number | null | undefined) =>
                   fileCount != null ? fileCount : <Typography.Text type="secondary">-</Typography.Text>,
               },
@@ -286,6 +301,7 @@ export function ReleaseDetailDrawer({
                 dataIndex: 'sha256',
                 key: 'sha256',
                 width: 130,
+                responsive: ['md'],
                 render: (sha: string) => (
                   <Typography.Text type="secondary" copyable={{ text: sha }}>
                     {sha.slice(0, 10)}…
@@ -296,6 +312,7 @@ export function ReleaseDetailDrawer({
                 title: '操作',
                 key: 'actions',
                 width: 190,
+                fixed: 'right',
                 render: (_: unknown, row) => (
                   <Space size="small">
                     {canDownload && row.status === 'ready' ? (
@@ -359,13 +376,20 @@ export function ReleaseDetailDrawer({
                   rowKey="path"
                   size="small"
                   dataSource={artifact.files}
-                  pagination={{ pageSize: 20, showSizeChanger: false }}
+                  pagination={responsivePagination(isMobile, {
+                    pageSize: 20,
+                    showSizeChanger: false,
+                  })}
                   columns={[
                     {
                       title: '路径',
                       dataIndex: 'path',
                       key: 'path',
-                      render: (path: string) => <Typography.Text code>{path}</Typography.Text>,
+                      render: (path: string) => (
+                        <Typography.Text code style={{ wordBreak: 'break-all' }}>
+                          {path}
+                        </Typography.Text>
+                      ),
                     },
                     {
                       title: '大小',

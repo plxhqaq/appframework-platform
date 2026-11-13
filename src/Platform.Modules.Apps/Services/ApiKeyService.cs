@@ -18,6 +18,7 @@ public interface IApiKeyService
     Task<IReadOnlyList<ApiKeySummaryDto>> ListAsync(Guid appId, CancellationToken cancellationToken = default);
 
     /// <summary>签发 Key；明文只在返回值中出现一次。</summary>
+    /// <remarks>scope 必须是调用方已持有的权限，防止低权限管理员借签发密钥给自己提权。</remarks>
     Task<CreatedApiKeyDto> CreateAsync(
         Guid appId,
         CreateApiKeyRequest request,
@@ -46,12 +47,14 @@ public sealed class ApiKeyService : IApiKeyService
 
     private readonly PlatformDbContext _db;
     private readonly IClock _clock;
+    private readonly ICurrentPrincipal _principal;
 
     /// <summary>构造。</summary>
-    public ApiKeyService(PlatformDbContext db, IClock clock)
+    public ApiKeyService(PlatformDbContext db, IClock clock, ICurrentPrincipal principal)
     {
         _db = db;
         _clock = clock;
+        _principal = principal;
     }
 
     /// <inheritdoc />
@@ -81,6 +84,7 @@ public sealed class ApiKeyService : IApiKeyService
         await EnsureAppExistsAsync(appId, cancellationToken);
 
         var scopes = NormalizeScopes(request.Scopes);
+        EnsureScopesGrantable(scopes);
         var now = _clock.UtcNow;
         if (request.ExpiresAt is { } expires && expires <= now)
         {
@@ -196,6 +200,23 @@ public sealed class ApiKeyService : IApiKeyService
         if (!await _db.Set<App>().AnyAsync(x => x.Id == appId, cancellationToken))
         {
             throw BusinessException.NotFound(ApiErrorCode.AppsNotFound, $"应用 {appId} 不存在。");
+        }
+    }
+
+    /// <summary>只减不增的同源约束：调用方不能签发自己都没持有的权限。</summary>
+    private void EnsureScopesGrantable(List<string> scopes)
+    {
+        if (scopes.Count == 0 || _principal.Permissions.Contains(PermissionCatalog.Wildcard))
+        {
+            return;
+        }
+
+        var denied = scopes.Where(scope => !_principal.Permissions.Contains(scope)).ToList();
+        if (denied.Count > 0)
+        {
+            throw new BusinessException(
+                ApiErrorCode.AppsApiKeyScopeDenied,
+                $"不能授予自己未持有的权限：{string.Join(", ", denied)}。");
         }
     }
 

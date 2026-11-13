@@ -20,6 +20,7 @@ import {
   Typography,
   theme,
 } from 'antd';
+import type { TableColumnsType } from 'antd';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeading } from '../../app/PageHeading';
@@ -129,7 +130,7 @@ export function QrApprovalPage() {
     setApproving(session);
   };
 
-  const columns = [
+  const columns: TableColumnsType<QrSessionSummary> = [
     {
       title: '客户端',
       key: 'client',
@@ -146,6 +147,7 @@ export function QrApprovalPage() {
       dataIndex: 'createdByIp',
       key: 'createdByIp',
       width: 140,
+      responsive: ['md'],
       render: (value: string | null) => value ?? <Typography.Text type="secondary">-</Typography.Text>,
     },
     {
@@ -176,12 +178,14 @@ export function QrApprovalPage() {
       dataIndex: 'approvedByName',
       key: 'approvedByName',
       width: 140,
+      responsive: ['md'],
       render: (value: string | null) => value ?? <Typography.Text type="secondary">-</Typography.Text>,
     },
     {
       title: '操作',
       key: 'actions',
       width: 210,
+      fixed: 'right',
       render: (_: unknown, session: QrSessionSummary) => (
         <Space size="small">
           {session.status === 'pending' ? (
@@ -276,7 +280,16 @@ export function QrApprovalPage() {
           </Space>
 
           {sessions.isError ? (
-            <Alert type="error" showIcon message={(sessions.error as Error).message} />
+            <Alert
+              type="error"
+              showIcon
+              message={(sessions.error as Error).message}
+              action={
+                <Button size="small" onClick={() => void sessions.refetch()}>
+                  重试
+                </Button>
+              }
+            />
           ) : null}
 
           {sessions.isPending ? (

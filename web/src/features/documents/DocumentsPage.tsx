@@ -1,4 +1,4 @@
-import { AppstoreOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -15,12 +15,11 @@ import {
   Switch,
   Table,
   Tag,
-  Tooltip,
   Upload,
   Typography,
 } from 'antd';
-import type { UploadFile } from 'antd';
-import { useState } from 'react';
+import type { TableColumnsType, UploadFile } from 'antd';
+import { useEffect, useState } from 'react';
 import { requestBlob } from '../../shared/api/client';
 import { documentsApi } from '../../shared/api/documents';
 import type {
@@ -35,6 +34,8 @@ import type {
 import { saveBlob } from '../../shared/download';
 import { formatBytes } from '../../shared/format';
 import { PERMISSIONS } from '../../shared/permissions';
+import { responsivePagination, responsiveWidth } from '../../shared/responsive';
+import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
 
 interface CollectionFormValues {
@@ -55,6 +56,8 @@ interface EditFormValues {
   visibility: DocumentVisibility;
 }
 
+const DEFAULT_PAGE_SIZE = 20;
+
 const VISIBILITY_META: Record<DocumentVisibility, { label: string; color?: string }> = {
   client: { label: '客户端可见', color: 'green' },
   internal: { label: '仅内部' },
@@ -68,10 +71,9 @@ const VISIBILITY_META: Record<DocumentVisibility, { label: string; color?: strin
  */
 export function DocumentsPage() {
   const { message } = App.useApp();
+  const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const session = useAuthStore((state) => state.session);
-  const switchAppContext = useAuthStore((state) => state.switchAppContext);
-  const switching = useAuthStore((state) => state.pending);
   const canManageCollection = useAuthStore((state) =>
     state.hasPermission(PERMISSIONS.documentCollectionManage),
   );
@@ -94,7 +96,16 @@ export function DocumentsPage() {
   const [editTarget, setEditTarget] = useState<DocumentSummary | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [collectionFilter, setCollectionFilter] = useState<string | undefined>();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [saving, setSaving] = useState(false);
+
+  // 切换应用上下文在 Header 完成；旧应用的集合适配与详情抽屉要一起作废
+  useEffect(() => {
+    setCollectionFilter(undefined);
+    setPage(1);
+    setDetailId(null);
+  }, [appKey]);
 
   const collections = useQuery({
     queryKey: ['documents', 'collections', appKey],
@@ -103,9 +114,12 @@ export function DocumentsPage() {
   });
 
   const documents = useQuery({
-    queryKey: ['documents', 'list', appKey, collectionFilter],
+    queryKey: ['documents', 'list', appKey, collectionFilter, page, pageSize],
     queryFn: ({ signal }) =>
-      documentsApi.listDocuments({ collectionKey: collectionFilter, pageSize: 50 }, signal),
+      documentsApi.listDocuments(
+        { collectionKey: collectionFilter, page, pageSize },
+        signal,
+      ),
     enabled: appKey !== null,
   });
 
@@ -117,22 +131,6 @@ export function DocumentsPage() {
 
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ['documents'] });
-  };
-
-  const handleSwitchContext = async (next: string) => {
-    if (next === appKey) {
-      return;
-    }
-
-    try {
-      const updated = await switchAppContext(next);
-      message.success(`已进入应用 ${updated.appKey ?? next}`);
-      setCollectionFilter(undefined);
-      setDetailId(null);
-      await refresh();
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '切换应用失败');
-    }
   };
 
   const openCollectionForm = (collection: DocumentCollection | null) => {
@@ -312,7 +310,7 @@ export function DocumentsPage() {
     });
   };
 
-  const collectionColumns = [
+  const collectionColumns: TableColumnsType<DocumentCollection> = [
     {
       title: '键',
       dataIndex: 'key',
@@ -339,6 +337,7 @@ export function DocumentsPage() {
       title: '操作',
       key: 'actions',
       width: 80,
+      fixed: 'right',
       render: (_: unknown, row: DocumentCollection) =>
         canManageCollection ? (
           <Button type="link" size="small" onClick={() => openCollectionForm(row)}>
@@ -348,7 +347,7 @@ export function DocumentsPage() {
     },
   ];
 
-  const documentColumns = [
+  const documentColumns: TableColumnsType<DocumentSummary> = [
     { title: '集合', dataIndex: 'collectionKey', key: 'collectionKey', width: 120 },
     { title: '标题', dataIndex: 'title', key: 'title', width: 220 },
     {
@@ -362,12 +361,19 @@ export function DocumentsPage() {
       },
     },
     { title: '修订', dataIndex: 'revision', key: 'revision', width: 70 },
-    { title: '文件名', dataIndex: 'fileName', key: 'fileName', width: 180 },
+    {
+      title: '文件名',
+      dataIndex: 'fileName',
+      key: 'fileName',
+      width: 180,
+      responsive: ['md'],
+    },
     {
       title: '大小',
       dataIndex: 'sizeBytes',
       key: 'sizeBytes',
       width: 100,
+      responsive: ['md'],
       render: (value: number) => formatBytes(value),
     },
     {
@@ -375,12 +381,14 @@ export function DocumentsPage() {
       dataIndex: 'updatedAt',
       key: 'updatedAt',
       width: 170,
+      responsive: ['md'],
       render: (value: string) => new Date(value).toLocaleString(),
     },
     {
       title: '操作',
       key: 'actions',
       width: 220,
+      fixed: 'right',
       render: (_: unknown, row: DocumentSummary) => (
         <Space size="small">
           <Button type="link" size="small" onClick={() => setDetailId(row.id)}>
@@ -406,7 +414,7 @@ export function DocumentsPage() {
     },
   ];
 
-  const revisionColumns = [
+  const revisionColumns: TableColumnsType<DocumentDetail['revisions'][number]> = [
     { title: '修订', dataIndex: 'revision', key: 'revision', width: 70 },
     { title: '文件名', dataIndex: 'fileName', key: 'fileName' },
     {
@@ -421,12 +429,14 @@ export function DocumentsPage() {
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 170,
+      responsive: ['md'],
       render: (value: string) => new Date(value).toLocaleString(),
     },
     {
       title: '操作',
       key: 'actions',
       width: 80,
+      fixed: 'right',
       render: (_: unknown, row: DocumentDetail['revisions'][number]) => (
         <Button
           type="link"
@@ -454,24 +464,6 @@ export function DocumentsPage() {
 
   return (
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
-      <Card size="small">
-        <Space wrap>
-          <AppstoreOutlined />
-          <Typography.Text>当前应用</Typography.Text>
-          <Select
-            value={appKey}
-            loading={switching}
-            style={{ minWidth: 200 }}
-            options={appKeys.map((key) => ({ value: key, label: key }))}
-            onChange={(value) => void handleSwitchContext(value)}
-            disabled={switching || appKeys.length <= 1}
-          />
-          <Tooltip title="应用上下文来自令牌；文档集合、备份、版本等应用级数据随上下文切换。">
-            <Typography.Text type="secondary">文档按应用隔离，前端不传 appKey。</Typography.Text>
-          </Tooltip>
-        </Space>
-      </Card>
-
       <Card
         size="small"
         title="集合"
@@ -488,7 +480,17 @@ export function DocumentsPage() {
         }
       >
         {collections.isError ? (
-          <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(collections.error as Error).message} />
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={(collections.error as Error).message}
+            action={
+              <Button size="small" onClick={() => void collections.refetch()}>
+                重试
+              </Button>
+            }
+          />
         ) : null}
         <Table<DocumentCollection>
           scroll={{ x: 'max-content' }}
@@ -517,9 +519,12 @@ export function DocumentsPage() {
           <Select
             allowClear
             placeholder="全部集合"
-            style={{ width: 200 }}
+            style={{ width: 200, maxWidth: '100%' }}
             value={collectionFilter}
-            onChange={setCollectionFilter}
+            onChange={(value) => {
+              setCollectionFilter(value);
+              setPage(1);
+            }}
             options={(collections.data ?? []).map((item) => ({
               value: item.key,
               label: `${item.name}（${item.key}）`,
@@ -529,7 +534,17 @@ export function DocumentsPage() {
         </Space>
 
         {documents.isError ? (
-          <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(documents.error as Error).message} />
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={(documents.error as Error).message}
+            action={
+              <Button size="small" onClick={() => void documents.refetch()}>
+                重试
+              </Button>
+            }
+          />
         ) : null}
         <Table<DocumentSummary>
           scroll={{ x: 'max-content' }}
@@ -538,7 +553,16 @@ export function DocumentsPage() {
           loading={documents.isPending}
           dataSource={documents.data?.items ?? []}
           columns={documentColumns}
-          pagination={false}
+          pagination={responsivePagination(isMobile, {
+            current: documents.data?.page ?? page,
+            pageSize: documents.data?.pageSize ?? pageSize,
+            total: documents.data?.total ?? 0,
+            showTotal: (total: number) => `共 ${total} 篇文档`,
+            onChange: (nextPage: number, nextPageSize: number) => {
+              setPage(nextPageSize === pageSize ? nextPage : 1);
+              setPageSize(nextPageSize);
+            },
+          })}
           locale={{ emptyText: '尚无文档' }}
         />
       </Card>
@@ -656,12 +680,23 @@ export function DocumentsPage() {
 
       <Drawer
         open={detailId !== null}
-        width={760}
+        width={responsiveWidth(isMobile, 760)}
         title={detail.data ? detail.data.title : '文档详情'}
         onClose={() => setDetailId(null)}
+        styles={{ body: { padding: isMobile ? 12 : 24 } }}
       >
         {detail.isError ? (
-          <Alert type="error" showIcon message={(detail.error as Error).message} />
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={(detail.error as Error).message}
+            action={
+              <Button size="small" onClick={() => void detail.refetch()}>
+                重试
+              </Button>
+            }
+          />
         ) : null}
         {detail.data ? (
           <>
@@ -683,7 +718,15 @@ export function DocumentsPage() {
                 { key: 'revision', label: '当前修订', children: detail.data.revision },
                 { key: 'fileName', label: '文件名', children: detail.data.fileName },
                 { key: 'size', label: '大小', children: formatBytes(detail.data.sizeBytes) },
-                { key: 'sha', label: 'SHA-256', children: <Typography.Text code>{detail.data.sha256}</Typography.Text> },
+                {
+                  key: 'sha',
+                  label: 'SHA-256',
+                  children: (
+                    <Typography.Text code style={{ wordBreak: 'break-all' }}>
+                      {detail.data.sha256}
+                    </Typography.Text>
+                  ),
+                },
                 {
                   key: 'updated',
                   label: '更新时间',
@@ -701,7 +744,7 @@ export function DocumentsPage() {
               size="small"
               dataSource={detail.data.revisions}
               columns={revisionColumns}
-              pagination={false}
+              pagination={responsivePagination(isMobile, { pageSize: 20 })}
             />
           </>
         ) : null}

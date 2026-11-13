@@ -55,7 +55,7 @@ public sealed class AppsServiceTests
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
         var registry = CreateRegistry(db, clock);
-        var keys = new ApiKeyService(db, clock);
+        var keys = CreateKeys(db, clock, PermissionCatalog.Wildcard);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
 
         var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest(
@@ -84,7 +84,7 @@ public sealed class AppsServiceTests
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
         var registry = CreateRegistry(db, clock);
-        var keys = new ApiKeyService(db, clock);
+        var keys = CreateKeys(db, clock, PermissionCatalog.Wildcard);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
         var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest());
 
@@ -104,7 +104,7 @@ public sealed class AppsServiceTests
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
         var registry = CreateRegistry(db, clock);
-        var keys = new ApiKeyService(db, clock);
+        var keys = CreateKeys(db, clock, PermissionCatalog.Wildcard);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
         var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest());
 
@@ -122,7 +122,7 @@ public sealed class AppsServiceTests
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
         var registry = CreateRegistry(db, clock);
-        var keys = new ApiKeyService(db, clock);
+        var keys = CreateKeys(db, clock, PermissionCatalog.Wildcard);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
         var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest(
             ExpiresAt: clock.UtcNow.AddHours(1)));
@@ -140,7 +140,7 @@ public sealed class AppsServiceTests
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
         var registry = CreateRegistry(db, clock);
-        var keys = new ApiKeyService(db, clock);
+        var keys = CreateKeys(db, clock, PermissionCatalog.Wildcard);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
         var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest());
 
@@ -157,7 +157,7 @@ public sealed class AppsServiceTests
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
         var registry = CreateRegistry(db, clock);
-        var keys = new ApiKeyService(db, clock);
+        var keys = CreateKeys(db, clock, PermissionCatalog.Wildcard);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
 
         var unknown = await Assert.ThrowsAsync<BusinessException>(
@@ -175,7 +175,7 @@ public sealed class AppsServiceTests
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
         var registry = CreateRegistry(db, clock);
-        var keys = new ApiKeyService(db, clock);
+        var keys = CreateKeys(db, clock, PermissionCatalog.Wildcard);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
         var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest(
             Scopes: ["versions.release.read", "versions.artifact.download"]));
@@ -200,7 +200,7 @@ public sealed class AppsServiceTests
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
         var registry = CreateRegistry(db, clock);
-        var keys = new ApiKeyService(db, clock);
+        var keys = CreateKeys(db, clock, PermissionCatalog.Wildcard);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
         var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest(Scopes: ["versions.release.read"]));
         var tokens = new M2MTokenService(keys, new RecordingIssuer());
@@ -211,8 +211,76 @@ public sealed class AppsServiceTests
         Assert.Equal(ApiErrorCode.AppsApiKeyScopeDenied, exception.Code);
     }
 
+    [Fact]
+    public async Task 不能签发自己未持有的scope()
+    {
+        var clock = new TestClock();
+        await using var db = TestDbContext.Create(clock);
+        var registry = CreateRegistry(db, clock);
+        var keys = CreateKeys(db, clock, PermissionCatalog.VersionsReleaseRead);
+        var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
+
+        var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest(
+            Scopes: [PermissionCatalog.VersionsReleaseRead]));
+        Assert.Equal(["versions.release.read"], created.Scopes);
+
+        var exception = await Assert.ThrowsAsync<BusinessException>(
+            () => keys.CreateAsync(app.Id, new CreateApiKeyRequest(
+                Scopes: [PermissionCatalog.VersionsReleaseRead, PermissionCatalog.LicenseIssue])));
+        Assert.Equal(ApiErrorCode.AppsApiKeyScopeDenied, exception.Code);
+        Assert.Contains(PermissionCatalog.LicenseIssue, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task 持有通配符可授予任意已知scope()
+    {
+        var clock = new TestClock();
+        await using var db = TestDbContext.Create(clock);
+        var registry = CreateRegistry(db, clock);
+        var keys = CreateKeys(db, clock, PermissionCatalog.Wildcard);
+        var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
+
+        var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest(
+            Scopes: [PermissionCatalog.LicenseIssue]));
+
+        Assert.Equal(["license.issue"], created.Scopes);
+    }
+
     private static AppRegistryService CreateRegistry(PlatformDbContext db, IClock clock) =>
         new(db, new AppStateCache(clock, TimeSpan.FromMinutes(1)));
+
+    private static ApiKeyService CreateKeys(PlatformDbContext db, IClock clock, params string[] permissions) =>
+        new(db, clock, new TestCurrentPrincipal(permissions));
+
+    private sealed class TestCurrentPrincipal : ICurrentPrincipal
+    {
+        public TestCurrentPrincipal(params string[] permissions) =>
+            Permissions = permissions.ToHashSet(StringComparer.Ordinal);
+
+        public bool IsAuthenticated => true;
+
+        public string? UserId => "test-user";
+
+        public string? UserName => "test-user";
+
+        public IReadOnlyList<string> Roles => [];
+
+        public IReadOnlySet<string> Permissions { get; }
+
+        public IReadOnlyList<string> AppKeys => [];
+
+        public string? AppKey => null;
+
+        public bool IsTemporary => false;
+
+        public bool IsService => false;
+
+        public bool HasPermission(string code) =>
+            Permissions.Contains(PermissionCatalog.Wildcard) || Permissions.Contains(code);
+
+        public bool HasAnyPermission(params string[] codes) =>
+            Permissions.Contains(PermissionCatalog.Wildcard) || codes.Any(Permissions.Contains);
+    }
 
     private sealed class RecordingIssuer : IAccessTokenIssuer
     {

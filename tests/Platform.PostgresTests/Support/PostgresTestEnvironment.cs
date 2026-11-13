@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Modules.Apps.Persistence;
@@ -19,8 +20,10 @@ internal sealed class TestClock : IClock
 }
 
 /// <summary>
-/// 进程级单例 PostgreSQL 容器：第一次取连接串时启动容器并跑完全部迁移。
-/// 不在测试夹具里启动，是为了让 Docker 不可用时用例整体跳过而不触发容器创建。
+/// 进程级单例 PostgreSQL：第一次取连接串时准备库并跑完全部迁移。
+/// 默认用 Testcontainers 起容器；设了 <c>POSTGRES_TEST_CONNECTION</c> 则改为在给定实例上
+/// 建一个临时库（退出时删除），供拉不到 Docker Hub 的内网环境使用。
+/// 不在测试夹具里启动，是为了让环境不可用时用例整体跳过而不触发容器创建。
 /// </summary>
 internal static class PostgresTestEnvironment
 {
@@ -46,6 +49,14 @@ internal static class PostgresTestEnvironment
 
     private static async Task<string> StartAsync()
     {
+        var external = Environment.GetEnvironmentVariable("POSTGRES_TEST_CONNECTION");
+        return string.IsNullOrWhiteSpace(external)
+            ? await StartContainerAsync()
+            : await StartExternalAsync(external);
+    }
+
+    private static async Task<string> StartContainerAsync()
+    {
         var container = new PostgreSqlBuilder("postgres:17-alpine")
             .WithDatabase("platform_tests")
             .WithUsername("platform")
@@ -57,6 +68,45 @@ internal static class PostgresTestEnvironment
         await using var db = CreateDbContext(connectionString, new TestClock());
         await db.Database.MigrateAsync();
         return connectionString;
+    }
+
+    private static async Task<string> StartExternalAsync(string adminConnectionString)
+    {
+        var database = "platform_tests_" + Guid.NewGuid().ToString("N")[..12];
+        var admin = new NpgsqlConnectionStringBuilder(adminConnectionString);
+
+        await using (var connection = new NpgsqlConnection(admin.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var create = new NpgsqlCommand($"CREATE DATABASE \"{database}\"", connection);
+            await create.ExecuteNonQueryAsync();
+        }
+
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => DropDatabase(admin, database);
+
+        var connectionString = new NpgsqlConnectionStringBuilder(admin.ConnectionString)
+        {
+            Database = database,
+        }.ConnectionString;
+
+        await using var db = CreateDbContext(connectionString, new TestClock());
+        await db.Database.MigrateAsync();
+        return connectionString;
+    }
+
+    private static void DropDatabase(NpgsqlConnectionStringBuilder admin, string database)
+    {
+        try
+        {
+            using var connection = new NpgsqlConnection(admin.ConnectionString);
+            connection.Open();
+            using var drop = new NpgsqlCommand($"DROP DATABASE IF EXISTS \"{database}\" WITH (FORCE)", connection);
+            drop.ExecuteNonQuery();
+        }
+        catch (NpgsqlException)
+        {
+            // 进程退出阶段的尽力清理，删不掉就留给运维手工处理，不要盖住测试结果
+        }
     }
 }
 

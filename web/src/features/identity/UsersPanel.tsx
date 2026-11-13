@@ -1,9 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App, Button, Input, Popconfirm, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import { Alert, App, Button, Flex, Input, Popconfirm, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import type { TableColumnsType } from 'antd';
 import { useState } from 'react';
 import { identityApi } from '../../shared/api/identity';
 import type { UserDetail, UserSummary } from '../../shared/api/types';
 import { PERMISSIONS } from '../../shared/permissions';
+import { responsivePagination } from '../../shared/responsive';
+import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
 import { ResetPasswordModal } from './ResetPasswordModal';
 import { UserFormModal } from './UserFormModal';
@@ -17,6 +20,7 @@ function formatTime(value?: string | null): string {
 /** 用户管理：分页 + 关键字；口令只能通过"重置"动作修改，避免管理员看到旧口令。 */
 export function UsersPanel() {
   const { message } = App.useApp();
+  const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const canManage = useAuthStore((state) => state.hasPermission(PERMISSIONS.identityUserManage));
   const canReset = useAuthStore((state) => state.hasPermission(PERMISSIONS.identityUserPasswordReset));
@@ -62,7 +66,7 @@ export function UsersPanel() {
     }
   };
 
-  const columns = [
+  const columns: TableColumnsType<UserSummary> = [
     {
       title: '用户名',
       dataIndex: 'userName',
@@ -104,6 +108,7 @@ export function UsersPanel() {
       dataIndex: 'mustChangePassword',
       key: 'mustChangePassword',
       width: 100,
+      responsive: ['md'],
       render: (required: boolean) =>
         required ? <Tag color="orange">待修改</Tag> : <Typography.Text type="secondary">-</Typography.Text>,
     },
@@ -112,6 +117,7 @@ export function UsersPanel() {
       dataIndex: 'lastLoginAt',
       key: 'lastLoginAt',
       width: 180,
+      responsive: ['md'],
       render: formatTime,
     },
     {
@@ -119,12 +125,14 @@ export function UsersPanel() {
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 180,
+      responsive: ['md'],
       render: formatTime,
     },
     {
       title: '操作',
       key: 'actions',
       width: 220,
+      fixed: 'right',
       render: (_: unknown, user: UserSummary) => (
         <Space size="small" wrap>
           {canManage ? (
@@ -165,11 +173,11 @@ export function UsersPanel() {
 
   return (
     <Space direction="vertical" size="small" style={{ width: '100%' }}>
-      <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+      <Flex wrap gap={8} justify="space-between" align="center">
         <Input.Search
           allowClear
           placeholder="按用户名或显示名搜索"
-          style={{ width: 280 }}
+          style={{ width: 280, maxWidth: '100%', minWidth: 0 }}
           loading={users.isFetching}
           onSearch={(value) => {
             setKeyword(value.trim());
@@ -181,10 +189,19 @@ export function UsersPanel() {
             新建用户
           </Button>
         ) : null}
-      </Space>
+      </Flex>
 
       {users.isError ? (
-        <Alert type="error" showIcon message={(users.error as Error).message} />
+        <Alert
+          type="error"
+          showIcon
+          message={(users.error as Error).message}
+          action={
+            <Button size="small" onClick={() => void users.refetch()}>
+              重试
+            </Button>
+          }
+        />
       ) : null}
 
       <Table<UserSummary>
@@ -194,17 +211,16 @@ export function UsersPanel() {
         loading={users.isPending}
         dataSource={users.data?.items ?? []}
         columns={columns}
-        pagination={{
+        pagination={responsivePagination(isMobile, {
           current: users.data?.page ?? page,
           pageSize: users.data?.pageSize ?? pageSize,
           total: users.data?.total ?? 0,
-          showSizeChanger: true,
-          showTotal: (total) => `共 ${total} 个用户`,
-          onChange: (nextPage, nextPageSize) => {
+          showTotal: (total: number) => `共 ${total} 个用户`,
+          onChange: (nextPage: number, nextPageSize: number) => {
             setPage(nextPageSize === pageSize ? nextPage : 1);
             setPageSize(nextPageSize);
           },
-        }}
+        })}
         locale={{ emptyText: '没有匹配的用户' }}
       />
 

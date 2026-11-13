@@ -1,10 +1,11 @@
-import { AppstoreOutlined, PlusOutlined } from '@ant-design/icons';
+import { PlusOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   App,
   Button,
   Card,
+  Flex,
   Form,
   Input,
   InputNumber,
@@ -14,10 +15,10 @@ import {
   Switch,
   Table,
   Tag,
-  Tooltip,
   Typography,
 } from 'antd';
-import { useState } from 'react';
+import type { TableColumnsType } from 'antd';
+import { useEffect, useState } from 'react';
 import { backupsApi } from '../../shared/api/backups';
 import { requestBlob } from '../../shared/api/client';
 import type {
@@ -31,6 +32,8 @@ import type {
 import { saveBlob } from '../../shared/download';
 import { formatBytes } from '../../shared/format';
 import { PERMISSIONS } from '../../shared/permissions';
+import { responsivePagination, responsiveWidth } from '../../shared/responsive';
+import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
 
 interface NamespaceFormValues {
@@ -68,10 +71,9 @@ interface PushFormValues {
  */
 export function BackupsPage() {
   const { message } = App.useApp();
+  const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const session = useAuthStore((state) => state.session);
-  const switchAppContext = useAuthStore((state) => state.switchAppContext);
-  const switching = useAuthStore((state) => state.pending);
   const canManageNamespace = useAuthStore((state) =>
     state.hasPermission(PERMISSIONS.backupNamespaceManage),
   );
@@ -91,7 +93,15 @@ export function BackupsPage() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [pushTarget, setPushTarget] = useState<BackupSummary | null>(null);
   const [namespaceFilter, setNamespaceFilter] = useState<string | undefined>();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [saving, setSaving] = useState(false);
+
+  // 上下文在 Header 切换；旧应用的命名空间筛选不能带到新应用
+  useEffect(() => {
+    setNamespaceFilter(undefined);
+    setPage(1);
+  }, [appKey]);
 
   const namespaces = useQuery({
     queryKey: ['backups', 'namespaces', appKey],
@@ -100,29 +110,14 @@ export function BackupsPage() {
   });
 
   const backups = useQuery({
-    queryKey: ['backups', 'list', appKey, namespaceFilter],
+    queryKey: ['backups', 'list', appKey, namespaceFilter, page, pageSize],
     queryFn: ({ signal }) =>
-      backupsApi.listBackups({ namespaceKey: namespaceFilter, pageSize: 50 }, signal),
+      backupsApi.listBackups({ namespaceKey: namespaceFilter, page, pageSize }, signal),
     enabled: appKey !== null,
   });
 
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ['backups'] });
-  };
-
-  const handleSwitchContext = async (next: string) => {
-    if (next === appKey) {
-      return;
-    }
-
-    try {
-      const updated = await switchAppContext(next);
-      message.success(`已进入应用 ${updated.appKey ?? next}`);
-      setNamespaceFilter(undefined);
-      await refresh();
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '切换应用失败');
-    }
   };
 
   const openNamespaceForm = (namespace: BackupNamespace | null) => {
@@ -296,7 +291,7 @@ export function BackupsPage() {
     });
   };
 
-  const namespaceColumns = [
+  const namespaceColumns: TableColumnsType<BackupNamespace> = [
     {
       title: '键',
       dataIndex: 'key',
@@ -305,9 +300,21 @@ export function BackupsPage() {
       render: (value: string) => <Typography.Text code>{value}</Typography.Text>,
     },
     { title: '名称', dataIndex: 'name', key: 'name', width: 160 },
-    { title: '渠道', dataIndex: 'channel', key: 'channel', width: 110 },
-    { title: '保留上限', dataIndex: 'maxVersions', key: 'maxVersions', width: 90 },
-    { title: '备份数', dataIndex: 'backupCount', key: 'backupCount', width: 80 },
+    { title: '渠道', dataIndex: 'channel', key: 'channel', width: 110, responsive: ['md'] },
+    {
+      title: '保留上限',
+      dataIndex: 'maxVersions',
+      key: 'maxVersions',
+      width: 90,
+      responsive: ['md'],
+    },
+    {
+      title: '备份数',
+      dataIndex: 'backupCount',
+      key: 'backupCount',
+      width: 80,
+      responsive: ['md'],
+    },
     {
       title: '状态',
       dataIndex: 'isEnabled',
@@ -319,6 +326,7 @@ export function BackupsPage() {
       title: '操作',
       key: 'actions',
       width: 80,
+      fixed: 'right',
       render: (_: unknown, row: BackupNamespace) =>
         canManageNamespace ? (
           <Button type="link" size="small" onClick={() => openNamespaceForm(row)}>
@@ -328,7 +336,7 @@ export function BackupsPage() {
     },
   ];
 
-  const backupColumns = [
+  const backupColumns: TableColumnsType<BackupSummary> = [
     { title: '命名空间', dataIndex: 'namespaceKey', key: 'namespaceKey', width: 130 },
     { title: '名称', dataIndex: 'name', key: 'name', width: 180 },
     {
@@ -338,12 +346,25 @@ export function BackupsPage() {
       width: 80,
       render: (kind: BackupKind) => <Tag>{kind}</Tag>,
     },
-    { title: '渠道', dataIndex: 'channel', key: 'channel', width: 100 },
-    { title: '框架版本', dataIndex: 'frameworkVersion', key: 'frameworkVersion', width: 100 },
+    {
+      title: '渠道',
+      dataIndex: 'channel',
+      key: 'channel',
+      width: 100,
+      responsive: ['md'],
+    },
+    {
+      title: '框架版本',
+      dataIndex: 'frameworkVersion',
+      key: 'frameworkVersion',
+      width: 100,
+      responsive: ['md'],
+    },
     {
       title: '存储',
       key: 'storage',
       width: 90,
+      responsive: ['md'],
       render: (_: unknown, row: BackupSummary) =>
         row.hasInline ? <Tag color="blue">内联</Tag> : <Tag color="purple">文件</Tag>,
     },
@@ -352,6 +373,7 @@ export function BackupsPage() {
       dataIndex: 'sizeBytes',
       key: 'sizeBytes',
       width: 100,
+      responsive: ['md'],
       render: (value: number) => formatBytes(value),
     },
     {
@@ -359,12 +381,14 @@ export function BackupsPage() {
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 170,
+      responsive: ['md'],
       render: (value: string) => new Date(value).toLocaleString(),
     },
     {
       title: '操作',
       key: 'actions',
       width: 200,
+      fixed: 'right',
       render: (_: unknown, row: BackupSummary) => (
         <Space size="small">
           <Button type="link" size="small" onClick={() => void handleDownload(row)}>
@@ -400,24 +424,6 @@ export function BackupsPage() {
 
   return (
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
-      <Card size="small">
-        <Space wrap>
-          <AppstoreOutlined />
-          <Typography.Text>当前应用</Typography.Text>
-          <Select
-            value={appKey}
-            loading={switching}
-            style={{ minWidth: 200 }}
-            options={appKeys.map((key) => ({ value: key, label: key }))}
-            onChange={(value) => void handleSwitchContext(value)}
-            disabled={switching || appKeys.length <= 1}
-          />
-          <Tooltip title="应用上下文来自令牌；备份、文档、版本等应用级数据随上下文切换。">
-            <Typography.Text type="secondary">备份按应用隔离，前端不传 appKey。</Typography.Text>
-          </Tooltip>
-        </Space>
-      </Card>
-
       <Card
         size="small"
         title="命名空间"
@@ -434,7 +440,17 @@ export function BackupsPage() {
         }
       >
         {namespaces.isError ? (
-          <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(namespaces.error as Error).message} />
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={(namespaces.error as Error).message}
+            action={
+              <Button size="small" onClick={() => void namespaces.refetch()}>
+                重试
+              </Button>
+            }
+          />
         ) : null}
         <Table<BackupNamespace>
           scroll={{ x: 'max-content' }}
@@ -463,9 +479,12 @@ export function BackupsPage() {
           <Select
             allowClear
             placeholder="全部命名空间"
-            style={{ width: 200 }}
+            style={{ width: 200, maxWidth: '100%' }}
             value={namespaceFilter}
-            onChange={setNamespaceFilter}
+            onChange={(value) => {
+              setNamespaceFilter(value);
+              setPage(1);
+            }}
             options={(namespaces.data ?? []).map((item) => ({
               value: item.key,
               label: `${item.name}（${item.key}）`,
@@ -475,7 +494,17 @@ export function BackupsPage() {
         </Space>
 
         {backups.isError ? (
-          <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(backups.error as Error).message} />
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={(backups.error as Error).message}
+            action={
+              <Button size="small" onClick={() => void backups.refetch()}>
+                重试
+              </Button>
+            }
+          />
         ) : null}
         <Table<BackupSummary>
           scroll={{ x: 'max-content' }}
@@ -484,7 +513,16 @@ export function BackupsPage() {
           loading={backups.isPending}
           dataSource={backups.data?.items ?? []}
           columns={backupColumns}
-          pagination={false}
+          pagination={responsivePagination(isMobile, {
+            current: backups.data?.page ?? page,
+            pageSize: backups.data?.pageSize ?? pageSize,
+            total: backups.data?.total ?? 0,
+            showTotal: (total: number) => `共 ${total} 份备份`,
+            onChange: (nextPage: number, nextPageSize: number) => {
+              setPage(nextPageSize === pageSize ? nextPage : 1);
+              setPageSize(nextPageSize);
+            },
+          })}
           locale={{ emptyText: '尚无备份' }}
         />
       </Card>
@@ -530,7 +568,7 @@ export function BackupsPage() {
         confirmLoading={saving}
         onOk={() => void submitBackup()}
         onCancel={() => setBackupOpen(false)}
-        width={640}
+        width={responsiveWidth(isMobile, 640)}
       >
         <Form form={backupForm} layout="vertical">
           <Form.Item name="namespaceKey" label="命名空间" rules={[{ required: true }]}>
@@ -551,14 +589,24 @@ export function BackupsPage() {
           <Form.Item name="name" label="名称" rules={[{ required: true, max: 256 }]}>
             <Input />
           </Form.Item>
-          <Space size={12} style={{ display: 'flex' }}>
-            <Form.Item name="frameworkVersion" label="框架版本" rules={[{ required: true }]} style={{ flex: 1 }}>
+          <Flex wrap gap={12} align="flex-start">
+            <Form.Item
+              name="frameworkVersion"
+              label="框架版本"
+              rules={[{ required: true }]}
+              style={{ flex: '1 1 220px', minWidth: 0 }}
+            >
               <Input placeholder="1.0.0" />
             </Form.Item>
-            <Form.Item name="schemaVersion" label="Schema 版本" rules={[{ required: true }]} style={{ flex: 1 }}>
+            <Form.Item
+              name="schemaVersion"
+              label="Schema 版本"
+              rules={[{ required: true }]}
+              style={{ flex: '1 1 220px', minWidth: 0 }}
+            >
               <InputNumber min={0} style={{ width: '100%' }} />
             </Form.Item>
-          </Space>
+          </Flex>
           <Form.Item name="deviceName" label="来源设备名（可选）">
             <Input />
           </Form.Item>

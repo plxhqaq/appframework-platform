@@ -1,4 +1,4 @@
-import { Alert, Card, Descriptions, Space, Spin, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Descriptions, Space, Spin, Table, Tag, Typography } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { platformApi } from '../../shared/api/platform';
 import type { ModuleInfo } from '../../shared/api/types';
@@ -77,7 +77,16 @@ export function OverviewPage() {
       <Card title="平台模块" size="small" extra={<Typography.Text type="secondary">GET /api/v1/platform/modules</Typography.Text>}>
         {modules.isPending ? <Spin /> : null}
         {modules.isError ? (
-          <Alert type="error" showIcon message={(modules.error as Error).message} />
+          <Alert
+            type="error"
+            showIcon
+            message={(modules.error as Error).message}
+            action={
+              <Button size="small" onClick={() => void modules.refetch()}>
+                重试
+              </Button>
+            }
+          />
         ) : null}
         {modules.data ? (
           <Table<ModuleInfo>

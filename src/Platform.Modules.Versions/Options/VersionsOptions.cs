@@ -80,4 +80,10 @@ public sealed class VersionsOptions
 
     /// <summary>已归档版本保留天数（默认 0 = 永久保留）；到期删除版本及其清单/包行。</summary>
     public int ArchivedReleaseRetentionDays { get; set; }
+
+    /// <summary>
+    /// 客户端只带受众标签且没有渠道命中时，是否自动建渠道（默认关闭）。
+    /// 关闭时返回 404，避免客户端拼错标签就把渠道表撑大。
+    /// </summary>
+    public bool AudienceAutoCreateChannels { get; set; }
 }

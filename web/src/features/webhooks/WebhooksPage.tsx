@@ -1,4 +1,4 @@
-import { AppstoreOutlined, PlusOutlined } from '@ant-design/icons';
+import { PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -6,13 +6,13 @@ import {
   Button,
   Card,
   Popconfirm,
-  Select,
   Space,
   Table,
   Tag,
   Tooltip,
   Typography,
 } from 'antd';
+import type { TableColumnsType } from 'antd';
 import { useState } from 'react';
 import { webhookApi } from '../../shared/api/webhooks';
 import type { WebhookSubscription } from '../../shared/api/types';
@@ -37,8 +37,6 @@ export function WebhooksPage() {
   const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
   const session = useAuthStore((state) => state.session);
-  const switchAppContext = useAuthStore((state) => state.switchAppContext);
-  const switching = useAuthStore((state) => state.pending);
   const canRead = useAuthStore((state) => state.hasPermission(PERMISSIONS.webhookRead));
   const canManage = useAuthStore((state) => state.hasPermission(PERMISSIONS.webhookManage));
 
@@ -57,20 +55,6 @@ export function WebhooksPage() {
 
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ['webhooks'] });
-  };
-
-  const handleSwitchContext = async (next: string) => {
-    if (next === appKey) {
-      return;
-    }
-
-    try {
-      const updated = await switchAppContext(next);
-      message.success(`已进入应用 ${updated.appKey ?? next}`);
-      await refresh();
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '切换应用失败');
-    }
   };
 
   const rotate = useMutation({
@@ -112,19 +96,24 @@ export function WebhooksPage() {
     });
   };
 
-  const columns = [
+  const columns: TableColumnsType<WebhookSubscription> = [
     {
       title: '接收地址',
       dataIndex: 'url',
       key: 'url',
       ellipsis: true,
-      render: (url: string) => <Typography.Text code>{url}</Typography.Text>,
+      render: (url: string) => (
+        <Typography.Text code ellipsis={{ tooltip: url }} style={{ maxWidth: 360 }}>
+          {url}
+        </Typography.Text>
+      ),
     },
     {
       title: '订阅事件',
       dataIndex: 'eventTypes',
       key: 'eventTypes',
       width: 260,
+      responsive: ['md'],
       render: (eventTypes: string[]) =>
         eventTypes.length === 0 ? (
           <Typography.Text type="secondary">全部事件</Typography.Text>
@@ -141,6 +130,7 @@ export function WebhooksPage() {
       dataIndex: 'secretHint',
       key: 'secretHint',
       width: 190,
+      responsive: ['md'],
       render: (hint: string) => <Typography.Text code>{hint}</Typography.Text>,
     },
     {
@@ -156,12 +146,14 @@ export function WebhooksPage() {
       dataIndex: 'lastDeliveryAt',
       key: 'lastDeliveryAt',
       width: 170,
+      responsive: ['md'],
       render: (value: string | null) => (value ? new Date(value).toLocaleString() : '-'),
     },
     {
       title: '创建',
       key: 'created',
       width: 180,
+      responsive: ['md'],
       render: (_: unknown, row: WebhookSubscription) => (
         <Space direction="vertical" size={0}>
           <Typography.Text type="secondary">{row.createdBy ?? '-'}</Typography.Text>
@@ -173,6 +165,7 @@ export function WebhooksPage() {
       title: '操作',
       key: 'actions',
       width: 230,
+      fixed: 'right',
       render: (_: unknown, row: WebhookSubscription) => (
         <Space size="small" wrap>
           <Button type="link" size="small" onClick={() => {
@@ -244,26 +237,6 @@ export function WebhooksPage() {
 
   return (
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
-      <Card size="small">
-        <Space wrap>
-          <AppstoreOutlined />
-          <Typography.Text>当前应用</Typography.Text>
-          <Select
-            value={appKey}
-            loading={switching}
-            style={{ minWidth: 200 }}
-            options={appKeys.map((key) => ({ value: key, label: key }))}
-            onChange={(value) => void handleSwitchContext(value)}
-            disabled={switching || appKeys.length <= 1}
-          />
-          <Tooltip title="应用上下文来自令牌；切换后订阅与台账的数据范围随之切换。">
-            <Typography.Text type="secondary">
-              订阅按应用隔离，前端不传 appKey。投递由单实例调度器执行，多副本需先关闭多余实例的投递开关。
-            </Typography.Text>
-          </Tooltip>
-        </Space>
-      </Card>
-
       <Card
         size="small"
         title="订阅"
@@ -288,6 +261,11 @@ export function WebhooksPage() {
             showIcon
             style={{ marginBottom: 12 }}
             message={(subscriptions.error as Error).message}
+            action={
+              <Button size="small" onClick={() => void subscriptions.refetch()}>
+                重试
+              </Button>
+            }
           />
         ) : null}
         <Table<WebhookSubscription>

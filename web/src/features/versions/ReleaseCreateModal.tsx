@@ -4,6 +4,7 @@ import {
   Alert,
   App,
   Button,
+  Flex,
   Form,
   Input,
   Modal,
@@ -24,6 +25,8 @@ import type {
 } from '../../shared/api/types';
 import { hashFile, normalizeReleasePath } from '../../shared/files';
 import { formatBytes } from '../../shared/format';
+import { responsiveWidth } from '../../shared/responsive';
+import { useResponsive } from '../../shared/useResponsive';
 
 interface ReleaseFormValues {
   channelKey: string;
@@ -57,6 +60,7 @@ const LARGE_FILE_BYTES = 256 * 1024 * 1024;
  */
 export function ReleaseCreateModal({ open, channels, onClose, onSaved }: ReleaseCreateModalProps) {
   const { message } = App.useApp();
+  const { isMobile } = useResponsive();
   const [form] = Form.useForm<ReleaseFormValues>();
   const [files, setFiles] = useState<SelectedFile[]>([]);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
@@ -164,7 +168,7 @@ export function ReleaseCreateModal({ open, channels, onClose, onSaved }: Release
   return (
     <Modal
       open={open}
-      width={840}
+      width={responsiveWidth(isMobile, 840)}
       title="新建版本"
       okText={publishNow ? '创建并发布' : '保存草稿'}
       cancelText="取消"
@@ -181,11 +185,11 @@ export function ReleaseCreateModal({ open, channels, onClose, onSaved }: Release
       }}
     >
       <Form<ReleaseFormValues> form={form} layout="vertical" requiredMark={false}>
-        <Space size="middle" style={{ display: 'flex', alignItems: 'flex-start' }}>
+        <Flex wrap gap={12} align="flex-start">
           <Form.Item
             name="channelKey"
             label="渠道"
-            style={{ width: 220 }}
+            style={{ flex: '1 1 220px', minWidth: 0 }}
             rules={[{ required: true, message: '请选择渠道' }]}
           >
             <Select
@@ -200,7 +204,7 @@ export function ReleaseCreateModal({ open, channels, onClose, onSaved }: Release
           <Form.Item
             name="runtimeIdentifier"
             label="运行时标识"
-            style={{ width: 200 }}
+            style={{ flex: '1 1 200px', minWidth: 0 }}
             rules={[{ required: true }]}
           >
             <Select options={RUNTIMES.map((value) => ({ value, label: value }))} />
@@ -209,7 +213,7 @@ export function ReleaseCreateModal({ open, channels, onClose, onSaved }: Release
           <Form.Item
             name="version"
             label="版本号"
-            style={{ flex: 1 }}
+            style={{ flex: '1 1 220px', minWidth: 0 }}
             rules={[
               { required: true, message: '请输入版本号' },
               {
@@ -221,7 +225,7 @@ export function ReleaseCreateModal({ open, channels, onClose, onSaved }: Release
           >
             <Input placeholder="1.2.3" autoComplete="off" />
           </Form.Item>
-        </Space>
+        </Flex>
 
         <Form.Item name="notes" label="发布说明" rules={[{ max: 4000 }]}>
           <Input.TextArea rows={2} placeholder="可选；客户端更新提示可直接展示" />
@@ -323,6 +327,7 @@ export function ReleaseCreateModal({ open, channels, onClose, onSaved }: Release
                 danger
                 size="small"
                 icon={<DeleteOutlined />}
+                aria-label={`移除 ${row.path}`}
                 disabled={mutation.isPending}
                 onClick={() => setFiles((current) => current.filter((item) => item.path !== row.path))}
               />

@@ -69,7 +69,16 @@ curl -s -X PATCH "http://localhost:5080/api/v1/admin/versions/channels/$CHANNEL_
   临时打开（或客户端在 `check` 请求里显式传 `allowDowngrade=true`）。
 - 列表项 `ReleaseChannelDto`：`id` / `key` / `name` / `description` / `isEnabled` / `releaseCount`
   （含草稿与归档）/ `latestVersion`（语义版本最高的已发布版本号，无则 `null`）/ `createdAt` /
-  `updatedAt` / `allowDowngrade`。
+  `updatedAt` / `allowDowngrade` / `audienceTags` / `autoCreated`。
+- **受众标签（B11）**：创建/更新渠道可传 `audienceTags`，服务端去空白、转小写、去重并排序后存
+  `text[]`。单标签须匹配 `^[a-z0-9][a-z0-9._:-]{0,63}$`，单渠道最多 16 个；更新时传空数组表示清空。
+  标签非法返回通用校验失败 `2`。
+- **标签匹配口径**：客户端 `check` 省略 `channelKey` 时可改传 `audienceTags`；**请求标签必须包含渠道的
+  全部受众标签**才命中（渠道声明「需要什么能力」，客户端声明「本机有什么能力」）。多个渠道命中时取
+  标签最多的一个，标签数相同按渠道键序；停用渠道不参与匹配。显式 `channelKey` 始终优先于标签。
+- **无命中与自动建渠道**：默认返回 `200`（404）。设 `Versions:AudienceAutoCreateChannels=true` 后，按
+  规范化标签摘要创建 `auto-{sha8}` 渠道（`autoCreated=true`，同名同标签复用）；新渠道还没有已发布版本
+  时 `check` 仍按 `212` 返回，管理员发布版本后即正常下发。`channelKey` 与 `audienceTags` 都不传返回 `2`。
 
 ## 3. 上传两步流：票据 → 直传
 
@@ -199,8 +208,11 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $CLIENT_TOKEN
 
 `check`（`ReleaseService.CheckAsync`）：
 
-- `channelKey` 非法 → `2`；`runtimeIdentifier` 不在白名单 → `211`；渠道不存在 → `200`；渠道下没有
-  已发布版本 → `212`（后两者均 404）。
+- 渠道解析（B11）：`channelKey` 与 `audienceTags` 至少给一个，都给时以渠道键为准；只给标签时的匹配规则
+  见 §2「受众标签」。响应里的 `channelKey` 是实际命中的渠道键（自动匹配时由服务端回填），客户端后续
+  `manifest` / 下载都按它寻址。
+- `channelKey` 非法 / 两个字段都不传 → `2`；`runtimeIdentifier` 不在白名单 → `211`；渠道不存在或无标签命中
+  → `200`；渠道下没有已发布版本 → `212`（后两者均 404）。
 - **选版按语义版本**：`status == published` 内用 `VersionComparer` 取最高版本，同版本再取更晚发布的。
   不再按发布时间主排序，因此「先发 1.10.0、后发 1.9.0」仍以 `1.10.0` 为最新。支持三段 SemVer 与
   四段 GitVersion：`1.2.3` 与 `1.2.3.0` 相等，预发布按 SemVer 优先级（`-rc.1` < 正式版），
@@ -307,6 +319,11 @@ await client.SignInAsync("updater", "…");
 
 // 1) 检查更新：无更新时同样拿到最新清单，可直接进入修复分支
 CheckUpdateResponse check = await client.CheckUpdateAsync("stable", currentVersion: LocalVersion);
+
+// 也可以不指定渠道，由服务端按本机能力标签匹配（需渠道声明 audienceTags）：
+// CheckUpdateResponse check = await client.CheckUpdateAsync(
+//     channelKey: null, currentVersion: LocalVersion,
+//     audienceTags: ["win-x64", "hardware:scanner"]);
 if (check.Release is null) { return; }          // 该渠道最新版本的产物里没有本机运行时
 
 ReleaseManifestDto manifest = check.Release;
@@ -531,6 +548,7 @@ InMemory 集成测试覆盖不到。
 | `Versions:BlobSweepGraceHours` / `BlobSweepBatchSize` | 48 / 500 | 孤儿判定宽限期（小时）与单批候选数（B10） |
 | `Versions:FailedPackageRetentionDays` | 30 | 失败包保留天数，到期删行（B10） |
 | `Versions:ArchivedReleaseRetentionDays` | 0 | 归档版本保留天数，0 = 永久（B10） |
+| `Versions:AudienceAutoCreateChannels` | `false` | 客户端只带标签且无渠道命中时自动建渠道（B11）；默认关闭，避免拼错标签污染渠道表 |
 | `RateLimits:VersionsUploadTicketPerMinute` | 60 | 上传票据申请限流（用户 + 应用分区，429/7） |
 | `RateLimits:VersionsPackageFinalizePerMinute` | 30 | 包/更新器登记限流（用户 + 应用分区，429/7） |
 | `Versions:RequirePackageFileNameMatch` | `false` | 包文件名严格匹配模板，不匹配返回 `218` |

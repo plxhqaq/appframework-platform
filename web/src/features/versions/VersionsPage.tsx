@@ -1,4 +1,4 @@
-import { AppstoreOutlined, CloudUploadOutlined, PlusOutlined } from '@ant-design/icons';
+import { CloudUploadOutlined, PlusOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -10,14 +10,16 @@ import {
   Space,
   Table,
   Tag,
-  Tooltip,
   Typography,
 } from 'antd';
-import { useState } from 'react';
+import type { TableColumnsType } from 'antd';
+import { useEffect, useState } from 'react';
 import { versionsApi } from '../../shared/api/versions';
 import type { ReleaseChannel, ReleaseSummary, ReleaseStatus } from '../../shared/api/types';
 import { formatBytes } from '../../shared/format';
 import { PERMISSIONS } from '../../shared/permissions';
+import { responsivePagination } from '../../shared/responsive';
+import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
 import { ChannelFormModal } from './ChannelFormModal';
 import { PackageUploadModal } from './PackageUploadModal';
@@ -34,14 +36,13 @@ const STATUS_META: Record<ReleaseStatus, { label: string; color?: string }> = {
  * 版本与渠道页。
  *
  * 应用隔离轴来自令牌：平台管理员未显式进入应用时落在首个启用应用，
- * 页面顶部的"当前应用"选择器通过 `/admin/auth/context` 切换上下文。
+ * 上下文切换统一在顶部 Header 完成（见 AppContextSelect）。
  */
 export function VersionsPage() {
   const { message } = App.useApp();
+  const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const session = useAuthStore((state) => state.session);
-  const switchAppContext = useAuthStore((state) => state.switchAppContext);
-  const switching = useAuthStore((state) => state.pending);
   const canManageChannels = useAuthStore((state) => state.hasPermission(PERMISSIONS.versionsChannelManage));
   const canPublish = useAuthStore((state) => state.hasPermission(PERMISSIONS.versionsReleasePublish));
   const canArchive = useAuthStore((state) => state.hasPermission(PERMISSIONS.versionsReleaseArchive));
@@ -60,6 +61,15 @@ export function VersionsPage() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [channelFilter, setChannelFilter] = useState<string | undefined>();
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  // 上下文在 Header 切换；旧应用的筛选与页码不能沿用
+  useEffect(() => {
+    setChannelFilter(undefined);
+    setStatusFilter(undefined);
+    setPage(1);
+  }, [appKey]);
 
   const channels = useQuery({
     queryKey: ['versions', 'channels', appKey],
@@ -68,10 +78,10 @@ export function VersionsPage() {
   });
 
   const releases = useQuery({
-    queryKey: ['versions', 'releases', appKey, channelFilter, statusFilter],
+    queryKey: ['versions', 'releases', appKey, channelFilter, statusFilter, page, pageSize],
     queryFn: ({ signal }) =>
       versionsApi.listReleases(
-        { channelKey: channelFilter, status: statusFilter, pageSize: 50 },
+        { channelKey: channelFilter, status: statusFilter, page, pageSize },
         signal,
       ),
     enabled: appKey !== null,
@@ -79,22 +89,6 @@ export function VersionsPage() {
 
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ['versions'] });
-  };
-
-  const handleSwitchContext = async (next: string) => {
-    if (next === appKey) {
-      return;
-    }
-
-    try {
-      const updated = await switchAppContext(next);
-      message.success(`已进入应用 ${updated.appKey ?? next}`);
-      setChannelFilter(undefined);
-      setStatusFilter(undefined);
-      await refresh();
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '切换应用失败');
-    }
   };
 
   const mutateRelease = async (action: 'publish' | 'archive', row: ReleaseSummary) => {
@@ -112,7 +106,7 @@ export function VersionsPage() {
     }
   };
 
-  const channelColumns = [
+  const channelColumns: TableColumnsType<ReleaseChannel> = [
     {
       title: '渠道键',
       dataIndex: 'key',
@@ -120,11 +114,40 @@ export function VersionsPage() {
       width: 140,
       render: (key: string) => <Typography.Text code>{key}</Typography.Text>,
     },
-    { title: '名称', dataIndex: 'name', key: 'name', width: 160 },
+    {
+      title: '名称',
+      dataIndex: 'name',
+      key: 'name',
+      width: 180,
+      render: (name: string, channel: ReleaseChannel) => (
+        <Space size={4}>
+          <span>{name}</span>
+          {channel.autoCreated ? <Tag color="orange">自动</Tag> : null}
+        </Space>
+      ),
+    },
+    {
+      title: '受众标签',
+      dataIndex: 'audienceTags',
+      key: 'audienceTags',
+      width: 220,
+      responsive: ['md'],
+      render: (tags: string[] | null | undefined) =>
+        tags && tags.length > 0 ? (
+          <Space size={[0, 4]} wrap>
+            {tags.map((tag) => (
+              <Tag key={tag}>{tag}</Tag>
+            ))}
+          </Space>
+        ) : (
+          <Typography.Text type="secondary">-</Typography.Text>
+        ),
+    },
     {
       title: '说明',
       dataIndex: 'description',
       key: 'description',
+      responsive: ['md'],
       render: (value: string | null) => value ?? <Typography.Text type="secondary">-</Typography.Text>,
     },
     {
@@ -132,10 +155,17 @@ export function VersionsPage() {
       dataIndex: 'latestVersion',
       key: 'latestVersion',
       width: 120,
+      responsive: ['md'],
       render: (value: string | null) =>
         value ? <Tag color="blue">{value}</Tag> : <Typography.Text type="secondary">未发布</Typography.Text>,
     },
-    { title: '版本数', dataIndex: 'releaseCount', key: 'releaseCount', width: 80 },
+    {
+      title: '版本数',
+      dataIndex: 'releaseCount',
+      key: 'releaseCount',
+      width: 80,
+      responsive: ['md'],
+    },
     {
       title: '状态',
       dataIndex: 'isEnabled',
@@ -147,6 +177,7 @@ export function VersionsPage() {
       title: '操作',
       key: 'actions',
       width: 100,
+      fixed: 'right',
       render: (_: unknown, channel: ReleaseChannel) =>
         canManageChannels ? (
           <Button
@@ -163,7 +194,7 @@ export function VersionsPage() {
     },
   ];
 
-  const releaseColumns = [
+  const releaseColumns: TableColumnsType<ReleaseSummary> = [
     { title: '渠道', dataIndex: 'channelKey', key: 'channelKey', width: 120 },
     {
       title: '版本',
@@ -182,14 +213,33 @@ export function VersionsPage() {
         return <Tag color={meta.color}>{meta.label}</Tag>;
       },
     },
-    { title: '产物', dataIndex: 'artifactCount', key: 'artifactCount', width: 70 },
-    { title: '安装包', dataIndex: 'packageCount', key: 'packageCount', width: 80 },
-    { title: '文件数', dataIndex: 'fileCount', key: 'fileCount', width: 80 },
+    {
+      title: '产物',
+      dataIndex: 'artifactCount',
+      key: 'artifactCount',
+      width: 70,
+      responsive: ['md'],
+    },
+    {
+      title: '安装包',
+      dataIndex: 'packageCount',
+      key: 'packageCount',
+      width: 80,
+      responsive: ['md'],
+    },
+    {
+      title: '文件数',
+      dataIndex: 'fileCount',
+      key: 'fileCount',
+      width: 80,
+      responsive: ['md'],
+    },
     {
       title: '总大小',
       dataIndex: 'totalSizeBytes',
       key: 'totalSizeBytes',
       width: 110,
+      responsive: ['md'],
       render: (value: number) => formatBytes(value),
     },
     {
@@ -197,12 +247,14 @@ export function VersionsPage() {
       dataIndex: 'publishedAt',
       key: 'publishedAt',
       width: 170,
+      responsive: ['md'],
       render: (value: string | null) => (value ? new Date(value).toLocaleString() : '-'),
     },
     {
       title: '操作',
       key: 'actions',
       width: 180,
+      fixed: 'right',
       render: (_: unknown, row: ReleaseSummary) => (
         <Space size="small">
           <Button type="link" size="small" onClick={() => setDetailId(row.id)}>
@@ -238,26 +290,6 @@ export function VersionsPage() {
 
   return (
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
-      <Card size="small">
-        <Space wrap>
-          <AppstoreOutlined />
-          <Typography.Text>当前应用</Typography.Text>
-          <Select
-            value={appKey}
-            loading={switching}
-            style={{ minWidth: 200 }}
-            options={appKeys.map((key) => ({ value: key, label: key }))}
-            onChange={(value) => void handleSwitchContext(value)}
-            disabled={switching || appKeys.length <= 1}
-          />
-          <Tooltip title="应用上下文来自令牌；切换后版本、授权等应用级模块的数据范围随之切换。">
-            <Typography.Text type="secondary">
-              版本与渠道按应用隔离，前端不传 appKey。
-            </Typography.Text>
-          </Tooltip>
-        </Space>
-      </Card>
-
       <Card
         size="small"
         title="渠道"
@@ -277,7 +309,17 @@ export function VersionsPage() {
         }
       >
         {channels.isError ? (
-          <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(channels.error as Error).message} />
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={(channels.error as Error).message}
+            action={
+              <Button size="small" onClick={() => void channels.refetch()}>
+                重试
+              </Button>
+            }
+          />
         ) : null}
         <Table<ReleaseChannel>
           scroll={{ x: 'max-content' }}
@@ -313,9 +355,12 @@ export function VersionsPage() {
           <Select
             allowClear
             placeholder="全部渠道"
-            style={{ width: 180 }}
+            style={{ width: 180, maxWidth: '100%' }}
             value={channelFilter}
-            onChange={setChannelFilter}
+            onChange={(value) => {
+              setChannelFilter(value);
+              setPage(1);
+            }}
             options={(channels.data ?? []).map((channel) => ({
               value: channel.key,
               label: `${channel.name}（${channel.key}）`,
@@ -324,9 +369,12 @@ export function VersionsPage() {
           <Select
             allowClear
             placeholder="全部状态"
-            style={{ width: 160 }}
+            style={{ width: 160, maxWidth: '100%' }}
             value={statusFilter}
-            onChange={setStatusFilter}
+            onChange={(value) => {
+              setStatusFilter(value);
+              setPage(1);
+            }}
             options={[
               { value: 'draft', label: '草稿' },
               { value: 'published', label: '已发布' },
@@ -337,7 +385,17 @@ export function VersionsPage() {
         </Space>
 
         {releases.isError ? (
-          <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(releases.error as Error).message} />
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={(releases.error as Error).message}
+            action={
+              <Button size="small" onClick={() => void releases.refetch()}>
+                重试
+              </Button>
+            }
+          />
         ) : null}
         <Table<ReleaseSummary>
           scroll={{ x: 'max-content' }}
@@ -346,7 +404,16 @@ export function VersionsPage() {
           loading={releases.isPending}
           dataSource={releases.data?.items ?? []}
           columns={releaseColumns}
-          pagination={false}
+          pagination={responsivePagination(isMobile, {
+            current: releases.data?.page ?? page,
+            pageSize: releases.data?.pageSize ?? pageSize,
+            total: releases.data?.total ?? 0,
+            showTotal: (total: number) => `共 ${total} 个版本`,
+            onChange: (nextPage: number, nextPageSize: number) => {
+              setPage(nextPageSize === pageSize ? nextPage : 1);
+              setPageSize(nextPageSize);
+            },
+          })}
           locale={{ emptyText: <Empty description="尚无版本；上传文件后按清单创建版本" /> }}
         />
       </Card>

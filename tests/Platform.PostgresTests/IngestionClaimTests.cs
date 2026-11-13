@@ -22,20 +22,22 @@ public sealed class IngestionClaimTests
     {
         var connectionString = await PostgresTestEnvironment.GetConnectionStringAsync();
         var appKey = "pg" + Guid.NewGuid().ToString("N")[..10];
-        var releaseId = Guid.Empty;
+        var releaseIds = new List<Guid>();
 
         await using (var seed = await PostgresTestEnvironment.CreateDbContextAsync())
         {
-            var release = new Release
-            {
-                AppKey = appKey,
-                Channel = new ReleaseChannel { AppKey = appKey, Key = "claim", Name = "claim" },
-                Version = "1.0.0",
-                Status = "draft",
-            };
-            seed.Add(release);
             for (var i = 0; i < Workers; i++)
             {
+                // 同一版本只能有一个 incremental 包（ux_release_packages_release_kind_target_format），
+                // 所以每个包给一个独立版本，避免并发用例被唯一索引挡住
+                var release = new Release
+                {
+                    AppKey = appKey,
+                    Channel = new ReleaseChannel { AppKey = appKey, Key = $"claim{i}", Name = $"claim{i}" },
+                    Version = "1.0.0",
+                    Status = "draft",
+                };
+                seed.Add(release);
                 seed.Add(new ReleasePackage
                 {
                     AppKey = appKey,
@@ -49,10 +51,10 @@ public sealed class IngestionClaimTests
                     ManifestSource = "zip",
                     Status = "pending",
                 });
+                releaseIds.Add(release.Id);
             }
 
             await seed.SaveChangesAsync();
-            releaseId = release.Id;
         }
 
         var claimed = await Task.WhenAll(Enumerable.Range(0, Workers).Select(async _ =>
@@ -75,10 +77,13 @@ public sealed class IngestionClaimTests
         Assert.Equal(Workers, ids.Distinct().Count());
 
         await using var verify = PostgresTestEnvironment.CreateDbContext(connectionString, new TestClock());
-        var attempts = await verify.Set<ReleasePackage>()
-            .Where(x => x.ReleaseId == releaseId)
-            .Select(static x => x.Attempts)
+        var rows = await verify.Set<ReleasePackage>()
+            .Where(x => releaseIds.Contains(x.ReleaseId))
+            .Select(static x => new { x.Id, x.Attempts, x.Status, x.LockedBy, x.ErrorCode })
             .ToListAsync();
-        Assert.All(attempts, static value => Assert.Equal(1, value));
+        Assert.Equal(Workers, rows.Count);
+        Assert.True(
+            rows.All(static x => x.Attempts == 1),
+            string.Join(" | ", rows.Select(static x => $"{x.Id:N} a={x.Attempts} s={x.Status} l={x.LockedBy} e={x.ErrorCode}")));
     }
 }

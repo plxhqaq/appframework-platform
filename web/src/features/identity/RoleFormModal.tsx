@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App, Form, Input, Modal, Select, Space, Tag, Tree, Typography } from 'antd';
+import { Alert, App, Button, Flex, Form, Input, Modal, Select, Space, Tag, Tree, Typography } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import { useEffect, useMemo, useState } from 'react';
 import { appsApi } from '../../shared/api/apps';
@@ -10,6 +10,9 @@ import type {
   RoleSummary,
   UpdateRoleRequest,
 } from '../../shared/api/types';
+import { groupPermissionsByModule } from '../../shared/permissionCatalog';
+import { responsiveWidth } from '../../shared/responsive';
+import { useResponsive } from '../../shared/useResponsive';
 
 interface RoleFormValues {
   name: string;
@@ -25,56 +28,30 @@ interface RoleFormModalProps {
   onClose: () => void;
 }
 
-const MODULE_LABELS: Record<string, string> = {
-  apps: '应用接入',
-  identity: '身份与权限',
-  versions: '版本与渠道',
-  licensing: '授权',
-  backups: '备份',
-  documents: '文档',
-  webhooks: 'Webhook 订阅',
-  platform: '平台',
-  client: '客户端',
-};
-
 const GROUP_PREFIX = 'group:';
 
 /** 权限树按模块分组；分组节点只为展示，提交时只取叶子权限码。 */
 function buildTreeData(permissions: PermissionDescriptor[]): DataNode[] {
-  const groups = new Map<string, PermissionDescriptor[]>();
-  permissions.forEach((permission) => {
-    const list = groups.get(permission.moduleKey) ?? [];
-    list.push(permission);
-    groups.set(permission.moduleKey, list);
-  });
-
-  return [...groups.entries()]
-    .sort(([left], [right]) => {
-      const leftSort = Math.min(...groups.get(left)!.map((item) => item.sort));
-      const rightSort = Math.min(...groups.get(right)!.map((item) => item.sort));
-      return leftSort - rightSort;
-    })
-    .map(([moduleKey, items]) => ({
-      key: `${GROUP_PREFIX}${moduleKey}`,
-      title: `${MODULE_LABELS[moduleKey] ?? moduleKey}（${moduleKey}）`,
-      selectable: false,
-      children: [...items]
-        .sort((left, right) => left.sort - right.sort)
-        .map((item) => ({
-          key: item.code,
-          title: (
-            <Space size={4}>
-              <Typography.Text code>{item.code}</Typography.Text>
-              {item.platformAdminOnly ? <Tag color="gold">管理员</Tag> : null}
-            </Space>
-          ),
-        })),
-    }));
+  return groupPermissionsByModule(permissions).map((group) => ({
+    key: `${GROUP_PREFIX}${group.moduleKey}`,
+    title: `${group.label}（${group.moduleKey}）`,
+    selectable: false,
+    children: group.items.map((item) => ({
+      key: item.code,
+      title: (
+        <Space size={4}>
+          <Typography.Text code>{item.code}</Typography.Text>
+          {item.platformAdminOnly ? <Tag color="gold">管理员</Tag> : null}
+        </Space>
+      ),
+    })),
+  }));
 }
 
 /** 角色新建/编辑：权限树来自 `/api/v1/platform/permissions`，是服务端唯一事实源。 */
 export function RoleFormModal({ open, role, onClose }: RoleFormModalProps) {
   const { message } = App.useApp();
+  const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<RoleFormValues>();
   const isEdit = role !== null;
@@ -162,7 +139,7 @@ export function RoleFormModal({ open, role, onClose }: RoleFormModalProps) {
   return (
     <Modal
       open={open}
-      width={720}
+      width={responsiveWidth(isMobile, 720)}
       title={isEdit ? `编辑角色 · ${role.name}` : '新建角色'}
       okText="保存"
       cancelText="取消"
@@ -190,12 +167,12 @@ export function RoleFormModal({ open, role, onClose }: RoleFormModalProps) {
         requiredMark={false}
         initialValues={{ scope: 'platform' }}
       >
-        <Space size="middle" style={{ display: 'flex', alignItems: 'flex-start' }}>
+        <Flex wrap gap={12} align="flex-start">
           <Form.Item
             name="name"
             label="角色名"
             tooltip="小写字母开头，2–64 位小写字母/数字/连字符；创建后不可修改。"
-            style={{ flex: 1 }}
+            style={{ flex: '1 1 260px', minWidth: 0 }}
             rules={[
               { required: true, message: '请输入角色名' },
               {
@@ -207,16 +184,16 @@ export function RoleFormModal({ open, role, onClose }: RoleFormModalProps) {
             <Input placeholder="例如 ops-reader" disabled={isEdit} autoComplete="off" />
           </Form.Item>
 
-          <Form.Item name="displayName" label="显示名" style={{ flex: 1 }}>
+          <Form.Item name="displayName" label="显示名" style={{ flex: '1 1 260px', minWidth: 0 }}>
             <Input placeholder="可选" autoComplete="off" />
           </Form.Item>
-        </Space>
+        </Flex>
 
-        <Space size="middle" style={{ display: 'flex', alignItems: 'flex-start' }}>
+        <Flex wrap gap={12} align="flex-start">
           <Form.Item
             name="scope"
             label="作用域"
-            style={{ width: 180 }}
+            style={{ width: 180, maxWidth: '100%' }}
             tooltip="platform 角色用于管理端；app 角色只在该应用上下文生效。"
             rules={[{ required: true }]}
           >
@@ -238,7 +215,7 @@ export function RoleFormModal({ open, role, onClose }: RoleFormModalProps) {
             <Form.Item
               name="appKey"
               label="应用键"
-              style={{ flex: 1 }}
+              style={{ flex: '1 1 260px', minWidth: 0 }}
               rules={[{ required: true, message: '应用级角色必须选择应用' }]}
             >
               <Select
@@ -253,12 +230,21 @@ export function RoleFormModal({ open, role, onClose }: RoleFormModalProps) {
               />
             </Form.Item>
           ) : null}
-        </Space>
+        </Flex>
 
         <Form.Item label="权限" required>
           {permissions.isPending ? <Typography.Text type="secondary">加载权限目录…</Typography.Text> : null}
           {permissions.isError ? (
-            <Alert type="error" showIcon message={(permissions.error as Error).message} />
+            <Alert
+              type="error"
+              showIcon
+              message={(permissions.error as Error).message}
+              action={
+                <Button size="small" onClick={() => void permissions.refetch()}>
+                  重试
+                </Button>
+              }
+            />
           ) : null}
           {treeData.length > 0 ? (
             <div style={{ maxHeight: 320, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: 8 }}>

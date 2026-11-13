@@ -206,7 +206,17 @@ CI（`.github/workflows/ci.yml`）执行同一组命令，并额外产出 `AppFr
 没有 Docker 时该项目的用例在发现阶段就带 `Skip`，不影响 `dotnet test Platform.slnx`；
 想显式关掉（例如 CI 自检）设 `POSTGRES_TESTS=0`。CI 里它们被拆成独立的 `postgres` job
 （主 job 用 `--filter "FullyQualifiedName!~Platform.PostgresTests"` 排除）。
-这组用例覆盖 jsonb 查询、并发唯一约束、`SKIP LOCKED` 认领与迁移落地，是 InMemory 测不到的部分。
+
+拉不到 Docker Hub 的内网机器可以直接指到现有实例（要求账号有 CREATEDB 权限）：
+
+```bash
+POSTGRES_TEST_CONNECTION='Host=127.0.0.1;Port=5432;Username=postgres;Password=<pwd>;Database=postgres' \
+  dotnet test tests/Platform.PostgresTests/Platform.PostgresTests.csproj -c Release
+```
+
+测试会新建 `platform_tests_<随机后缀>` 库并跑完全部迁移，进程退出时 `DROP ... WITH (FORCE)`；
+不会碰连接串里那个库。这组用例覆盖 jsonb 查询、并发唯一约束、`SKIP LOCKED` 认领与迁移落地，
+是 InMemory 测不到的部分。
 
 ## 客户端接入
 

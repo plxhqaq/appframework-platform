@@ -22,6 +22,8 @@ export interface NavItem {
   label: string;
   /** 命中任一权限码才显示；空数组 = 所有登录用户可见。 */
   anyOf: string[];
+  /** 页面数据按应用隔离；令牌没有应用上下文时页面只能显示「没有可用的应用上下文」，菜单不露出。 */
+  requiresApp?: boolean;
 }
 
 /** 登录后没有任何可访问页面时的落点，也用于「返回总览」。 */
@@ -64,37 +66,60 @@ export const NAV_ITEMS: NavItem[] = [
     icon: <SwapOutlined />,
     label: '版本与渠道',
     anyOf: [PERMISSIONS.versionsChannelRead, PERMISSIONS.versionsReleaseRead],
+    requiresApp: true,
   },
   {
     key: '/updaters',
     icon: <RocketOutlined />,
     label: '更新器',
     anyOf: [PERMISSIONS.versionsReleaseRead],
+    requiresApp: true,
   },
   {
     key: '/backups',
     icon: <DatabaseOutlined />,
     label: '配置备份',
     anyOf: [PERMISSIONS.backupNamespaceRead, PERMISSIONS.backupRead],
+    requiresApp: true,
   },
   {
     key: '/documents',
     icon: <FileTextOutlined />,
     label: '文档',
     anyOf: [PERMISSIONS.documentCollectionRead, PERMISSIONS.documentRead],
+    requiresApp: true,
   },
   {
     key: '/licensing',
     icon: <KeyOutlined />,
     label: '授权',
     anyOf: [PERMISSIONS.licenseProductRead, PERMISSIONS.licenseRead],
+    requiresApp: true,
   },
-  { key: '/webhooks', icon: <SendOutlined />, label: 'Webhook', anyOf: [PERMISSIONS.webhookRead] },
+  {
+    key: '/webhooks',
+    icon: <SendOutlined />,
+    label: 'Webhook',
+    anyOf: [PERMISSIONS.webhookRead],
+    requiresApp: true,
+  },
   { key: '/audit', icon: <HistoryOutlined />, label: '审计日志', anyOf: [PERMISSIONS.auditRead] },
 ];
 
-export function visibleNavItems(permissions: string[] | null | undefined): NavItem[] {
-  return NAV_ITEMS.filter((item) => hasAnyPermissionCode(permissions, item.anyOf));
+export interface NavVisibility {
+  /** 令牌里是否有可用的应用上下文（无 app 角色且平台上下文时为 false）。 */
+  hasAppContext?: boolean;
+}
+
+export function visibleNavItems(
+  permissions: string[] | null | undefined,
+  visibility: NavVisibility = {},
+): NavItem[] {
+  const hasAppContext = visibility.hasAppContext ?? true;
+  return NAV_ITEMS.filter(
+    (item) =>
+      hasAnyPermissionCode(permissions, item.anyOf) && (!item.requiresApp || hasAppContext),
+  );
 }
 
 /** 路由守卫：按路径取需要的权限；不在表里的路径（如 /password）人人可进。 */

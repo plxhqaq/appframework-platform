@@ -351,7 +351,13 @@ public sealed partial class ReleaseService : IReleaseService
         ArgumentNullException.ThrowIfNull(request);
 
         var channelKey = request.ChannelKey?.Trim();
-        if (string.IsNullOrEmpty(channelKey) || !ChannelKeyRegex().IsMatch(channelKey))
+        var audienceTags = AudienceTagRules.Normalize(request.AudienceTags);
+        if (string.IsNullOrEmpty(channelKey) && audienceTags.Count == 0)
+        {
+            throw BusinessException.Invalid("channelKey 与 audienceTags 至少提供一个。");
+        }
+
+        if (!string.IsNullOrEmpty(channelKey) && !ChannelKeyRegex().IsMatch(channelKey))
         {
             throw BusinessException.Invalid("channelKey 非法。");
         }
@@ -364,7 +370,10 @@ public sealed partial class ReleaseService : IReleaseService
                 $"不支持的 runtimeIdentifier：{request.RuntimeIdentifier}。");
         }
 
-        var channel = await _db.Set<ReleaseChannel>()
+        ReleaseChannel channel;
+        if (!string.IsNullOrEmpty(channelKey))
+        {
+            channel = await _db.Set<ReleaseChannel>()
                           .AsNoTracking()
                           .FirstOrDefaultAsync(
                               x => x.AppKey == appKey && x.Key == channelKey,
@@ -372,6 +381,14 @@ public sealed partial class ReleaseService : IReleaseService
                       ?? throw BusinessException.NotFound(
                           ApiErrorCode.VersionsChannelNotFound,
                           $"渠道 {channelKey} 不存在。");
+        }
+        else
+        {
+            channel = await ResolveChannelByAudienceAsync(appKey, audienceTags, cancellationToken);
+        }
+
+        // 自动解析出来的渠道键要回给客户端，后续下载/清单都按它寻址。
+        channelKey = channel.Key;
 
         var published = await _db.Set<Release>()
             .AsNoTracking()
@@ -459,6 +476,83 @@ public sealed partial class ReleaseService : IReleaseService
             Updater: updater,
             Notes: latest.Notes,
             PublishedAt: latest.PublishedAt);
+    }
+
+    /// <summary>
+    /// 只给受众标签时：在启用渠道里找「渠道受众是请求标签子集」的渠道（客户端具备渠道所需能力），
+    /// 取标签最多者，其次按键序；没有命中且开启自动建渠道时按标签摘要建一个。
+    /// </summary>
+    private async Task<ReleaseChannel> ResolveChannelByAudienceAsync(
+        string appKey,
+        IReadOnlyList<string> audienceTags,
+        CancellationToken cancellationToken)
+    {
+        var channels = await _db.Set<ReleaseChannel>()
+            .AsNoTracking()
+            .Where(x => x.AppKey == appKey && x.IsEnabled)
+            .ToListAsync(cancellationToken);
+
+        var match = channels
+            .Where(channel => channel.AudienceTags.Count > 0
+                              && channel.AudienceTags.All(audienceTags.Contains))
+            .OrderByDescending(static channel => channel.AudienceTags.Count)
+            .ThenBy(static channel => channel.Key, StringComparer.Ordinal)
+            .FirstOrDefault();
+
+        if (match is not null)
+        {
+            return match;
+        }
+
+        if (!_options.AudienceAutoCreateChannels)
+        {
+            throw BusinessException.NotFound(
+                ApiErrorCode.VersionsChannelNotFound,
+                $"没有匹配受众标签 [{string.Join(", ", audienceTags)}] 的启用渠道。");
+        }
+
+        return await GetOrCreateAudienceChannelAsync(appKey, audienceTags, cancellationToken);
+    }
+
+    private async Task<ReleaseChannel> GetOrCreateAudienceChannelAsync(
+        string appKey,
+        IReadOnlyList<string> audienceTags,
+        CancellationToken cancellationToken)
+    {
+        var key = AudienceTagRules.DeriveKey(audienceTags);
+        var existing = await _db.Set<ReleaseChannel>()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.AppKey == appKey && x.Key == key, cancellationToken);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var channel = new ReleaseChannel
+        {
+            AppKey = appKey,
+            Key = key,
+            Name = AudienceTagRules.DeriveName(audienceTags),
+            Description = "由客户端受众标签自动创建",
+            AudienceTags = [.. audienceTags],
+            AutoCreated = true,
+        };
+
+        _db.Set<ReleaseChannel>().Add(channel);
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // 并发检查同时创建：另一条已插入，沿用它的行。
+            _db.ChangeTracker.Clear();
+            return await _db.Set<ReleaseChannel>()
+                .AsNoTracking()
+                .FirstAsync(x => x.AppKey == appKey && x.Key == key, cancellationToken);
+        }
+
+        return channel;
     }
 
     /// <inheritdoc />

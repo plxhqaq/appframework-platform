@@ -24,6 +24,11 @@ public sealed class VersionsModelContributor : IPlatformModelContributor
             builder.Property(static x => x.Description).HasColumnName("description").HasMaxLength(1024);
             builder.Property(static x => x.IsEnabled).HasColumnName("is_enabled");
             builder.Property(static x => x.AllowDowngrade).HasColumnName("allow_downgrade").HasDefaultValue(false);
+            builder.Property(static x => x.AudienceTags)
+                .HasColumnName("audience_tags")
+                .HasColumnType("text[]")
+                .HasDefaultValueSql("ARRAY[]::text[]");
+            builder.Property(static x => x.AutoCreated).HasColumnName("auto_created").HasDefaultValue(false);
             builder.Property(static x => x.CreatedAt).HasColumnName("created_at");
             builder.Property(static x => x.UpdatedAt).HasColumnName("updated_at");
 

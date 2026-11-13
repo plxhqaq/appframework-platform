@@ -17,8 +17,10 @@ const ENGINEER_PERMISSIONS = [
   PERMISSIONS.documentRead,
 ];
 
-const keys = (permissions: string[] | null | undefined) =>
-  visibleNavItems(permissions).map((item) => item.key);
+const keys = (
+  permissions: string[] | null | undefined,
+  visibility?: { hasAppContext?: boolean },
+) => visibleNavItems(permissions, visibility).map((item) => item.key);
 
 describe('导航按权限裁剪', () => {
   it('平台管理员通配看得到全部页面', () => {
@@ -48,6 +50,30 @@ describe('导航按权限裁剪', () => {
   it('未登录态只剩人人可进的总览', () => {
     expect(keys(null)).toEqual([HOME_PATH]);
     expect(keys([])).toEqual([HOME_PATH]);
+  });
+});
+
+describe('没有应用上下文时不露出应用级入口', () => {
+  it('通配权限但没有上下文时，应用级页面全部隐藏', () => {
+    const visible = keys(['*'], { hasAppContext: false });
+    expect(visible).toEqual(NAV_ITEMS.filter((item) => !item.requiresApp).map((item) => item.key));
+    expect(visible).not.toContain('/versions');
+    expect(visible).not.toContain('/licensing');
+    expect(visible).not.toContain('/webhooks');
+  });
+
+  it('有上下文时应用级页面照常出现', () => {
+    const visible = keys(['*'], { hasAppContext: true });
+    expect(visible).toContain('/versions');
+    expect(visible).toContain('/licensing');
+    expect(visible).toContain('/webhooks');
+  });
+
+  it('上下文不能补权限：没有读权限的页面仍然不出现', () => {
+    expect(keys([], { hasAppContext: true })).toEqual([HOME_PATH]);
+    expect(keys([PERMISSIONS.versionsReleaseRead], { hasAppContext: false })).toEqual([
+      HOME_PATH,
+    ]);
   });
 });
 

@@ -1,9 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App, Button, Input, Popconfirm, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import type { TableColumnsType } from 'antd';
 import { useState } from 'react';
 import { identityApi } from '../../shared/api/identity';
 import type { SessionSummary } from '../../shared/api/types';
 import { PERMISSIONS } from '../../shared/permissions';
+import { responsivePagination } from '../../shared/responsive';
+import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -15,6 +18,7 @@ function formatTime(value?: string | null): string {
 /** 会话 = 一条刷新令牌家族记录；吊销后该设备需要重新登录。 */
 export function SessionsPanel() {
   const { message } = App.useApp();
+  const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const canRevoke = useAuthStore((state) => state.hasPermission(PERMISSIONS.identitySessionRevoke));
 
@@ -37,7 +41,7 @@ export function SessionsPanel() {
     onError: (error: Error) => message.error(error.message),
   });
 
-  const columns = [
+  const columns: TableColumnsType<SessionSummary> = [
     {
       title: '用户',
       dataIndex: 'userName',
@@ -68,9 +72,30 @@ export function SessionsPanel() {
       width: 140,
       render: (value: string | null) => value ?? <Typography.Text type="secondary">-</Typography.Text>,
     },
-    { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 180, render: formatTime },
-    { title: '最后使用', dataIndex: 'lastUsedAt', key: 'lastUsedAt', width: 180, render: formatTime },
-    { title: '过期时间', dataIndex: 'expiresAt', key: 'expiresAt', width: 180, render: formatTime },
+    {
+      title: '创建时间',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      width: 180,
+      responsive: ['md'],
+      render: formatTime,
+    },
+    {
+      title: '最后使用',
+      dataIndex: 'lastUsedAt',
+      key: 'lastUsedAt',
+      width: 180,
+      responsive: ['md'],
+      render: formatTime,
+    },
+    {
+      title: '过期时间',
+      dataIndex: 'expiresAt',
+      key: 'expiresAt',
+      width: 180,
+      responsive: ['md'],
+      render: formatTime,
+    },
     {
       title: '状态',
       dataIndex: 'isActive',
@@ -82,6 +107,7 @@ export function SessionsPanel() {
       title: '操作',
       key: 'actions',
       width: 90,
+      fixed: 'right',
       render: (_: unknown, session: SessionSummary) =>
         canRevoke && session.isActive ? (
           <Popconfirm
@@ -107,7 +133,7 @@ export function SessionsPanel() {
       <Input.Search
         allowClear
         placeholder="按用户 ID 过滤"
-        style={{ width: 320 }}
+        style={{ width: 320, maxWidth: '100%', minWidth: 0 }}
         loading={sessions.isFetching}
         onSearch={(value) => {
           setUserId(value.trim());
@@ -116,7 +142,16 @@ export function SessionsPanel() {
       />
 
       {sessions.isError ? (
-        <Alert type="error" showIcon message={(sessions.error as Error).message} />
+        <Alert
+          type="error"
+          showIcon
+          message={(sessions.error as Error).message}
+          action={
+            <Button size="small" onClick={() => void sessions.refetch()}>
+              重试
+            </Button>
+          }
+        />
       ) : null}
 
       <Table<SessionSummary>
@@ -126,17 +161,16 @@ export function SessionsPanel() {
         loading={sessions.isPending}
         dataSource={sessions.data?.items ?? []}
         columns={columns}
-        pagination={{
+        pagination={responsivePagination(isMobile, {
           current: sessions.data?.page ?? page,
           pageSize: sessions.data?.pageSize ?? pageSize,
           total: sessions.data?.total ?? 0,
-          showSizeChanger: true,
-          showTotal: (total) => `共 ${total} 个会话`,
-          onChange: (nextPage, nextPageSize) => {
+          showTotal: (total: number) => `共 ${total} 个会话`,
+          onChange: (nextPage: number, nextPageSize: number) => {
             setPage(nextPageSize === pageSize ? nextPage : 1);
             setPageSize(nextPageSize);
           },
-        }}
+        })}
         locale={{ emptyText: '没有匹配的会话' }}
       />
     </Space>

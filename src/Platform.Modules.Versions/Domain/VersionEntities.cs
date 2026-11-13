@@ -26,6 +26,12 @@ public sealed class ReleaseChannel : IAuditableEntity
     /// <summary>是否允许客户端降级到本渠道的最新版本（默认否，避免归档操作意外回退现场）。</summary>
     public bool AllowDowngrade { get; set; }
 
+    /// <summary>受众标签（已规范化、去重、排序）；为空表示只能按渠道键显式命中。</summary>
+    public List<string> AudienceTags { get; set; } = [];
+
+    /// <summary>是否由客户端带标签自动创建（自动渠道可被后续显式操作接管）。</summary>
+    public bool AutoCreated { get; set; }
+
     /// <inheritdoc />
     public DateTimeOffset CreatedAt { get; set; }
 

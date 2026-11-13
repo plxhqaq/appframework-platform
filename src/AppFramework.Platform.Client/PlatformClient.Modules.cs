@@ -28,13 +28,16 @@ public sealed partial class PlatformClient
     /// <summary>
     /// 检查更新。无新版本时响应里的 <c>Release</c> 仍是当前最新版清单，客户端可据此做完整性修复。
     /// <paramref name="updaterVersion"/> 是本机更新器版本，服务端据此给出 <c>HasUpdaterUpdate</c>。
+    /// <paramref name="channelKey"/> 与 <paramref name="audienceTags"/> 至少给一个：给渠道键时以渠道键为准，
+    /// 只给标签时由服务端按渠道受众匹配（响应回填解析出的渠道键）。
     /// </summary>
     public Task<CheckUpdateResponse> CheckUpdateAsync(
-        string channelKey,
+        string? channelKey = null,
         string? currentVersion = null,
         string? runtimeIdentifier = null,
         string? updaterVersion = null,
         bool allowDowngrade = false,
+        IReadOnlyList<string>? audienceTags = null,
         CancellationToken cancellationToken = default) =>
         AuthorizedCallAsync<CheckUpdateResponse>(
             HttpMethod.Post,
@@ -44,7 +47,8 @@ public sealed partial class PlatformClient
                 currentVersion,
                 runtimeIdentifier ?? Options.RuntimeIdentifier,
                 updaterVersion,
-                allowDowngrade),
+                allowDowngrade,
+                audienceTags),
             cancellationToken);
 
     /// <summary>读取某渠道某版本的清单（文件路径 + 哈希 + 长度，按路径排序）。</summary>

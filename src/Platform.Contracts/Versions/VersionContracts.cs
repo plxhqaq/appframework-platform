@@ -6,6 +6,15 @@ public static class VersionConventions
     /// <summary>渠道键：小写字母开头，2–32 位小写字母/数字/连字符。</summary>
     public const string ChannelKeyPattern = "^[a-z][a-z0-9-]{1,31}$";
 
+    /// <summary>受众标签：小写字母/数字开头，最长 64，可含点/下划线/冒号/连字符。</summary>
+    public const string AudienceTagPattern = "^[a-z0-9][a-z0-9._:-]{0,63}$";
+
+    /// <summary>单次检查或单个渠道声明的受众标签数上限。</summary>
+    public const int MaxAudienceTags = 16;
+
+    /// <summary>自动创建渠道的键前缀（键为前缀 + 规范化标签摘要前 8 位）。</summary>
+    public const string AutoChannelKeyPrefix = "auto-";
+
     /// <summary>
     /// 版本号：三段或四段数字，可选预发布后缀与构建元数据
     /// （如 <c>1.2.3</c>、<c>1.2.3.0</c>、<c>1.2.3-rc.1</c>、<c>1.2.3-rc.1+build.5</c>）。
@@ -130,21 +139,25 @@ public sealed record ReleaseChannelDto(
     string? LatestVersion,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    bool AllowDowngrade = false);
+    bool AllowDowngrade = false,
+    IReadOnlyList<string>? AudienceTags = null,
+    bool AutoCreated = false);
 
-/// <summary>创建渠道。</summary>
+/// <summary>创建渠道；<see cref="AudienceTags"/> 用于客户端省略渠道键时的标签匹配。</summary>
 public sealed record CreateReleaseChannelRequest(
     string? Key,
     string? Name,
     string? Description,
-    bool AllowDowngrade = false);
+    bool AllowDowngrade = false,
+    IReadOnlyList<string>? AudienceTags = null);
 
-/// <summary>更新渠道；字段缺省表示不修改。</summary>
+/// <summary>更新渠道；字段缺省表示不修改（<see cref="AudienceTags"/> 传空数组表示清空）。</summary>
 public sealed record UpdateReleaseChannelRequest(
     string? Name,
     string? Description,
     bool? IsEnabled,
-    bool? AllowDowngrade = null);
+    bool? AllowDowngrade = null,
+    IReadOnlyList<string>? AudienceTags = null);
 
 /// <summary>清单条目：相对路径 + 内容哈希 + 字节数。</summary>
 public sealed record ReleaseFileDto(string Path, string Sha256, long SizeBytes);
@@ -207,13 +220,18 @@ public sealed record CreateReleaseRequest(
     bool Publish,
     IReadOnlyList<CreateReleaseArtifactRequest>? Artifacts);
 
-/// <summary>客户端检查更新。</summary>
+/// <summary>
+/// 客户端检查更新。<see cref="ChannelKey"/> 与 <see cref="AudienceTags"/> 至少给一个：
+/// 给了渠道键以渠道键为准；只有标签时，客户端声明的标签须包含渠道的全部受众标签
+/// （即客户端具备该渠道所需能力），多个命中时取标签最多的渠道。
+/// </summary>
 public sealed record CheckUpdateRequest(
     string? ChannelKey,
     string? CurrentVersion,
     string? RuntimeIdentifier,
     string? UpdaterVersion = null,
-    bool AllowDowngrade = false);
+    bool AllowDowngrade = false,
+    IReadOnlyList<string>? AudienceTags = null);
 
 /// <summary>
 /// 检查更新结果；无更新时 <see cref="Release"/> 仍带清单，供客户端做完整性修复。

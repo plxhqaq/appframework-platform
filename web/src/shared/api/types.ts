@@ -309,6 +309,10 @@ export interface ReleaseChannel {
   createdAt: string;
   updatedAt: string;
   allowDowngrade: boolean;
+  /** 受众标签；客户端省略渠道键时，需包含渠道的全部标签才会命中。 */
+  audienceTags?: string[] | null;
+  /** 是否由客户端带标签自动创建。 */
+  autoCreated?: boolean;
 }
 
 /** 创建渠道。 */
@@ -317,14 +321,16 @@ export interface CreateReleaseChannelRequest {
   name: string;
   description?: string | null;
   allowDowngrade?: boolean;
+  audienceTags?: string[] | null;
 }
 
-/** 更新渠道；字段缺省表示不修改。 */
+/** 更新渠道；字段缺省表示不修改（audienceTags 传空数组表示清空）。 */
 export interface UpdateReleaseChannelRequest {
   name?: string | null;
   description?: string | null;
   isEnabled?: boolean | null;
   allowDowngrade?: boolean;
+  audienceTags?: string[] | null;
 }
 
 /** 版本状态：draft / published / archived。 */

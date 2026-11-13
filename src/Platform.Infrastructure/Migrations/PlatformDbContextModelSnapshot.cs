@@ -1599,6 +1599,19 @@ namespace Platform.Infrastructure.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("app_key");
 
+                    b.PrimitiveCollection<List<string>>("AudienceTags")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasColumnName("audience_tags")
+                        .HasDefaultValueSql("ARRAY[]::text[]");
+
+                    b.Property<bool>("AutoCreated")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("auto_created");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");

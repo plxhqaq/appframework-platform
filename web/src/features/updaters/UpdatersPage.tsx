@@ -2,7 +2,6 @@ import {
   CloudUploadOutlined,
   DownloadOutlined,
   ReloadOutlined,
-  RocketOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -15,16 +14,18 @@ import {
   Space,
   Table,
   Tag,
-  Tooltip,
   Typography,
 } from 'antd';
-import { useState } from 'react';
+import type { TableColumnsType } from 'antd';
+import { useEffect, useState } from 'react';
 import { ApiError, requestBlob } from '../../shared/api/client';
 import { versionsApi } from '../../shared/api/versions';
 import type { UpdaterInfo } from '../../shared/api/types';
 import { saveBlob } from '../../shared/download';
 import { formatBytes } from '../../shared/format';
 import { PERMISSIONS } from '../../shared/permissions';
+import { responsivePagination } from '../../shared/responsive';
+import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
 import { safeDownloadName } from '../versions/packageUi';
 import { UpdaterUploadModal } from './UpdaterUploadModal';
@@ -45,10 +46,9 @@ const STATUS_META: Record<string, { label: string; color?: string }> = {
  */
 export function UpdatersPage() {
   const { message, modal } = App.useApp();
+  const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const session = useAuthStore((state) => state.session);
-  const switchAppContext = useAuthStore((state) => state.switchAppContext);
-  const switching = useAuthStore((state) => state.pending);
   const canUpload = useAuthStore((state) => state.hasPermission(PERMISSIONS.versionsArtifactUpload));
   const canArchive = useAuthStore((state) =>
     state.hasPermission(PERMISSIONS.versionsReleaseArchive),
@@ -64,16 +64,25 @@ export function UpdatersPage() {
   const [targetFilter, setTargetFilter] = useState<string | undefined>();
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  // 上下文在 Header 切换；target/状态筛选属于上一个应用
+  useEffect(() => {
+    setTargetFilter(undefined);
+    setStatusFilter(undefined);
+    setPage(1);
+  }, [appKey]);
 
   const updaters = useQuery({
-    queryKey: ['versions', 'updaters', appKey, targetFilter, statusFilter],
+    queryKey: ['versions', 'updaters', appKey, targetFilter, statusFilter, page, pageSize],
     queryFn: async ({ signal }) => {
-      const page = await versionsApi.listUpdaters(
-        { pageSize: 100, target: targetFilter, status: statusFilter },
+      const result = await versionsApi.listUpdaters(
+        { page, pageSize, target: targetFilter, status: statusFilter },
         signal,
       );
 
-      const targets = Array.from(new Set(page.items.map((item) => item.target)));
+      const targets = Array.from(new Set(result.items.map((item) => item.target)));
       const latestIds = await Promise.all(
         targets.map(async (target) => {
           try {
@@ -89,7 +98,7 @@ export function UpdatersPage() {
       );
 
       return {
-        items: page.items,
+        ...result,
         latestIds: new Set(latestIds.filter((id): id is string => id !== null)),
       };
     },
@@ -98,22 +107,6 @@ export function UpdatersPage() {
 
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ['versions', 'updaters'] });
-  };
-
-  const handleSwitchContext = async (next: string) => {
-    if (next === appKey) {
-      return;
-    }
-
-    try {
-      const updated = await switchAppContext(next);
-      message.success(`已进入应用 ${updated.appKey ?? next}`);
-      setTargetFilter(undefined);
-      setStatusFilter(undefined);
-      await refresh();
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '切换应用失败');
-    }
   };
 
   const archive = useMutation({
@@ -150,7 +143,7 @@ export function UpdatersPage() {
 
   const latestIds = updaters.data?.latestIds ?? new Set<string>();
 
-  const columns = [
+  const columns: TableColumnsType<UpdaterInfo> = [
     {
       title: '版本',
       dataIndex: 'version',
@@ -175,6 +168,7 @@ export function UpdatersPage() {
       dataIndex: 'fileName',
       key: 'fileName',
       ellipsis: true,
+      responsive: ['md'],
       render: (fileName: string) => (
         <Typography.Text copyable={{ text: fileName }}>{fileName}</Typography.Text>
       ),
@@ -184,6 +178,7 @@ export function UpdatersPage() {
       dataIndex: 'sizeBytes',
       key: 'sizeBytes',
       width: 100,
+      responsive: ['md'],
       render: (size: number) => formatBytes(size),
     },
     {
@@ -201,6 +196,7 @@ export function UpdatersPage() {
       dataIndex: 'manifestHash',
       key: 'manifestHash',
       width: 130,
+      responsive: ['md'],
       render: (hash: string | null | undefined) =>
         hash ? (
           <Typography.Text type="secondary" copyable={{ text: hash }}>
@@ -215,6 +211,7 @@ export function UpdatersPage() {
       dataIndex: 'publishedAt',
       key: 'publishedAt',
       width: 170,
+      responsive: ['md'],
       render: (value: string | null | undefined) =>
         value ? new Date(value).toLocaleString() : '-',
     },
@@ -222,6 +219,7 @@ export function UpdatersPage() {
       title: '操作',
       key: 'actions',
       width: 160,
+      fixed: 'right',
       render: (_: unknown, row: UpdaterInfo) => (
         <Space size="small">
           {canDownload && row.status === 'published' ? (
@@ -266,24 +264,6 @@ export function UpdatersPage() {
 
   return (
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
-      <Card size="small">
-        <Space wrap>
-          <RocketOutlined />
-          <Typography.Text>当前应用</Typography.Text>
-          <Select
-            value={appKey}
-            loading={switching}
-            style={{ minWidth: 200 }}
-            options={appKeys.map((key) => ({ value: key, label: key }))}
-            onChange={(value) => void handleSwitchContext(value)}
-            disabled={switching || appKeys.length <= 1}
-          />
-          <Tooltip title="更新器版本线独立于应用版本；客户端 check 会同时返回最新更新器。">
-            <Typography.Text type="secondary">同 target + version 只允许一份内容。</Typography.Text>
-          </Tooltip>
-        </Space>
-      </Card>
-
       <Card
         size="small"
         title="更新器版本"
@@ -303,17 +283,23 @@ export function UpdatersPage() {
           <Select
             allowClear
             placeholder="全部目标"
-            style={{ width: 180 }}
+            style={{ width: 180, maxWidth: '100%' }}
             value={targetFilter}
-            onChange={setTargetFilter}
+            onChange={(value) => {
+              setTargetFilter(value);
+              setPage(1);
+            }}
             options={RUNTIMES.map((value) => ({ value, label: value }))}
           />
           <Select
             allowClear
             placeholder="全部状态"
-            style={{ width: 160 }}
+            style={{ width: 160, maxWidth: '100%' }}
             value={statusFilter}
-            onChange={setStatusFilter}
+            onChange={(value) => {
+              setStatusFilter(value);
+              setPage(1);
+            }}
             options={[
               { value: 'published', label: '已发布' },
               { value: 'archived', label: '已归档' },
@@ -330,6 +316,11 @@ export function UpdatersPage() {
             showIcon
             style={{ marginBottom: 16 }}
             message={(updaters.error as Error).message}
+            action={
+              <Button size="small" onClick={() => void updaters.refetch()}>
+                重试
+              </Button>
+            }
           />
         ) : null}
 
@@ -340,7 +331,16 @@ export function UpdatersPage() {
           loading={updaters.isPending}
           dataSource={updaters.data?.items ?? []}
           columns={columns}
-          pagination={false}
+          pagination={responsivePagination(isMobile, {
+            current: updaters.data?.page ?? page,
+            pageSize: updaters.data?.pageSize ?? pageSize,
+            total: updaters.data?.total ?? 0,
+            showTotal: (total: number) => `共 ${total} 个更新器`,
+            onChange: (nextPage: number, nextPageSize: number) => {
+              setPage(nextPageSize === pageSize ? nextPage : 1);
+              setPageSize(nextPageSize);
+            },
+          })}
           locale={{ emptyText: <Empty description="尚未登记更新器；客户端会跳过更新器升级" /> }}
         />
       </Card>

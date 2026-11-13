@@ -58,6 +58,10 @@ body {
 }
 
 .app-shell__content {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1320px;
+  margin-inline: auto;
   padding: 16px;
 }
 
@@ -120,6 +124,17 @@ body {
 /* 手机顶栏里的品牌跟汉堡按钮同行，不能再带侧栏那份 16px 内边距。 */
 .app-shell__brand--inline {
   padding: 0;
+}
+
+/* 折叠成 64px 图标栏后只留字标缩写，居中且不许换行。 */
+.app-shell__brand--collapsed {
+  align-items: center;
+  padding: 16px 0;
+}
+
+/* 手机侧栏抽屉按视口 86% 展开，但宽屏手机也不该超过 244px。 */
+.app-shell__nav-drawer .ant-drawer-content-wrapper {
+  max-width: 244px;
 }
 
 /* flex 子项默认 min-width:auto，一张宽表格就能把整页撑出横向滚动条。 */

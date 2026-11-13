@@ -76,7 +76,6 @@ export function LoginPage() {
         <Form<LoginFormValues>
           layout="vertical"
           requiredMark={false}
-          initialValues={{ userName: 'admin', password: '' }}
           onFinish={handleFinish}
         >
           <Form.Item name="userName" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}>
@@ -99,11 +98,6 @@ export function LoginPage() {
             登录
           </Button>
         </Form>
-
-        <Typography.Paragraph type="secondary" style={{ marginTop: 16, marginBottom: 0, fontSize: 12 }}>
-          初始管理员口令由部署环境变量 <Typography.Text code>Seed__AdminPassword</Typography.Text> 注入，
-          首次登录后必须修改。
-        </Typography.Paragraph>
       </Card>
     </div>
   );

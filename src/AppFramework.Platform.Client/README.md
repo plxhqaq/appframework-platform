@@ -29,6 +29,10 @@ var session = await client.SignInAsync("admin", password, appKey: "demo");
 Console.WriteLine($"{session.User.UserName}：{client.CurrentUser!.Permissions.Count} 个权限码");
 
 var update = await client.CheckUpdateAsync("stable", currentVersion: "1.2.2");
+// 也可省略渠道键，由服务端按渠道受众标签匹配（渠道需声明 audienceTags）：
+// var byTags = await client.CheckUpdateAsync(
+//     channelKey: null, currentVersion: "1.2.2",
+//     audienceTags: ["win-x64", "hardware:scanner"]);
 ```
 
 口令**只能**从交互输入或系统凭据库取得，不要写进配置文件或源码。

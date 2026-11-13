@@ -449,6 +449,26 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | 4.6 多副本 | 每包 `attempts=1`，无重复产物 | `attempts>1` → 认领没走 SKIP LOCKED |
 | 4.7 归档回滚 | 下载 404/`205`，check 落到上一版 | 仍能下载 → 状态判断失效 |
 
+### 4.9 本机实测记录（2026-11-13）
+
+环境：Windows 10、PostgreSQL 17（`127.0.0.1:5432`）、`Platform.Api` Release 单副本（`127.0.0.1:5080`）、
+本地 Blob（`data/blobs`，D 盘约 97 GiB 可用）。结论：**全部通过**。
+
+| 演练 | 实测结果 |
+|---|---|
+| 4.1 1 GiB 全量包 | 上传 1.15 s（≈934 MB/s）；下载 1.52 s（≈706 MB/s）；回验 sha256 一致；进程工作集 219.7–230.4 MB（首尾 +9.3 MB）；`Range: bytes=1073741800-` 返回 206 / 24 B |
+| 4.2 100 001 条目 zip | 登记返回 `220`「zip 条目数 100001 超过上限 100000」；`releases` / `release_packages` 均无新增行 |
+| 4.2 50 000 文件清单 | 包内清单约 4.5 MB，先被 `PackageManifest.MaxBytes`（1 MiB）拒绝（`228`）；改为库内 50 000 行 `release_files` 构造后，check 1.08 s / 1.17 s / 1.49 s（5.8 MB 响应），`manifestHash` 每次一致 |
+| 4.3 100 并发 check | 100/100 `200`，0 个 5xx；总耗时 20.8–23.2 s（每次 5.8 MB 清单，CPU 受限）；`pg_stat_activity` 峰值 66（连接池上限 100，未耗尽） |
+| 4.4 摄取中 kill -9 | 2 000×256 KiB 增量包处于 `processing`（`attempts=1`、租约未到期）时强杀：行留在 `processing`、`completed_at` 空、Release 仍 `draft`、artifact=0；把 `locked_until` 置为过去后重启，日志「重置 1 个租约过期的摄取任务」，`attempts=2` → `ready`、Release `published`、2 000 文件逐哈希可回验；遗留 1 个 `.tmp` 半成品，不影响发布 |
+| 4.5 磁盘不足（模拟） | `MinFreeDiskBytes=100 GiB`（可用 94 GiB）时上传票据返回 `227` / 507「剩余磁盘 … 不足以 … 保留 … 余量」，未产生 Blob 与行；同一配置下已发布版本的 check 与文件下载均正常 |
+| 4.6 多副本 | 由 `tests/Platform.PostgresTests` 的 16 并发认领用例覆盖（本机 5 连跑，每包 `attempts=1`） |
+| 4.7 归档回滚 | 归档 4.0.0 后 check 落到 3.0.0；再归档 3.0.0 后 `isDowngrade=true`、`hasUpdate=false`；`allowDowngrade=true` 时下发 2.0.0 增量包 |
+
+> 容量口径提醒：`af-package.json` 有 1 MiB 上限，按当前字段（path/sha256/sizeBytes）算，
+> 增量包实际能容纳的文件数约 1 万条量级；`MaxFilesPerArtifact = 50 000` 主要约束全量包产物清单。
+> 需要更大的增量包时，先压缩清单字段或改分片清单，不要只调文件数上限。
+
 ---
 
 ## 五、演练记录模板

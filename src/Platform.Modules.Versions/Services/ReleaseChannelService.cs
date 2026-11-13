@@ -133,6 +133,7 @@ public sealed partial class ReleaseChannelService : IReleaseChannelService
             Name = name,
             Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
             AllowDowngrade = request.AllowDowngrade,
+            AudienceTags = [.. AudienceTagRules.Normalize(request.AudienceTags)],
         };
 
         _db.Set<ReleaseChannel>().Add(channel);
@@ -194,6 +195,11 @@ public sealed partial class ReleaseChannelService : IReleaseChannelService
             channel.AllowDowngrade = allowDowngrade;
         }
 
+        if (request.AudienceTags is not null)
+        {
+            channel.AudienceTags = [.. AudienceTagRules.Normalize(request.AudienceTags)];
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
 
         var releaseCount = await _db.Set<Release>()
@@ -235,5 +241,7 @@ public sealed partial class ReleaseChannelService : IReleaseChannelService
             latestVersion,
             channel.CreatedAt,
             channel.UpdatedAt,
-            channel.AllowDowngrade);
+            channel.AllowDowngrade,
+            channel.AudienceTags,
+            channel.AutoCreated);
 }

@@ -14,11 +14,16 @@ import {
   Tag,
   Typography,
 } from 'antd';
+import type { TableColumnsType } from 'antd';
 import type { Dayjs } from 'dayjs';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { appsApi } from '../../shared/api/apps';
+import { identityApi } from '../../shared/api/identity';
 import type { ApiKeySummary, AppDetail, CreatedApiKey, CreateApiKeyRequest } from '../../shared/api/types';
+import { groupPermissionsByModule } from '../../shared/permissionCatalog';
 import { PERMISSIONS } from '../../shared/permissions';
+import { responsiveWidth } from '../../shared/responsive';
+import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
 
 interface ApiKeysDrawerProps {
@@ -36,6 +41,7 @@ interface IssueKeyFormValues {
 /** API Key 管理：列表、签发（明文一次性展示）、吊销。 */
 export function ApiKeysDrawer({ open, app, onClose }: ApiKeysDrawerProps) {
   const { message, modal } = App.useApp();
+  const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const canManage = useAuthStore((state) => state.hasPermission(PERMISSIONS.appsApiKeyManage));
   const [issueOpen, setIssueOpen] = useState(false);
@@ -67,7 +73,7 @@ export function ApiKeysDrawer({ open, app, onClose }: ApiKeysDrawerProps) {
     });
   };
 
-  const columns = [
+  const columns: TableColumnsType<ApiKeySummary> = [
     { title: '前缀', dataIndex: 'prefix', key: 'prefix', width: 120, render: (prefix: string) => <Typography.Text code>{prefix}</Typography.Text> },
     { title: '用途', dataIndex: 'name', key: 'name', width: 140 },
     {
@@ -89,6 +95,7 @@ export function ApiKeysDrawer({ open, app, onClose }: ApiKeysDrawerProps) {
       dataIndex: 'expiresAt',
       key: 'expiresAt',
       width: 170,
+      responsive: ['md'],
       render: (value: string | null) => (value ? new Date(value).toLocaleString() : '永不过期'),
     },
     {
@@ -96,12 +103,14 @@ export function ApiKeysDrawer({ open, app, onClose }: ApiKeysDrawerProps) {
       dataIndex: 'lastUsedAt',
       key: 'lastUsedAt',
       width: 170,
+      responsive: ['md'],
       render: (value: string | null) => (value ? new Date(value).toLocaleString() : '-'),
     },
     {
       title: '操作',
       key: 'actions',
       width: 90,
+      fixed: 'right',
       render: (_: unknown, key: ApiKeySummary) =>
         canManage && key.isActive ? (
           <Button type="link" size="small" danger onClick={() => handleRevoke(key)}>
@@ -114,9 +123,10 @@ export function ApiKeysDrawer({ open, app, onClose }: ApiKeysDrawerProps) {
   return (
     <Drawer
       open={open}
-      width={860}
+      width={responsiveWidth(isMobile, 860)}
       title={app ? `API 密钥 · ${app.key}` : 'API 密钥'}
       onClose={onClose}
+      styles={{ body: { padding: isMobile ? 12 : 24 } }}
       destroyOnClose
       extra={
         canManage ? (
@@ -173,7 +183,9 @@ export function ApiKeysDrawer({ open, app, onClose }: ApiKeysDrawerProps) {
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Alert type="warning" showIcon message="明文只显示这一次，关闭后无法再次查看。" />
           <Typography.Paragraph copyable={{ text: created?.plaintext ?? '' }} style={{ marginBottom: 0 }}>
-            <Typography.Text code>{created?.plaintext}</Typography.Text>
+            <Typography.Text code style={{ wordBreak: 'break-all' }}>
+              {created?.plaintext}
+            </Typography.Text>
           </Typography.Paragraph>
         </Space>
       </Modal>
@@ -191,6 +203,31 @@ interface IssueKeyModalProps {
 function IssueKeyModal({ open, app, onClose, onIssued }: IssueKeyModalProps) {
   const { message } = App.useApp();
   const [form] = Form.useForm<IssueKeyFormValues>();
+  const grantedPermissions = useAuthStore((state) => state.session?.permissions);
+
+  const permissions = useQuery({
+    queryKey: ['platform', 'permissions'],
+    queryFn: ({ signal }) => identityApi.permissions(signal),
+    enabled: open,
+    staleTime: 5 * 60_000,
+  });
+
+  // 服务端只允许授予自己已持有的权限，这里提前过滤掉会被 606 拒绝的选项。
+  const scopeOptions = useMemo(() => {
+    const granted = new Set(grantedPermissions ?? []);
+    const canGrantAll = granted.has('*');
+    return groupPermissionsByModule(permissions.data ?? [])
+      .map((group) => ({
+        label: `${group.label}（${group.moduleKey}）`,
+        options: group.items
+          .filter((item) => canGrantAll || granted.has(item.code))
+          .map((item) => ({
+            value: item.code,
+            label: item.platformAdminOnly ? `${item.code}（管理员）` : item.code,
+          })),
+      }))
+      .filter((group) => group.options.length > 0);
+  }, [permissions.data, grantedPermissions]);
 
   const mutation = useMutation({
     mutationFn: (values: IssueKeyFormValues) => {
@@ -240,12 +277,35 @@ function IssueKeyModal({ open, app, onClose, onIssued }: IssueKeyModalProps) {
         <Form.Item name="name" label="用途">
           <Input placeholder="例如 CI 发布流水线" autoComplete="off" />
         </Form.Item>
+        {permissions.isError ? (
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="权限目录加载失败，暂时无法选择权限范围（留空仍可签发只读密钥）。"
+            action={
+              <Button size="small" onClick={() => void permissions.refetch()}>
+                重试
+              </Button>
+            }
+          />
+        ) : null}
         <Form.Item
           name="scopes"
           label="权限范围"
-          tooltip="必须是当前管理员权限的子集；不得使用通配符 *。留空表示仅本应用只读。"
+          tooltip="只能选择当前账号已持有的权限，不得使用通配符 *。留空表示仅本应用只读。"
         >
-          <Select mode="tags" placeholder="输入权限码后回车，例如 versions.release.read" tokenSeparators={[',', ' ']} />
+          <Select
+            mode="multiple"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            maxTagCount="responsive"
+            loading={permissions.isPending}
+            placeholder="选择权限码，留空表示仅本应用只读"
+            options={scopeOptions}
+            notFoundContent={permissions.isPending ? '加载权限目录…' : '无匹配权限码'}
+          />
         </Form.Item>
         <Form.Item name="expiresAt" label="过期时间">
           <DatePicker showTime style={{ width: '100%' }} placeholder="留空表示永不过期" />

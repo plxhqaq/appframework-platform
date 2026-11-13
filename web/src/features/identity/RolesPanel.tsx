@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App, Button, Popconfirm, Space, Table, Tag, Typography } from 'antd';
+import type { TableColumnsType } from 'antd';
 import { useState } from 'react';
 import { identityApi } from '../../shared/api/identity';
 import type { RoleSummary } from '../../shared/api/types';
@@ -36,7 +37,7 @@ export function RolesPanel() {
     setFormOpen(true);
   };
 
-  const columns = [
+  const columns: TableColumnsType<RoleSummary> = [
     {
       title: '角色名',
       dataIndex: 'name',
@@ -91,18 +92,21 @@ export function RolesPanel() {
       dataIndex: 'userCount',
       key: 'userCount',
       width: 80,
+      responsive: ['md'],
     },
     {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 180,
+      responsive: ['md'],
       render: (value: string) => new Date(value).toLocaleString(),
     },
     {
       title: '操作',
       key: 'actions',
       width: 140,
+      fixed: 'right',
       render: (_: unknown, role: RoleSummary) => (
         <Space size="small">
           {canManage ? (
@@ -148,7 +152,16 @@ export function RolesPanel() {
       </Space>
 
       {roles.isError ? (
-        <Alert type="error" showIcon message={(roles.error as Error).message} />
+        <Alert
+          type="error"
+          showIcon
+          message={(roles.error as Error).message}
+          action={
+            <Button size="small" onClick={() => void roles.refetch()}>
+              重试
+            </Button>
+          }
+        />
       ) : null}
 
       <Table<RoleSummary>

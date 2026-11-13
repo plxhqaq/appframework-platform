@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Space, Table, Tag, Typography } from 'antd';
+import type { TableColumnsType } from 'antd';
 import { useState } from 'react';
 import { appsApi } from '../../shared/api/apps';
 import type { AppDetail, AppSummary } from '../../shared/api/types';
@@ -41,7 +42,7 @@ export function AppsPage() {
     setKeysApp({ ...app, settingsJson: null });
   };
 
-  const columns = [
+  const columns: TableColumnsType<AppSummary> = [
     {
       title: '应用键',
       dataIndex: 'key',
@@ -68,12 +69,14 @@ export function AppsPage() {
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 180,
+      responsive: ['md'],
       render: (value: string) => new Date(value).toLocaleString(),
     },
     {
       title: '操作',
       key: 'actions',
       width: 160,
+      fixed: 'right',
       render: (_: unknown, app: AppSummary) => (
         <Space size="small">
           {canManage ? (
@@ -104,7 +107,17 @@ export function AppsPage() {
       }
     >
       {apps.isError ? (
-        <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(apps.error as Error).message} />
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={(apps.error as Error).message}
+          action={
+            <Button size="small" onClick={() => void apps.refetch()}>
+              重试
+            </Button>
+          }
+        />
       ) : null}
 
       <Table<AppSummary>

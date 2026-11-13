@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { App, Form, Input, Modal, Switch } from 'antd';
+import { App, Form, Input, Modal, Select, Switch } from 'antd';
 import { useEffect } from 'react';
 import { versionsApi } from '../../shared/api/versions';
 import type { CreateReleaseChannelRequest, ReleaseChannel, UpdateReleaseChannelRequest } from '../../shared/api/types';
@@ -10,6 +10,13 @@ interface ChannelFormValues {
   description?: string;
   isEnabled: boolean;
   allowDowngrade: boolean;
+  audienceTags?: string[];
+}
+
+const audienceTagPattern = /^[a-z0-9][a-z0-9._:-]{0,63}$/;
+
+function normalizeTags(tags: string[] | undefined): string[] {
+  return [...new Set((tags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean))].sort();
 }
 
 interface ChannelFormModalProps {
@@ -37,6 +44,7 @@ export function ChannelFormModal({ open, channel, onClose, onSaved }: ChannelFor
       description: channel?.description ?? '',
       isEnabled: channel?.isEnabled ?? true,
       allowDowngrade: channel?.allowDowngrade ?? false,
+      audienceTags: channel?.audienceTags ?? [],
     });
   }, [open, channel, form]);
 
@@ -48,6 +56,7 @@ export function ChannelFormModal({ open, channel, onClose, onSaved }: ChannelFor
           description: values.description ?? null,
           isEnabled: values.isEnabled,
           allowDowngrade: values.allowDowngrade,
+          audienceTags: normalizeTags(values.audienceTags),
         };
         return versionsApi.updateChannel(channel.id, body);
       }
@@ -57,6 +66,7 @@ export function ChannelFormModal({ open, channel, onClose, onSaved }: ChannelFor
         name: values.name,
         description: values.description ?? null,
         allowDowngrade: values.allowDowngrade,
+        audienceTags: normalizeTags(values.audienceTags),
       };
       return versionsApi.createChannel(body);
     },
@@ -121,6 +131,34 @@ export function ChannelFormModal({ open, channel, onClose, onSaved }: ChannelFor
 
         <Form.Item name="description" label="说明" rules={[{ max: 1024 }]}>
           <Input.TextArea rows={3} placeholder="可选，给运维/客户端同学看的用途说明" />
+        </Form.Item>
+
+        <Form.Item
+          name="audienceTags"
+          label="受众标签"
+          tooltip="客户端 check 省略渠道键时，请求标签必须包含本渠道的全部标签才会命中；多个渠道命中时取标签最多的一个。留空表示只能按渠道键命中。"
+          rules={[
+            { type: 'array', max: 16, message: '最多 16 个受众标签' },
+            {
+              validator: async (_rule, value?: string[]) => {
+                const invalid = (value ?? []).filter(
+                  (tag) => tag.trim() && !audienceTagPattern.test(tag.trim().toLowerCase()),
+                );
+                if (invalid.length > 0) {
+                  throw new Error(
+                    `标签 ${invalid.join('、')} 非法：小写字母/数字开头，最长 64 位，可含 . _ : -`,
+                  );
+                }
+              },
+            },
+          ]}
+        >
+          <Select
+            mode="tags"
+            tokenSeparators={[',', ' ']}
+            placeholder="例如 win-x64、hardware:scanner"
+            allowClear
+          />
         </Form.Item>
 
         <Form.Item
