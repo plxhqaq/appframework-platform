@@ -274,6 +274,7 @@ export function VersionsPage() {
           <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(channels.error as Error).message} />
         ) : null}
         <Table<ReleaseChannel>
+          scroll={{ x: 'max-content' }}
           rowKey="id"
           size="small"
           loading={channels.isPending}
@@ -326,6 +327,7 @@ export function VersionsPage() {
           <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(releases.error as Error).message} />
         ) : null}
         <Table<ReleaseSummary>
+          scroll={{ x: 'max-content' }}
           rowKey="id"
           size="small"
           loading={releases.isPending}

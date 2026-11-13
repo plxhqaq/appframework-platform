@@ -152,6 +152,7 @@ export function RolesPanel() {
       ) : null}
 
       <Table<RoleSummary>
+        scroll={{ x: 'max-content' }}
         rowKey="id"
         size="small"
         loading={roles.isPending}

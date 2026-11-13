@@ -105,6 +105,41 @@ public sealed class WebhooksAndAuditEndpointsTests : IClassFixture<PlatformApiFa
     }
 
     [Fact]
+    public async Task 内网地址默认拒绝()
+    {
+        var sender = new FakeWebhookSender();
+        using var factory = CreateFactory(sender);
+        using var client = factory.CreateClient();
+        var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
+
+        foreach (var url in new[] { "http://127.0.0.1:9/hook", "http://10.0.0.5/hook", "http://localhost/hook" })
+        {
+            var rejected = await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                "/api/v1/admin/webhooks",
+                token,
+                new CreateWebhookSubscriptionRequest(url, [WebhookConventions.EventTest])));
+            Assert.Equal(
+                (int)ApiErrorCode.WebhooksUrlInvalid,
+                await IdentityTestHelpers.ReadErrorCodeAsync(rejected, HttpStatusCode.BadRequest));
+        }
+    }
+
+    [Fact]
+    public async Task 白名单内的内网地址可创建订阅()
+    {
+        var sender = new FakeWebhookSender();
+        using var factory = CreateFactory(sender, options => options.AllowedHosts = "127.0.0.1");
+        using var client = factory.CreateClient();
+        var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
+
+        var created = await CreateSubscriptionAsync(
+            client, token, "http://127.0.0.1:9/hook", [WebhookConventions.EventTest]);
+
+        Assert.Equal("http://127.0.0.1:9/hook", created.Subscription.Url);
+    }
+
+    [Fact]
     public async Task 失败按指数退避重排并在上限后终止且可手动重投()
     {
         var sender = new FakeWebhookSender { ShouldFail = true };

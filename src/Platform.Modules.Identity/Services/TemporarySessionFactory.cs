@@ -14,7 +14,7 @@ public sealed record TemporarySession(string AccessToken, DateTimeOffset Expires
 
 /// <summary>
 /// 单次密钥与扫码登录共用的临时身份：不是真实用户，不落用户表，
-/// 权限完全来自内置 <c>engineer</c> 角色，因此不引入"影子账号"这份第二事实源。
+/// 权限取自内置 <c>engineer</c> 角色（去掉签发密钥/审批扫码），因此不引入"影子账号"这份第二事实源。
 /// </summary>
 public interface ITemporarySessionFactory
 {
@@ -81,6 +81,8 @@ public sealed class TemporarySessionFactory : ITemporarySessionFactory
 
         var permissions = role.Permissions
             .Where(PermissionCatalog.IsKnown)
+            // 工程师角色本身带签发/审批入口（真人账号要用），临时会话必须摘掉，否则就能给自己续期。
+            .Where(static code => code is not (PermissionCatalog.IdentitySingleKeyIssue or PermissionCatalog.IdentityQrApprove))
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToList();

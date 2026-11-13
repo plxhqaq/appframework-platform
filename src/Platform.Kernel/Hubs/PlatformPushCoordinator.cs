@@ -6,6 +6,7 @@ namespace Platform.Kernel.Hubs;
 /// <summary>进程内回执协调器：连接按应用记录，回执按（应用，备份）配对。</summary>
 /// <remarks>
 /// 多实例部署时回执会落在另一台实例上导致超时，届时换 Redis 背板实现；接口不变。
+/// 当前由启动期 <c>SingleInstanceGuard</c> 阻止多副本，这个假设才有保证。
 /// </remarks>
 public sealed class PlatformPushCoordinator : IPlatformPushCoordinator
 {

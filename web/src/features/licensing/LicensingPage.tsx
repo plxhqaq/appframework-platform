@@ -484,6 +484,7 @@ export function LicensingPage() {
                   <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(products.error as Error).message} />
                 ) : null}
                 <Table<LicenseProduct>
+                  scroll={{ x: 'max-content' }}
                   rowKey="id"
                   size="small"
                   loading={products.isPending}
@@ -554,6 +555,7 @@ export function LicensingPage() {
                   />
                 ) : null}
                 <Table<LicenseEntitlement>
+                  scroll={{ x: 'max-content' }}
                   rowKey="id"
                   size="small"
                   loading={entitlements.isPending}
@@ -604,6 +606,7 @@ export function LicensingPage() {
                   />
                 ) : null}
                 <Table<OfflineLicenseCode>
+                  scroll={{ x: 'max-content' }}
                   rowKey="id"
                   size="small"
                   loading={offlineCodes.isPending}
@@ -683,6 +686,7 @@ export function LicensingPage() {
                       </Descriptions>
 
                       <Table<LicenseSigningKey>
+                        scroll={{ x: 'max-content' }}
                         rowKey="id"
                         size="small"
                         loading={signingKeys.isPending}

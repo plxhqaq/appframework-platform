@@ -1,0 +1,29 @@
+# 管理台 https 叠加：仅当 WEB_ENABLED=true 且 WEB_HTTPS=true 时由 deploy.sh 附加。
+#
+# 与 docker-compose.web.yml 是同一服务的两层：compose 对 ports / volumes 是「追加合并」，
+# 对 environment 标量是「后者覆盖」，所以这里只补三件事——把站点切到 https 模板、
+# 挂上证书目录、再发布一个 443。不重写前一份文件里的任何内容，两份保持各自能读。
+#
+# TLS 只在 nginx 终结，API 容器仍旧只听明文 http（ASPNETCORE_URLS 不动）：给 Kestrel
+# 加 https 绑定的话，应用会开始处理重定向，而设备端的地址是现场配的，不该被应用猜端口。
+#
+# 证书来源两条路，都在这一个目录里，文件名固定 web.crt / web.key：
+#   · deploy.sh 自签（默认）：SAN 覆盖本机所有 IP 与主机名，剩余有效期不足 WEB_SSL_RENEW_DAYS
+#     天时由 renew-cert 重签（root 下 up --https 会顺手装一个 systemd 定时器）。
+#   · 现场自备（企业 CA / certbot 签好的）：放进 WEB_CERT_DIR 就不重签，脚本认出它不是自签，
+#     只在 info 里报到期时间并提醒到期前更换。
+name: appframework-platform
+
+services:
+  web:
+    environment:
+      WEB_HTTPS: "1"
+      # 80 端口那台 server 把浏览器 301 到 https 时用的端口，必须是「浏览器实际访问的端口」。
+      # 本栈默认发布成宿主机的 8443，硬写 443 会把人redirect 到没人听的地方；如果另有前置
+      # 反代接管了标准 443，手工把 WEB_PUBLIC_HTTPS_PORT 设成 443。
+      WEB_PUBLIC_HTTPS_PORT: "${WEB_PUBLIC_HTTPS_PORT:-${WEB_HTTPS_PORT:-8443}}"
+    volumes:
+      # 只读挂进来：容器里的 nginx 不需要写证书，重签时脚本在宿主机换文件、容器只 reload。
+      - "${WEB_CERT_DIR:-/var/lib/appframework-platform/certs}:/etc/nginx/certs:ro"
+    ports:
+      - "${WEB_BIND_HOST:-0.0.0.0}:${WEB_HTTPS_PORT:-8443}:443"

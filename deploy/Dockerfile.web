@@ -1,0 +1,40 @@
+# 平台管理台镜像：pnpm 构建静态产物 → nginx 托管并同源反代 API。
+#
+# 构建上下文是仓库根（compose 里 context: ..），与 Dockerfile.api 同一份：
+#   · 站点配置（deploy/nginx/**）和产物（web/dist）要在同一个上下文里才拷得动；
+#   · .dockerignore 因此从「整目录排除 web」改成「只排除 web 的 node_modules 与 dist」，
+#     传进 daemon 的上下文只多出 600KB 左右源码，API 那几层 COPY 不碰 web，缓存不受影响。
+#   · 挡 dist 是因为镜像自己构建产物，宿主机那份 dist（可能是别的机器上 pnpm build 留下的）
+#     盖进来会把 hash 对不上的 chunk 一起带进镜像；挡 node_modules 是因为它 230MB。
+#
+# 站点配置不在镜像里定死：http / https 两份模板都装进 /etc/nginx/site.d，容器启动时按
+# WEB_HTTPS 选一份渲染到 conf.d/default.conf（见 nginx/40-site.sh）。于是「开/关 https」
+# 只是重建容器，不重新构建镜像；证书由 deploy.sh 在宿主机生成后只读挂到 /etc/nginx/certs，
+# 换证书同样不用重新构建——定时重签的那条路就是这么留出来的。
+FROM node:22-alpine AS build
+WORKDIR /build
+
+# corepack 按 package.json 里的 packageManager 取那一版 pnpm，版本跟着仓库走，不在这里写死第二份。
+# 下载前不问一句：容器里没有 tty，留着提示会卡在构建上。
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
+
+# 先只装依赖：lockfile 没变时这一层直接命中缓存，改一行源码不该重装几百个包
+COPY web/package.json web/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY web/ ./
+RUN pnpm build
+
+FROM nginx:1.27-alpine AS final
+COPY --from=build /build/dist/ /usr/share/nginx/html/
+COPY deploy/nginx/site.d/ /etc/nginx/site.d/
+COPY deploy/nginx/40-site.sh /docker-entrypoint.d/40-site.sh
+# 仓库在 Windows 上检出，zip 传到 Linux 时执行位早就没了，这里补一次
+RUN chmod 755 /docker-entrypoint.d/40-site.sh
+
+# WEB_HTTPS=1 时站点要 /etc/nginx/certs/web.crt 与 web.key（deploy.sh 生成后只读挂进来）
+ENV WEB_HTTPS=0 \
+    API_UPSTREAM=api:8080
+
+EXPOSE 80 443

@@ -1,0 +1,42 @@
+# 构建上下文是仓库根（两份 compose 文件里都写 context: ..），Dockerfile.api 用根配置与 src/**，
+# Dockerfile.web 用 web/** 与 deploy/nginx/**。所以下面这些排除项既是体积优化，也是修一个真实的失败：
+#
+#   镜像内 restore 之后，`COPY src/ src/` 会把 Windows 上 dotnet restore 留下的 obj/
+#   盖进去（zip 传机器时最容易带上）。那份 obj/*.nuget.g.props 记着本机路径——VS 的
+#   fallback 目录 D:\Program Files (x86)\Microsoft Visual Studio\Shared\NuGetPackages，
+#   以及 windows 的 runtimes.graph。紧接着 publish 带 --no-restore，MSBuild 只能照着
+#   这份资产文件解析包，在 Linux 容器里当场炸：
+#     error MSB4018: Unable to find fallback package folder 'D:\Program Files (x86)\...'
+#   排除 obj/ 与 bin/ 之后，容器用的就是它自己 restore 出来的那份。
+**/bin
+**/obj
+
+# 与 API 镜像无关的大目录：测试/示例/文档不进产物
+tests
+samples
+docs
+design
+tools
+.vs
+.git
+.gitignore
+.editorconfig
+.github
+
+# 管理台：镜像要自己 pnpm build，所以 web/ 的源码必须进上下文（600KB 左右），
+# 但这两类东西挡掉——node_modules 有 230MB 且里面全是宿主机的符号链接，容器里用不上；
+# dist 是宿主机上某次 pnpm build 的残留，盖进镜像会带着对不上号的旧 chunk，
+# 表现成「刷新才好的怪故障」，排查成本远高过这一行排除。
+web/node_modules
+web/dist
+web/coverage
+web/.eslintcache
+
+# 密钥与本机环境：上下文会被整份传给 daemon，绝不该把 .env 捎进去
+deploy/.env
+deploy/*.env
+web/.env.local
+web/.env.*.local
+**/*.user
+**/*.suo
+**/.DS_Store

@@ -21,7 +21,9 @@
 - 服务端**不接受**请求体或请求头里的 `appKey` 作为隔离依据；版本、授权、备份、文档这类应用级模块直接从令牌取应用键。
 - 两种拒绝要分清：应用级模块发现令牌没有应用上下文时返回 `4`（HTTP 403，「当前令牌没有应用上下文，无法访问版本资源」，`VersionsEndpoints.cs:484`）；登录或切换时指定了无权访问的应用返回 `118`（HTTP 403）。
 - 进入应用的三条路：登录/换发时带 `appKey`、管理台 `POST /api/v1/admin/auth/context` 切换、M2M 令牌由 API Key 所属应用自动绑定。
-- 平台管理员（`platform-admin`，权限 `*`）默认落在首个启用应用；不主动进入某应用时，令牌 `app` 仍覆盖全部启用应用，但「当前应用」为空（`UserSessionFactory.cs:121`）。
+- 平台管理员（`platform-admin`，权限 `*`）默认落在首个启用应用；不主动进入某应用时，会话 DTO 的 `user.appKey` 为空，令牌 `app` 仍覆盖全部启用应用，`ICurrentPrincipal.AppKey` 取首个（whoami 会显示一个具体应用）。
+- **应用停用后**：登录/切换/刷新立即拒绝（`118`/403）；已签发的访问令牌由请求路径上的应用上下文守卫拦截（`602`/403），不必等访问令牌自然过期。守卫按 `AppContextGuard:CacheSeconds`（默认 30 秒）缓存状态，启用/停用在本副本立即失效，多副本最迟一个窗口后收敛。
+- 平台管理员（通配权限 `*`）不受停用守卫影响——否则停用应用后就没人能从管理端把它重新启用。
 
 ---
 
@@ -83,7 +85,7 @@ curl -s -X POST http://localhost:5080/api/v1/identity/refresh \
 
 - 响应 `RefreshTokenResponse`：`accessToken` / `expiresAt` / `refreshToken` / `refreshExpiresAt` / `user`。刷新令牌格式为 `afr_` + 32 随机字节的 Base64Url，库里只存 SHA-256 哈希，明文不回查。
 - 每次刷新**换发新刷新令牌**，旧令牌立即标记 `rotated`；已轮换的令牌再次出现按泄露处理：同一 `familyId` 下全部活跃令牌标记 `reuse_detected` 并被吊销，本次返回 `114`（401）——合法持有者只能重新登录。缺失/非法/已过期返回 `113`，账号被禁用返回 `102`（403）。
-- 刷新时**重新读库构建权限**，角色改权限后下一次刷新即生效；应用上下文随家族延续，新令牌继承记录里的 `appKey`，不会刷新后跨应用。
+- 刷新时**重新读库构建权限**，角色改权限后下一次刷新即生效；应用上下文随家族延续，新令牌继承记录里的 `appKey`，不会刷新后跨应用。当前应用已停用时刷新返回 `118`（403），应用重新启用后同一刷新令牌仍可使用。
 - 吊销原因只有四种：`rotated` / `logout` / `revoked_by_admin` / `password_changed`。
 
 ### 2.5 登出与强制改密
@@ -139,7 +141,7 @@ curl -s -X POST http://localhost:5080/api/v1/admin/identity/singlekeys \
   -d '{"durationMinutes":30,"deviceFingerprint":"line-1-pc"}'
 ```
 
-响应 `SingleLoginKeyDto{key, expiresAt, durationMinutes}`：密钥是 6 位十进制（含前导 0），随机生成并查重、冲突最多重试 5 次，连续失败返回 `6`（409）。`durationMinutes` 为空取 `SingleLogin:DefaultDurationMinutes`（30），超出 `SingleLogin:MaxDurationMinutes`（60）按上限钳制，最小 1 分钟；`deviceFingerprint` 为空表示**不限设备**，非空时只有同一指纹（区分大小写、逐字比较）能兑换。明文只在这条响应里出现一次；`single_login_keys` 表以密钥本身为主键，另存指纹、签发人、`expires_at`、`used_at`、`attempt_count`，审计与日志不记密钥。
+响应 `SingleLoginKeyDto{key, expiresAt, durationMinutes}`：密钥是 6 位十进制（含前导 0），随机生成并查重、冲突最多重试 5 次，连续失败返回 `6`（409）。`durationMinutes` 为空取 `SingleLogin:DefaultDurationMinutes`（30），超出 `SingleLogin:MaxDurationMinutes`（120，即 2 小时）按上限钳制，最小 1 分钟；`deviceFingerprint` 为空表示**不限设备**，非空时只有同一指纹（区分大小写、逐字比较）能兑换。明文只在这条响应里出现一次；`single_login_keys` 表以密钥本身为主键，另存指纹、签发人、`expires_at`、`used_at`、`attempt_count`，审计与日志不记密钥。
 
 兑换（匿名）：
 
@@ -152,7 +154,8 @@ curl -s -X POST http://localhost:5080/api/v1/identity/singlekey/redeem \
 - **原子单次**：消费靠一条带条件的 UPDATE（`used_at IS NULL AND expires_at > now AND attempt_count < maxAttempts AND 指纹匹配`），受影响行数为 1 才算赢，多副本并发只有一个成功（`SingleLoginKeyService.cs:136`）。尝试上限 `SingleLogin:MaxAttempts`（默认 5）；指纹不匹配同样累计一次尝试，累计到上限后密钥作废。
 - 临时令牌有效期 = **密钥剩余时间**（`record.ExpiresAt - now`），不是重新计 30 分钟；已过期返回 `106`。响应 `TemporarySessionResponse{accessToken, expiresAt, user}`，**没有刷新令牌**，过期即失去访问。错误码 `105`/`107`/`108` 见第 7 节。
 - 临时主体：`sub` 为随机 v7 guid（不落用户表）、`name` = `temp-user`、`displayName` = `临时用户`、`role` = `engineer`、`is_temporary` = `true`、`app` = 全部启用应用、`machine` = 请求里的 `machineCode`（只写入声明，不与密钥记录比对）。
-- 权限完全来自内置 `engineer` 角色（`IdentitySeeder.cs:136`）：只含 `apps.read`、`versions.*` 的读与下载、`license.product.read`/`license.read`、`backup.*`、`document.*` 与全部 `client.*` 码，**不含任何 `identity.*` 管理码**，因此无法自我续期或审批扫码。
+- 权限取自内置 `engineer` 角色（`IdentitySeeder.cs`），但**摘掉 `identity.singlekey.issue` 与 `identity.qr.approve`**：剩下 `apps.read`、`versions.*` 的读与下载、`license.product.read`/`license.read`、`backup.*`、`document.*` 与全部 `client.*` 码，不含任何其它 `identity.*` 管理码。
+- 这个内置角色同时给**真人现场工程师账号**用，那份是带签发/审批两个入口码的（否则工程师登录后两个页面都用不了）。两者的边界靠身份种类而不是权限集合：四个管理端点都挂了 `RequireNonTemporaryPrincipal()`，临时令牌即便被管理员手工改开的角色喂饱了权限，也仍然返回 `102`（403），无法自我续期。
 
 ---
 
@@ -171,14 +174,17 @@ curl -s http://localhost:5080/api/v1/identity/qr/sessions/$REQUEST_ID
 
 # 3) 管理端（identity.qr.approve）
 curl -s -b admin.jar 'http://localhost:5080/api/v1/admin/identity/qr/sessions?status=pending&page=1&pageSize=20'
+curl -s -b admin.jar http://localhost:5080/api/v1/admin/identity/qr/sessions/$REQUEST_ID
 curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sessions/$REQUEST_ID/approve \
-  -H 'Content-Type: application/json' -d '{"durationMinutes":30}'
+  -H 'Content-Type: application/json' -d '{"durationMinutes":120}'
 curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sessions/$REQUEST_ID/reject
 ```
 
-- 创建响应 `QrSessionCreatedDto{requestId, expiresAt, payload}`：`expiresAt` 取 `QrLogin:ExpireMinutes`（默认 10 分钟）；`payload` = `appframework://qr-login?requestId=` + 请求 id 的 **32 位无连字符（`N`）形式**，直接交给二维码渲染；轮询 URL 用的是带连字符的标准 GUID。
+- 创建响应 `QrSessionCreatedDto{requestId, expiresAt, payload}`：`expiresAt` 取 `QrLogin:ExpireMinutes`（默认 10 分钟）；`payload` 是**管理台审批页的 https 链接** = `QrLogin:ApprovalUrlBase` + `/qr-login/` + 请求 id 的 **32 位无连字符（`N`）形式**，手机相机扫开即直达审批页（未登录会先跳登录再回来）。轮询 URL 用的是带连字符的标准 GUID。
+- `QrLogin:ApprovalUrlBase` 必须显式配置成**手机浏览器能打开**的基址（部署脚本的 `QR_APPROVAL_URL_BASE`，留空时按证书 CN 或本机内网 IP + 浏览器访问端口推导后写回 `.env`）。不能靠请求推导：nginx 转发的 `Host` 不带端口，推出来的地址手机扫开连不上；配置留空才退回按当前请求的 `scheme://host` 兜底，那只够本机开发用。
 - 轮询响应 `QrSessionStatusDto{requestId, status, createdAt, expiresAt, approvedAt, session}`：仅当 `status=approved` 且已签发的令牌尚未过期时 `session` 非空（`TemporarySessionResponse`，同上一节）。令牌过期后 `status` 仍是 `approved`，但 `session` 为 `null`——只能重新扫码。
-- 审批 `durationMinutes` 为空取 `QrLogin:DefaultDurationMinutes`（30），上限 `QrLogin:MaxDurationMinutes`（60）。临时令牌在**审批瞬间**签发并落库，同一请求 id 之后每次轮询领取到的是同一枚。
+- 审批 `durationMinutes` 为空取 `QrLogin:DefaultDurationMinutes`（30），上限 `QrLogin:MaxDurationMinutes`（120，即 2 小时）。临时令牌在**审批瞬间**签发并落库，同一请求 id 之后每次轮询领取到的是同一枚。
+- 管理端按 id 取单个会话 `GET /api/v1/admin/identity/qr/sessions/{id}`（权限同上）：手机扫码直达审批页时用它，不必先翻列表。
 - 管理端列表 `status` 只接受 `pending`/`approved`/`rejected`/`expired`（其它值返回 `2`，400），`expired` 筛的是「仍为 pending 但已超时」的行；响应 `QrSessionSummaryDto` 含 `clientName`/`deviceFingerprint`/`createdByIp`/`approvedAt`/`approvedByName`。
 - 并发审批由带 `status = 'pending' AND expires_at > now` 条件的状态迁移语句裁决（`QrLoginService.cs:200`）：两个审批人同时点击只有一个生效。会话落 `qr_login_sessions` 表，服务重启后待审批会话仍在。
 - 审批/拒绝后服务端经 SignalR `/hubs/platform` 广播事件 `QrLoginApproved`（负载 `QrLoginApprovedNotification{requestId, approved}`，`Clients.All`）：**只是提示**，推送失败只记日志、不影响已落库的审批结果，客户端必须以轮询结果为准。错误码 `109`（404）/`110`（410）/`111`（409）见第 7 节。
@@ -212,6 +218,8 @@ curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sess
 - 用户名重复 → `6`（409）；角色不存在 → `103`（404）；未知权限码 → `104`（400）。
 - 不能禁用或删除当前登录账号、不能删除内置 `admin`：`118` / `6`。
 - 角色名 `^[a-z][a-z0-9-]{1,63}$`；`scope` 只有 `platform` / `app`，应用级角色必须指定存在的应用键。
+- 应用级角色的权限只在该角色绑定的 `appKey` 与当前令牌应用上下文一致时并入；平台级角色权限始终生效。
+  登录/切换指定已停用应用返回 `118`（403），且新令牌不再携带其他应用的 app 角色权限。
 - 内置角色（`isSystem`）不可删除（`6`）；仍有用户的角色不可删除（`117`，409）。
 - 通配符 `*` 只允许内置 `platform-admin` 角色持有，其它角色申请返回 `118`。
 - 分页响应统一为 `PageResult<T>{items, page, pageSize, total, nextCursor}`。
@@ -294,7 +302,7 @@ var session = await client.WaitForQrLoginApprovalAsync(qr.RequestId, TimeSpan.Fr
 
 - **口令节流**：`LoginThrottle:MaxFailuresBeforeLockout`（10）在 `TrackingWindowMinutes`（15）窗口内累计，触发即锁 `LockoutMinutes`（15）分钟并返回 `116`（429），提示语带剩余分钟数。账号与 IP 两个维度**同时**计数且落库（`login_throttles`），多副本有效；登录成功只清账号维度，IP 维度保留；锁定期间即使口令正确也被拒。
 - **刷新令牌一次性**：每次刷新换发新令牌，旧令牌再被使用即按泄露处理并吊销整族（`114`）。不要把刷新令牌写日志、崩溃转储或明文落盘；`afr_` 前缀只为脱敏识别，不承载秘密。
-- **临时主体没有管理码**：`temp-user` 的权限集来自 `engineer` 角色，不含 `identity.*`、`platform.admin`、`audit.read`，也**没有刷新令牌**；靠单次密钥自我续期是行不通的。
+- **临时主体不能签发凭据**：`temp-user` 的权限集来自 `engineer` 角色但摘掉了 `identity.singlekey.issue`/`identity.qr.approve`，也不含其它 `identity.*`、`platform.admin`、`audit.read`，且**没有刷新令牌**。挡它的还有端点侧的身份种类判定，所以把角色权限改开也没法自我续期。
 - **应用上下文不匹配**：令牌没有当前应用 → 应用级模块返回 `4`（403）；登录/切换时指定无权访问的应用 → `118`（403）。切换成功后服务端把应用键写回当前刷新令牌记录，Cookie 静默续期仍停在同一应用；刷新令牌缺失或不属于该用户时只换发访问令牌，不报错。
 - **`MapInboundClaims`** 一旦被宿主打开，`sub`/`perms` 全部读不到（第 3 节）。
 - **`Idempotency-Key` 是可选的主动权**：未携带就是普通请求；同键默认保留 24 小时并回放首次响应，并发在途返回 `6`（409），业务失败会释放占位允许同键重试，长度上限 256 字符。
@@ -305,22 +313,49 @@ var session = await client.WaitForQrLoginApprovalAsync(qr.RequestId, TimeSpan.Fr
 
 ## 10. 与管理台页面的对应关系
 
-「身份与权限」页按**读权限**裁剪标签页（隐藏只是不打扰用户，越权请求仍由服务端拒绝）：
+管理台左侧菜单与路由守卫共用一份事实源（`web/src/app/navigation.tsx`）：命中权限码才出现菜单项，
+直接敲地址也会被守卫拦成「无访问权限」页。隐藏只是不打扰用户，越权请求仍由服务端 `RequirePermission` 拒绝。
 
-| 标签页 | 需要的读权限 | 写操作额外需要 |
-|---|---|---|
-| 用户 | `identity.user.read` | `identity.user.manage` / `identity.user.password.reset` |
-| 角色 | `identity.role.read` | `identity.role.manage` |
-| 单次密钥 | `identity.singlekey.issue` | 同左 |
-| 扫码审批 | `identity.qr.approve` | 同左 |
-| 会话 | `identity.session.read` | `identity.session.revoke` |
+| 页面 | 路径 | 需要的权限 | 写操作额外需要 |
+|---|---|---|---|
+| 总览 | `/overview` | 登录即可 | — |
+| 密钥登录 | `/single-key` | `identity.singlekey.issue` | 同左 |
+| 扫码登录 | `/qr-approval` | `identity.qr.approve` | 同左 |
+| 扫码详情（手机直达） | `/qr-login/{requestId}` | `identity.qr.approve` | 同左 |
+| 身份与权限 · 用户 | `/identity` | `identity.user.read` | `identity.user.manage` / `identity.user.password.reset` |
+| 身份与权限 · 角色 | `/identity` | `identity.role.read` | `identity.role.manage` |
+| 身份与权限 · 会话 | `/identity` | `identity.session.read` | `identity.session.revoke` |
+| 修改口令 | `/password` | 登录即可 | — |
 
-五个码都没有时页面显示引导提示；页面顶部「当前应用」切换走 `/api/v1/admin/auth/context`。
+- **密钥登录与扫码登录是独立页面，不再是「身份与权限」的标签页**：内置 `engineer` 角色只拿到这两个入口码，
+  拆开后现场工程师登录就能直接发密钥、批扫码，不必再被授予任何 `identity.*.read` 管理码。
+  「身份与权限」页只剩用户 / 角色 / 会话三个标签页，三个读码都没有时显示引导提示。
+- 两个页面的有效期都可选 15 / 30 分钟、1 / 2 小时，也可手填 1–120 分钟（与服务端上限一致，见第 11 节）。
+- **手机端**：`/qr-login/{requestId}` 是二维码里带的地址。未登录会跳 `/login?returnTo=…`，登录后回到原请求；
+  窄屏（<768px）下扫码列表渲染成卡片 + 整宽按钮而不是七列表格，导航收进抽屉。
+  `QrLogin:ApprovalUrlBase` 必须配成手机能打开的内网地址，否则扫码会指向 localhost。
+- 页面顶部「当前应用」切换走 `/api/v1/admin/auth/context`。
+
 权限码目录也可用 `GET /api/v1/platform/permissions` 直接核对（匿名可读，字段 `code`/`moduleKey`/`displayNameKey`/`sort`/`platformAdminOnly`）。
 
 ---
 
-## 11. 配置项
+## 11. 过期数据清理
+
+`IdentityCleanupTask`（名称 `identity`）挂在 `RetentionWorker` 上，每个周期按 `Identity:Cleanup` 的
+保留期分批删除：
+
+| 表 | 删除条件 |
+|---|---|
+| `refresh_tokens` | `expires_at` 早于「现在 − `RefreshTokenRetentionDays`」 |
+| `single_login_keys` | `expires_at` 早于「现在 − `SingleKeyRetentionHours`」 |
+| `qr_login_sessions` | `expires_at` 早于「现在 − `QrSessionRetentionHours`」 |
+| `login_throttles` | `window_start` 早于「现在 −（`TrackingWindowMinutes` + `LoginThrottleRetentionHours`）」，且未处于锁定期 |
+
+只删已失效的行：未到期的令牌/密钥/会话、以及 `locked_until` 仍在未来的节流记录一律保留。
+删除数量累加到 `platform_retention_deleted_rows_total{task="identity"}`。
+
+## 12. 配置项
 
 | 键 | 默认 | 说明 |
 |---|---|---|
@@ -328,11 +363,17 @@ var session = await client.WaitForQrLoginApprovalAsync(qr.RequestId, TimeSpan.Fr
 | `Jwt:SigningKey` | 空（启动失败） | HMAC-SHA256，**至少 32 字符** |
 | `Jwt:AccessTokenMinutes` / `Jwt:RefreshTokenDays` | 30 / 30 | 刷新令牌有效期最小按 1 天 |
 | `Jwt:AllowDevTokenEndpoint` | `false` | 开发令牌端点开关，仅 Development 生效 |
+| `AppContextGuard:CacheSeconds` | 30 | 应用停用状态的请求路径缓存窗口；`0` 表示每请求查库（集成测试用） |
 | `LoginThrottle:MaxFailuresBeforeLockout` | 10 | 窗口内失败上限 |
 | `LoginThrottle:LockoutMinutes` / `TrackingWindowMinutes` | 15 / 15 | 锁定时长与失败计数窗口 |
-| `SingleLogin:DefaultDurationMinutes` / `MaxDurationMinutes` / `MaxAttempts` | 30 / 60 / 5 | 单次密钥默认与上限时长、尝试上限 |
-| `QrLogin:ExpireMinutes` / `DefaultDurationMinutes` / `MaxDurationMinutes` | 10 / 30 / 60 | 待审批存活与审批后时长 |
+| `SingleLogin:DefaultDurationMinutes` / `MaxDurationMinutes` / `MaxAttempts` | 30 / 120 / 5 | 单次密钥默认与上限时长（2 小时）、尝试上限 |
+| `QrLogin:ExpireMinutes` / `DefaultDurationMinutes` / `MaxDurationMinutes` | 10 / 30 / 120 | 待审批存活与审批后时长（上限 2 小时） |
+| `QrLogin:ApprovalUrlBase` | 空（退回按请求推导） | 二维码里的管理台基址，必须是手机能打开的地址；部署键 `QR_APPROVAL_URL_BASE` |
 | `RateLimits:SingleLoginRedeemPerMinute` / `QrSessionPerMinute` | 10 / 60 | 兑换限流（IP）；创建与轮询共用额度 |
+| `Identity:Cleanup:BatchSize` | 500 | 每批删除行数（四类过期数据共用） |
+| `Identity:Cleanup:RefreshTokenRetentionDays` | 7 | 过期刷新令牌保留天数（按 `expires_at` 计） |
+| `Identity:Cleanup:SingleKeyRetentionHours` / `QrSessionRetentionHours` | 24 / 24 | 过期单次密钥、过期扫码会话保留小时数 |
+| `Identity:Cleanup:LoginThrottleRetentionHours` | 24 | 节流记录冷却后再保留的小时数（最后失败超过「计数窗口 + 该值」才删） |
 | `Argon2:MemorySizeKiB` / `Iterations` / `DegreeOfParallelism` | 65536 / 4 / 8 | 参数随每条哈希入库；调参只影响新哈希 |
 | `Seed:Enabled` / `AdminUserName` / `AdminPassword` / `DemoAppKey` | `true` / `admin` / 空 / `demo` | 口令只从环境变量 `Seed__AdminPassword` 注入；为空跳过管理员创建 |
 

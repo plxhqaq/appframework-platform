@@ -2,9 +2,11 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Platform.Contracts;
 using Platform.Contracts.Permissions;
 using Platform.Infrastructure.Persistence;
+using Platform.Kernel.Abstractions;
 using Platform.Kernel.Modules;
 using Platform.Modules.Identity.Endpoints;
 using Platform.Modules.Identity.Options;
@@ -51,6 +53,7 @@ public sealed class IdentityModule : IPlatformModule
         services.Configure<IdentitySeedOptions>(configuration.GetSection(IdentitySeedOptions.SectionName));
         services.Configure<SingleLoginOptions>(configuration.GetSection(SingleLoginOptions.SectionName));
         services.Configure<QrLoginOptions>(configuration.GetSection(QrLoginOptions.SectionName));
+        services.Configure<IdentityCleanupOptions>(configuration.GetSection(IdentityCleanupOptions.SectionName));
 
         services.AddScoped<IPasswordHasher, Argon2PasswordHasher>();
         services.AddScoped<ILoginThrottleService, LoginThrottleService>();
@@ -65,7 +68,12 @@ public sealed class IdentityModule : IPlatformModule
 
         services.TryAddEnumerable(
             ServiceDescriptor.Scoped<IPlatformModelContributor, IdentityModelContributor>());
-        services.AddHostedService<IdentitySeeder>();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Scoped<IRetentionCleanupTask, IdentityCleanupTask>());
+        // 除了开机自启，种子器还要能被 `--reset-admin-password` 那条一次性入口直接解析出来，
+        // 而 AddHostedService<T>() 只登记 IHostedService、不登记 T 本身，所以先注册具体单例再转发。
+        services.AddSingleton<IdentitySeeder>();
+        services.AddSingleton<IHostedService>(static sp => sp.GetRequiredService<IdentitySeeder>());
     }
 
     /// <inheritdoc />

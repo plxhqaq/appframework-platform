@@ -4,6 +4,7 @@ using Platform.Contracts;
 using Platform.Contracts.Apps;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
+using Platform.Kernel.Security;
 using Platform.Infrastructure.Persistence;
 using Platform.Modules.Apps.Domain;
 
@@ -29,11 +30,13 @@ public interface IAppRegistryService
 public sealed partial class AppRegistryService : IAppRegistryService
 {
     private readonly PlatformDbContext _db;
+    private readonly AppStateCache _appStates;
 
     /// <summary>构造。</summary>
-    public AppRegistryService(PlatformDbContext db)
+    public AppRegistryService(PlatformDbContext db, AppStateCache appStates)
     {
         _db = db;
+        _appStates = appStates;
     }
 
     [GeneratedRegex(AppConventions.AppKeyPattern, RegexOptions.CultureInvariant)]
@@ -100,6 +103,8 @@ public sealed partial class AppRegistryService : IAppRegistryService
             throw new BusinessException(ApiErrorCode.AppsKeyExists, $"应用键 {key} 已存在。", exception);
         }
 
+        // 新应用可能推翻此前缓存的"不存在"，否则同一副本要把负缓存熬到过期
+        _appStates.Invalidate(app.Key);
         return ToDetail(app);
     }
 
@@ -135,6 +140,8 @@ public sealed partial class AppRegistryService : IAppRegistryService
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        // 停用/启用必须在本副本立即可见；其它副本最迟在缓存窗口后收敛。
+        _appStates.Invalidate(app.Key);
         return ToDetail(app);
     }
 

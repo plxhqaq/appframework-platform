@@ -491,6 +491,7 @@ export function DocumentsPage() {
           <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(collections.error as Error).message} />
         ) : null}
         <Table<DocumentCollection>
+          scroll={{ x: 'max-content' }}
           rowKey="id"
           size="small"
           loading={collections.isPending}
@@ -531,6 +532,7 @@ export function DocumentsPage() {
           <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(documents.error as Error).message} />
         ) : null}
         <Table<DocumentSummary>
+          scroll={{ x: 'max-content' }}
           rowKey="id"
           size="small"
           loading={documents.isPending}
@@ -665,7 +667,7 @@ export function DocumentsPage() {
           <>
             <Descriptions
               size="small"
-              column={2}
+              column={{ xs: 1, md: 2 }}
               bordered
               items={[
                 { key: 'collection', label: '集合', children: detail.data.collectionKey },
@@ -694,6 +696,7 @@ export function DocumentsPage() {
               修订历史
             </Typography.Title>
             <Table<DocumentDetail['revisions'][number]>
+              scroll={{ x: 'max-content' }}
               rowKey="id"
               size="small"
               dataSource={detail.data.revisions}

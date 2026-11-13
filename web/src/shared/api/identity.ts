@@ -131,6 +131,10 @@ export const identityApi = {
       { signal },
     ),
 
+  /** 手机扫码直达审批页时按 id 取单个会话，不用先拉整页列表。 */
+  getQrSession: (requestId: string, signal?: AbortSignal) =>
+    request<QrSessionSummary>(`/api/v1/admin/identity/qr/sessions/${requestId}`, { signal }),
+
   approveQrSession: (requestId: string, body: ApproveQrSessionRequest) =>
     request<QrSessionSummary>(`/api/v1/admin/identity/qr/sessions/${requestId}/approve`, {
       method: 'POST',

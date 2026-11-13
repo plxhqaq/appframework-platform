@@ -108,6 +108,17 @@ curl -s http://localhost:5080/metrics | head
 不会让告警误判为持续积压。**只有 `dead` 与积压时长适合直接告警**，
 `pending`/`failed` 在退避窗口内短暂存在是正常形态（退避见 [`06` §3](06-webhooks-and-audit.md)）。
 
+### 3.5 保留期清理（counter，**首次删除后才出现**）
+
+| 指标 | 类型 | 标签 | 说明 |
+|---|---|---|---|
+| `platform_retention_deleted_rows_total` | counter | `task` | `RetentionWorker`/`MaintenanceWorker` 每轮删除行数；`task` ∈ `identity`/`webhooks`/`idempotency`/`audit` |
+| `platform_retention_deleted_files_total` | counter | `task` | 同一轮删除的文件数（当前仅备份类任务产生） |
+
+长期停在 0 说明没有过期数据（正常），也可能意味着 Worker 没跑或保留期配置过大；
+配合 `platform_webhook_deliveries{status="dead"}` 等 gauge 一起看。清理语义见
+[`01` §11](01-identity.md) 与 [`06` §4.1](06-webhooks-and-audit.md)。
+
 ---
 
 ## 4. 告警规则

@@ -14,6 +14,9 @@ public sealed class VersionsOptions
     /// <summary>单个文件大小上限（字节）。</summary>
     public long MaxFileSizeBytes { get; set; } = VersionConventions.MaxFileSizeBytes;
 
+    /// <summary>单个增量包大小上限（字节）；票据上限取它与文件上限的较大值。</summary>
+    public long MaxPackageSizeBytes { get; set; } = VersionConventions.MaxPackageSizeBytes;
+
     /// <summary>单个产物的文件数上限。</summary>
     public int MaxFilesPerArtifact { get; set; } = VersionConventions.MaxFilesPerArtifact;
 }

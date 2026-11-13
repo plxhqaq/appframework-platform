@@ -28,6 +28,10 @@ coverage/
 .env.local
 deploy/.env
 
+# 自签证书的回退目录（正常挂在 /var/lib/appframework-platform/certs，
+# 那个目录建不出来时脚本会退到这里）。私钥入库等于没加密。
+deploy/certs/
+
 # 开发配置默认不入库（真实签名密钥/口令一律走环境变量），
 # 但 API 的开发配置只有 localhost 占位值与明确的 dev-only 签名密钥，
 # 入库才能让 `dotnet run` 开箱可用——真正的密钥在部署时由环境变量覆盖。

@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Platform.Contracts.Webhooks;
+using Platform.Kernel.Errors;
 using Platform.Modules.Webhooks.Options;
 
 namespace Platform.Modules.Webhooks.Services;
@@ -40,16 +41,19 @@ public sealed class HttpWebhookSender : IWebhookSender
 
     private readonly HttpClient _client;
     private readonly WebhooksOptions _options;
+    private readonly WebhookUrlPolicy _urlPolicy;
     private readonly ILogger<HttpWebhookSender> _logger;
 
     /// <summary>构造。</summary>
     public HttpWebhookSender(
         HttpClient client,
         IOptions<WebhooksOptions> options,
+        WebhookUrlPolicy urlPolicy,
         ILogger<HttpWebhookSender> logger)
     {
         _client = client;
         _options = options.Value;
+        _urlPolicy = urlPolicy;
         _logger = logger;
     }
 
@@ -63,6 +67,17 @@ public sealed class HttpWebhookSender : IWebhookSender
         string payload,
         CancellationToken cancellationToken = default)
     {
+        try
+        {
+            // 创建时校验过的地址仍要再验一次：DNS 可以在两次之间改成内网地址。
+            await _urlPolicy.ValidateAsync(url, cancellationToken).ConfigureAwait(false);
+        }
+        catch (BusinessException exception)
+        {
+            SendFailed(_logger, url, exception.Message, null);
+            return new WebhookSendResult(false, null, exception.Message);
+        }
+
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.TimeoutSeconds)));
 

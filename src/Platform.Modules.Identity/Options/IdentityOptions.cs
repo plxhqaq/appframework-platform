@@ -37,8 +37,8 @@ public sealed class SingleLoginOptions
     /// <summary>默认有效期（分钟）。</summary>
     public int DefaultDurationMinutes { get; set; } = SingleLoginConventions.DefaultDurationMinutes;
 
-    /// <summary>有效期上限（分钟）；签发时超过即钳制。</summary>
-    public int MaxDurationMinutes { get; set; } = 60;
+    /// <summary>有效期上限（分钟，默认 2 小时）；签发时超过即钳制。</summary>
+    public int MaxDurationMinutes { get; set; } = SingleLoginConventions.MaxDurationMinutes;
 
     /// <summary>最大兑换尝试次数；达到后密钥作废，抑制按键枚举。</summary>
     public int MaxAttempts { get; set; } = 5;
@@ -56,8 +56,43 @@ public sealed class QrLoginOptions
     /// <summary>审批通过后临时令牌的默认有效期（分钟）。</summary>
     public int DefaultDurationMinutes { get; set; } = QrLoginConventions.DefaultDurationMinutes;
 
-    /// <summary>审批时可指定的有效期上限（分钟）。</summary>
-    public int MaxDurationMinutes { get; set; } = 60;
+    /// <summary>审批时可指定的有效期上限（分钟，默认 2 小时）。</summary>
+    public int MaxDurationMinutes { get; set; } = QrLoginConventions.MaxDurationMinutes;
+
+    /// <summary>
+    /// 二维码里写进链接的管理台公网基址，例如 <c>https://ops.example.com:8444</c>。
+    /// </summary>
+    /// <remarks>
+    /// 必须显式配置：反向代理转发时 <c>Host</c> 头常被改写成不带端口的主机名，
+    /// 从请求里推出来的地址手机扫开会连不上。留空才退回按当前请求推导（仅供本机开发）。
+    /// </remarks>
+    public string? ApprovalUrlBase { get; set; }
+}
+
+/// <summary>身份过期数据清理配置（<c>Identity:Cleanup</c> 节点）。</summary>
+/// <remarks>
+/// 保留期以「失效时间」为起点：过期/吊销后再留一段时间，便于排查复用与审计；
+/// 登录节流还叠加计数窗口，避免删掉仍在累计的失败记录。
+/// </remarks>
+public sealed class IdentityCleanupOptions
+{
+    /// <summary>配置节名。</summary>
+    public const string SectionName = "Identity:Cleanup";
+
+    /// <summary>单批删除行数，避免一次删太多拖长事务。</summary>
+    public int BatchSize { get; set; } = 500;
+
+    /// <summary>刷新令牌过期后的保留天数。</summary>
+    public int RefreshTokenRetentionDays { get; set; } = 7;
+
+    /// <summary>单次密钥过期后的保留小时数（含已兑换的密钥）。</summary>
+    public int SingleKeyRetentionHours { get; set; } = 24;
+
+    /// <summary>扫码会话过期后的保留小时数。</summary>
+    public int QrSessionRetentionHours { get; set; } = 24;
+
+    /// <summary>登录节流记录在计数窗口结束后的保留小时数。</summary>
+    public int LoginThrottleRetentionHours { get; set; } = 24;
 }
 
 /// <summary>幂等种子配置（<c>Seed</c> 节点）。管理员初始口令只从环境变量注入，仓库里只放开发默认值。</summary>

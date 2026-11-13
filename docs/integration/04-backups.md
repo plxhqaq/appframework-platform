@@ -60,6 +60,8 @@ curl -s -X POST http://localhost:5080/api/v1/admin/backups \
 - `sha256` 可省略；提供时必须与负载实际哈希一致，否则返回 `405`。
 - `schemaVersion` 不得为负数；`frameworkVersion` 用于下发兼容判断。
 - 负载超过 `Backups:MaxPayloadBytes`（默认 64 MB）返回通用 `PayloadTooLarge`。
+- 创建端点的请求体上限在启动时按 `Backups:MaxPayloadBytes + 8 MB` 显式声明（给 JSON 字段转义与
+  信封留余量），不会再被 Kestrel 默认 30 MB 提前拒绝；超过端点上限由宿主直接返回 413。
 - 命名空间内未软删备份达到 `maxVersions` 时返回 `406`。
 
 响应里的 `hasInline` / `hasFile` 表示实际存储形态；`downloadUrl` 可直接用于下载。

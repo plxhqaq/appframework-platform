@@ -1,115 +1,166 @@
 import {
-  AppstoreOutlined,
-  DashboardOutlined,
-  DatabaseOutlined,
-  FileTextOutlined,
-  HistoryOutlined,
-  KeyOutlined,
+  BgColorsOutlined,
   LockOutlined,
   LogoutOutlined,
-  SafetyOutlined,
-  SendOutlined,
-  SwapOutlined,
+  MenuOutlined,
 } from '@ant-design/icons';
-import { Button, Layout, Menu, Segmented, Select, Space, Tag, Tooltip, Typography } from 'antd';
-import type { ReactNode } from 'react';
+import {
+  Button,
+  Drawer,
+  Grid,
+  Layout,
+  Menu,
+  Popover,
+  Segmented,
+  Select,
+  Space,
+  Tag,
+  Typography,
+} from 'antd';
+import { useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { THEME_FAMILIES, THEME_MODES, isThemeMode, type ThemeFamily } from '../styles/antd-theme';
 import { useAuthStore } from '../stores/auth';
+import { selectedNavKey, visibleNavItems } from './navigation';
 import { useTheme } from './theme-context';
 
 const { Header, Sider, Content } = Layout;
 
-interface NavItem {
-  key: string;
-  icon: ReactNode;
-  label: string;
-  /** 未落地的页面先占位但禁用（比"画了跑不通"诚实）。 */
-  ready: boolean;
+/** 主题控件：宽屏直接摆在工具条上，窄屏收进气泡，两种尺寸都够点。 */
+function ThemeControls({ stacked }: { stacked: boolean }) {
+  const { family, mode, setFamily, setMode } = useTheme();
+
+  return (
+    <Space direction={stacked ? 'vertical' : 'horizontal'} size="small" wrap={!stacked}>
+      <Select<ThemeFamily>
+        size="small"
+        value={family}
+        onChange={setFamily}
+        style={{ width: stacked ? 200 : 132 }}
+        options={THEME_FAMILIES.map((item) => ({ value: item.key, label: item.label }))}
+      />
+      <Segmented
+        size="small"
+        block={stacked}
+        value={mode}
+        onChange={(value) => {
+          const next = String(value);
+          if (isThemeMode(next)) {
+            setMode(next);
+          }
+        }}
+        options={THEME_MODES.map((item) => ({ value: item.key, label: item.label }))}
+      />
+    </Space>
+  );
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { key: '/overview', icon: <DashboardOutlined />, label: '总览', ready: true },
-  { key: '/apps', icon: <AppstoreOutlined />, label: '应用接入', ready: true },
-  { key: '/identity', icon: <SafetyOutlined />, label: '身份与权限', ready: true },
-  { key: '/versions', icon: <SwapOutlined />, label: '版本与渠道', ready: true },
-  { key: '/backups', icon: <DatabaseOutlined />, label: '配置备份', ready: true },
-  { key: '/licensing', icon: <KeyOutlined />, label: '授权', ready: true },
-  { key: '/documents', icon: <FileTextOutlined />, label: '文档', ready: true },
-  { key: '/webhooks', icon: <SendOutlined />, label: 'Webhook', ready: true },
-  { key: '/audit', icon: <HistoryOutlined />, label: '审计日志', ready: true },
-];
-
-/** 管理台外壳：侧栏导航 + 主题切换 + 当前主体。 */
+/**
+ * 管理台外壳。
+ *
+ * 宽屏是固定侧栏，窄屏（手机）侧栏收成抽屉：扫码审批本来就是手机上的活，
+ * 216px 的常驻侧栏在 390px 的屏幕上会把内容挤成一条。导航按当前会话的权限裁剪。
+ */
 export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { family, mode, setFamily, setMode } = useTheme();
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
+  const [navOpen, setNavOpen] = useState(false);
   const session = useAuthStore((state) => state.session);
   const signOut = useAuthStore((state) => state.signOut);
 
-  const selectedKey = NAV_ITEMS.find((item) => location.pathname.startsWith(item.key))?.key ?? '/overview';
+  const navItems = useMemo(() => visibleNavItems(session?.permissions), [session?.permissions]);
+
+  // 换页即收抽屉：手机上不收的话新页面被遮罩盖着，看起来像「点了没反应」
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
+
+  const selectedKey = selectedNavKey(location.pathname);
 
   const handleSignOut = async () => {
     await signOut();
     navigate('/login', { replace: true });
   };
 
+  const menu = (
+    <Menu
+      mode="inline"
+      selectedKeys={[selectedKey]}
+      onClick={({ key }) => navigate(key)}
+      items={navItems.map((item) => ({ key: item.key, icon: item.icon, label: item.label }))}
+    />
+  );
+
+  const brand = (
+    <div className={isMobile ? 'app-shell__brand app-shell__brand--inline' : 'app-shell__brand'}>
+      <Typography.Text strong>AppFramework</Typography.Text>
+      {!isMobile ? <Typography.Text type="secondary">平台管理台</Typography.Text> : null}
+    </div>
+  );
+
   return (
     <Layout className="app-shell">
-      <Sider width={216} theme="light" className="app-shell__sider">
-        <div className="app-shell__brand">
-          <Typography.Text strong>AppFramework</Typography.Text>
-          <Typography.Text type="secondary">平台管理台</Typography.Text>
-        </div>
-        <Menu
-          mode="inline"
-          selectedKeys={[selectedKey]}
-          onClick={({ key }) => navigate(key)}
-          items={NAV_ITEMS.map((item) => ({
-            key: item.key,
-            icon: item.icon,
-            disabled: !item.ready,
-            label: item.ready ? item.label : <Tooltip title="后续阶段接入">{item.label}</Tooltip>,
-          }))}
-        />
-      </Sider>
+      {!isMobile ? (
+        <Sider width={216} theme="light" className="app-shell__sider">
+          {brand}
+          {menu}
+        </Sider>
+      ) : null}
+
+      <Drawer
+        placement="left"
+        width={244}
+        open={isMobile && navOpen}
+        onClose={() => setNavOpen(false)}
+        title="平台管理台"
+        styles={{ body: { padding: 0 } }}
+      >
+        {menu}
+      </Drawer>
 
       <Layout>
         <Header className="app-shell__header">
-          <Space size="middle" wrap>
-            <Select<ThemeFamily>
-              size="small"
-              value={family}
-              onChange={setFamily}
-              style={{ width: 132 }}
-              options={THEME_FAMILIES.map((item) => ({ value: item.key, label: item.label }))}
-            />
-            <Segmented
-              size="small"
-              value={mode}
-              onChange={(value) => {
-                const next = String(value);
-                if (isThemeMode(next)) {
-                  setMode(next);
-                }
-              }}
-              options={THEME_MODES.map((item) => ({ value: item.key, label: item.label }))}
-            />
+          <Space size="small" align="center">
+            {isMobile ? (
+              <Button
+                type="text"
+                icon={<MenuOutlined />}
+                aria-label="打开导航"
+                onClick={() => setNavOpen(true)}
+              />
+            ) : null}
+            {isMobile ? brand : null}
+            {!isMobile ? <ThemeControls stacked={false} /> : null}
           </Space>
 
-          <Space size="small">
+          <Space size="small" align="center">
+            {isMobile ? (
+              <Popover
+                trigger="click"
+                placement="bottomRight"
+                title="主题"
+                content={<ThemeControls stacked />}
+              >
+                <Button icon={<BgColorsOutlined />} aria-label="主题设置" />
+              </Popover>
+            ) : null}
             {session?.mustChangePassword ? <Tag color="warning">待改密</Tag> : null}
-            <Typography.Text>{session?.displayName ?? session?.userName ?? '未登录'}</Typography.Text>
+            {!isMobile ? (
+              <Typography.Text>
+                {session?.displayName ?? session?.userName ?? '未登录'}
+              </Typography.Text>
+            ) : null}
             <Button
               icon={<LockOutlined />}
-              size="small"
+              aria-label="修改口令"
               onClick={() => navigate('/password')}
             >
-              修改口令
+              {isMobile ? null : '修改口令'}
             </Button>
-            <Button icon={<LogoutOutlined />} size="small" onClick={() => void handleSignOut()}>
-              退出
+            <Button icon={<LogoutOutlined />} aria-label="退出" onClick={() => void handleSignOut()}>
+              {isMobile ? null : '退出'}
             </Button>
           </Space>
         </Header>

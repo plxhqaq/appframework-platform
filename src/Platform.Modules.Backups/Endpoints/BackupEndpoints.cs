@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
 using Platform.Contracts;
 using Platform.Contracts.Backups;
@@ -9,6 +12,7 @@ using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
 using Platform.Kernel.Http;
 using Platform.Kernel.Security;
+using Platform.Modules.Backups.Options;
 using Platform.Modules.Backups.Services;
 
 namespace Platform.Modules.Backups.Endpoints;
@@ -20,12 +24,19 @@ internal static class BackupEndpoints
 
     public static void MapBackupEndpoints(this IEndpointRouteBuilder api)
     {
+        // 创建备份是 JSON 请求体：上限 = 配置负载上限 + JSON 开销，避免 Kestrel 默认 30MB 先拒。
+        var createRequestLimit = api.ServiceProvider
+                                     .GetRequiredService<IOptions<BackupsOptions>>()
+                                     .Value
+                                     .MaxPayloadBytes
+                                 + RequestLimits.JsonOverheadBytes;
+
         var admin = api
             .MapGroup(PlatformRoutes.AdminModule(PlatformModuleKeys.Backups))
             .WithTags(PlatformModuleKeys.Backups);
 
         MapNamespaceEndpoints(admin);
-        MapBackupEndpointsInternal(admin);
+        MapBackupEndpointsInternal(admin, createRequestLimit);
 
         var client = api
             .MapGroup(PlatformRoutes.ClientModule(PlatformModuleKeys.Backups))
@@ -139,7 +150,7 @@ internal static class BackupEndpoints
             .RequirePermission(PermissionCatalog.BackupNamespaceManage);
     }
 
-    private static void MapBackupEndpointsInternal(RouteGroupBuilder admin)
+    private static void MapBackupEndpointsInternal(RouteGroupBuilder admin, long createRequestLimit)
     {
         admin.MapGet(
                 "",
@@ -210,6 +221,7 @@ internal static class BackupEndpoints
                 })
             .WithName("backups.create")
             .WithSummary("创建备份（≤64KB 内联，超过转存；支持 Idempotency-Key）")
+            .WithMetadata(new RequestSizeLimitAttribute(createRequestLimit))
             .RequirePermission(PermissionCatalog.BackupCreate);
 
         admin.MapGet(

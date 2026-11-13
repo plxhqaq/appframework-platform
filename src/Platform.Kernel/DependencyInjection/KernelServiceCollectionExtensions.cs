@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Platform.Kernel.Abstractions;
@@ -28,6 +29,11 @@ public static class KernelServiceCollectionExtensions
         services.TryAddSingleton<IPlatformPushCoordinator, PlatformPushCoordinator>();
         services.TryAddScoped<IPlatformEventPublisher, NullPlatformEventPublisher>();
         services.TryAddSingleton<PlatformMetrics>();
+        services.TryAddSingleton(sp => new AppStateCache(
+            sp.GetRequiredService<IClock>(),
+            TimeSpan.FromSeconds(Math.Max(
+                0,
+                sp.GetRequiredService<IConfiguration>().GetValue("AppContextGuard:CacheSeconds", 30)))));
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IPlatformMetricSource, ProcessMetricSource>());
 
         services.AddAuthorization();

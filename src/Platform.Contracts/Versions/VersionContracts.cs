@@ -18,6 +18,9 @@ public static class VersionConventions
     /// <summary>单个文件大小上限（4 GiB）。</summary>
     public const long MaxFileSizeBytes = 4L * 1024 * 1024 * 1024;
 
+    /// <summary>单个增量包（zip）大小上限（4 GiB）；上传票据按文件与包上限的较大值放行。</summary>
+    public const long MaxPackageSizeBytes = 4L * 1024 * 1024 * 1024;
+
     /// <summary>上传票据默认有效期（分钟）。</summary>
     public const int UploadTicketMinutes = 30;
 

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -7,15 +8,19 @@ using Platform.Api.Auth;
 using Platform.Api.Endpoints;
 using Platform.Api.Modules;
 using Platform.Contracts;
+using Platform.Contracts.Documents;
 using Platform.Contracts.Hubs;
 using Platform.Infrastructure.DependencyInjection;
+using Platform.Infrastructure.Deployment;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.DependencyInjection;
 using Platform.Kernel.Hubs;
+using Platform.Kernel.Http;
 using Platform.Kernel.Modules;
 using Platform.Kernel.Metrics;
 using Platform.Kernel.Middleware;
+using Platform.Modules.Identity.Services;
 using Platform.Workers.DependencyInjection;
 using Scalar.AspNetCore;
 using Serilog;
@@ -75,6 +80,14 @@ try
     builder.Services.AddPlatformModules(PlatformModuleCatalog.Modules, builder.Configuration);
 
     // ── 文档与限流 ────────────────────────────────────────────────────
+    // FormOptions 默认 128MB，会把 200MB 文档挡在业务校验之前；与文档上限 + multipart 开销对齐。
+    builder.Services.Configure<FormOptions>(options =>
+    {
+        var maxFileSize = builder.Configuration.GetValue<long?>("Documents:MaxFileSizeBytes")
+                          ?? DocumentConventions.MaxFileSizeBytes;
+        options.MultipartBodyLengthLimit = maxFileSize + RequestLimits.MultipartOverheadBytes;
+    });
+
     builder.Services.AddOpenApi();
     builder.Services.AddRateLimiter(options =>
     {
@@ -172,12 +185,45 @@ try
         return;
     }
 
+    // 现场找回管理员口令：`dotnet Platform.Api.dll --reset-admin-password`（容器里由
+    // deploy/deploy.sh reset-admin-password 调用）。口令走 Seed__AdminPassword，不走命令行参数
+    // ——argv 会进 ps 输出与容器 inspect，等于把引导口令贴给整台机器看。
+    if (args.Contains("--reset-admin-password", StringComparer.OrdinalIgnoreCase))
+    {
+        await using var resetScope = app.Services.CreateAsyncScope();
+        await resetScope.ServiceProvider.GetRequiredService<IdentitySeeder>().ResetAdminPasswordAsync();
+        Log.Information("管理员引导口令已按 Seed:AdminPassword 写好，登录名 admin；重跑部署信息：deploy/deploy.sh info。");
+        return;
+    }
+
     // 开发期可选自动迁移；生产由部署脚本显式执行，避免多副本同时迁移。
     if (app.Configuration.GetValue<bool>("Database:AutoMigrate"))
     {
         await using var scope = app.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
         await db.Database.MigrateAsync();
+    }
+
+    // ── 单实例守卫 ────────────────────────────────────────────────────
+    // 投递、回执与推送都依赖进程内状态，当前版本只能单副本。用 PostgreSQL 会话级 advisory lock
+    // 把「第二个副本」挡在启动阶段，而不是让它跑起来后再重复外呼。连接需活到进程退出。
+    await using var instanceScope = app.Services.CreateAsyncScope();
+    var instanceGuard = instanceScope.ServiceProvider.GetRequiredService<SingleInstanceGuard>();
+    if (app.Configuration.GetValue("Deployment:RequireSingleInstance", true))
+    {
+        if (await instanceGuard.AcquireAsync())
+        {
+            Log.Information(
+                "已获得单实例锁（PostgreSQL advisory lock {LockKey}），当前进程为唯一活动副本。",
+                SingleInstanceGuard.AdvisoryLockKey);
+        }
+    }
+    else
+    {
+        // 熔断开关：只有已经实现投递行级认领 + SignalR 背板后才允许关闭。
+        Log.Warning(
+            "Deployment:RequireSingleInstance=false，跳过单实例校验。"
+            + "多副本必须自行保证 Webhook 投递不重复、备份回执与 SignalR 推送可跨副本路由。");
     }
 
     // ── 管道 ──────────────────────────────────────────────────────────
@@ -206,6 +252,8 @@ try
 
     app.UseRateLimiter();
     app.UseAuthentication();
+    // 令牌自包含：应用停用后，旧访问令牌要靠请求路径上的短缓存校验拦下来
+    app.UsePlatformAppContextGuard();
     app.UseAuthorization();
 
     // ── 端点 ──────────────────────────────────────────────────────────
@@ -226,7 +274,14 @@ try
         app.MapDevTokenEndpoints();
     }
 
-    await app.RunAsync();
+    try
+    {
+        await app.RunAsync();
+    }
+    finally
+    {
+        await instanceGuard.ReleaseAsync();
+    }
 }
 catch (Exception exception)
 {

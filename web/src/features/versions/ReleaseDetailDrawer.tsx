@@ -82,7 +82,7 @@ export function ReleaseDetailDrawer({
         <>
           <Descriptions
             size="small"
-            column={2}
+            column={{ xs: 1, md: 2 }}
             bordered
             items={[
               { key: 'channel', label: '渠道', children: release.channelKey },
@@ -128,6 +128,7 @@ export function ReleaseDetailDrawer({
               ),
               children: (
                 <Table<ReleaseFile>
+                  scroll={{ x: 'max-content' }}
                   rowKey="path"
                   size="small"
                   dataSource={artifact.files}

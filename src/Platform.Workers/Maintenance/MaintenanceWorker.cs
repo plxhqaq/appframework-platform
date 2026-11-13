@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
+using Platform.Kernel.Metrics;
 
 namespace Platform.Workers.Maintenance;
 
@@ -66,6 +67,7 @@ public sealed class MaintenanceWorker : BackgroundService
         await using var scope = _scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
         var clock = scope.ServiceProvider.GetRequiredService<IClock>();
+        var metrics = scope.ServiceProvider.GetRequiredService<PlatformMetrics>();
         var now = clock.UtcNow;
 
         var idempotencyCutoff = now.AddHours(-Math.Max(1, options.IdempotencyRetentionHours));
@@ -88,5 +90,22 @@ public sealed class MaintenanceWorker : BackgroundService
         {
             CleanupCompleted(_logger, deletedIdempotency, deletedAudit, null);
         }
+
+        Report(metrics, "idempotency", deletedIdempotency);
+        Report(metrics, "audit", deletedAudit);
+    }
+
+    private static void Report(PlatformMetrics metrics, string task, int deletedRows)
+    {
+        if (deletedRows <= 0)
+        {
+            return;
+        }
+
+        metrics.Increment(
+            PlatformMetricNames.RetentionDeletedRows,
+            PlatformMetricNames.RetentionDeletedRowsHelp,
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["task"] = task },
+            deletedRows);
     }
 }

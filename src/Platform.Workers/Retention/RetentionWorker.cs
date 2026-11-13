@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Platform.Kernel.Abstractions;
+using Platform.Kernel.Metrics;
 
 namespace Platform.Workers.Retention;
 
@@ -60,9 +61,31 @@ public sealed class RetentionWorker : BackgroundService
         }
     }
 
+    private static void Report(PlatformMetrics metrics, string task, RetentionCleanupResult result)
+    {
+        if (result.RowsDeleted > 0)
+        {
+            metrics.Increment(
+                PlatformMetricNames.RetentionDeletedRows,
+                PlatformMetricNames.RetentionDeletedRowsHelp,
+                new Dictionary<string, string>(StringComparer.Ordinal) { ["task"] = task },
+                result.RowsDeleted);
+        }
+
+        if (result.FilesDeleted > 0)
+        {
+            metrics.Increment(
+                PlatformMetricNames.RetentionDeletedFiles,
+                PlatformMetricNames.RetentionDeletedFilesHelp,
+                new Dictionary<string, string>(StringComparer.Ordinal) { ["task"] = task },
+                result.FilesDeleted);
+        }
+    }
+
     private async Task RunOnceAsync(CancellationToken cancellationToken)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
+        var metrics = scope.ServiceProvider.GetRequiredService<PlatformMetrics>();
         foreach (var task in scope.ServiceProvider.GetServices<IRetentionCleanupTask>())
         {
             try
@@ -72,6 +95,8 @@ public sealed class RetentionWorker : BackgroundService
                 {
                     TaskCompleted(_logger, task.Name, result.RowsDeleted, result.FilesDeleted, null);
                 }
+
+                Report(metrics, task.Name, result);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

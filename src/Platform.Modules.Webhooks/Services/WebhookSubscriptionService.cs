@@ -65,12 +65,14 @@ public sealed class WebhookSubscriptionService : IWebhookSubscriptionService
 
     private readonly PlatformDbContext _db;
     private readonly IClock _clock;
+    private readonly WebhookUrlPolicy _urlPolicy;
 
     /// <summary>构造。</summary>
-    public WebhookSubscriptionService(PlatformDbContext db, IClock clock)
+    public WebhookSubscriptionService(PlatformDbContext db, IClock clock, WebhookUrlPolicy urlPolicy)
     {
         _db = db;
         _clock = clock;
+        _urlPolicy = urlPolicy;
     }
 
     /// <inheritdoc />
@@ -95,7 +97,7 @@ public sealed class WebhookSubscriptionService : IWebhookSubscriptionService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var url = ValidateUrl(request.Url);
+        var url = await _urlPolicy.ValidateAsync(request.Url, cancellationToken);
         var eventTypes = NormalizeEventTypes(request.EventTypes);
         var secret = WebhookSigner.GenerateSecret();
 
@@ -127,7 +129,7 @@ public sealed class WebhookSubscriptionService : IWebhookSubscriptionService
         var entity = await GetAsync(appKey, id, cancellationToken);
         if (request.Url is not null)
         {
-            entity.Url = ValidateUrl(request.Url);
+            entity.Url = await _urlPolicy.ValidateAsync(request.Url, cancellationToken);
         }
 
         if (request.EventTypes is not null)
@@ -341,23 +343,6 @@ public sealed class WebhookSubscriptionService : IWebhookSubscriptionService
         }
 
         return distinct;
-    }
-
-    internal static string ValidateUrl(string? value)
-    {
-        var url = value?.Trim();
-        if (string.IsNullOrEmpty(url) || url.Length > 2048)
-        {
-            throw new BusinessException(ApiErrorCode.WebhooksUrlInvalid, "接收地址不能为空且不超过 2048 字符。");
-        }
-
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
-            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-        {
-            throw new BusinessException(ApiErrorCode.WebhooksUrlInvalid, "接收地址必须是 http/https 绝对地址。");
-        }
-
-        return url;
     }
 
     private static string? TrimTo(string? value, int maxLength)

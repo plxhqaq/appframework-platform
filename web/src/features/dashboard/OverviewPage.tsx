@@ -53,7 +53,7 @@ export function OverviewPage() {
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Card title="当前主体" size="small">
         {session ? (
-          <Descriptions column={3} size="small" items={[
+          <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" items={[
             { key: 'userName', label: '用户名', children: session.userName },
             { key: 'userId', label: '用户 ID', children: session.userId },
             { key: 'displayName', label: '显示名', children: session.displayName ?? '-' },
@@ -84,6 +84,7 @@ export function OverviewPage() {
             rowKey="key"
             size="small"
             pagination={false}
+            scroll={{ x: 'max-content' }}
             dataSource={modules.data}
             columns={columns}
           />

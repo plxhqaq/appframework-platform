@@ -108,6 +108,7 @@ export function AppsPage() {
       ) : null}
 
       <Table<AppSummary>
+        scroll={{ x: 'max-content' }}
         rowKey="id"
         size="small"
         loading={apps.isPending}

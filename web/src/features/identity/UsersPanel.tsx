@@ -188,6 +188,7 @@ export function UsersPanel() {
       ) : null}
 
       <Table<UserSummary>
+        scroll={{ x: 'max-content' }}
         rowKey="id"
         size="small"
         loading={users.isPending}

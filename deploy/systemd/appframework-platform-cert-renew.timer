@@ -1,0 +1,18 @@
+# AppFramework 平台管理台：每天看一眼自签证书要不要重签。
+#
+# 模板，__RENEW_DAYS__ 由 deploy.sh 渲染成 .env 里的 WEB_SSL_RENEW_DAYS。
+# 真正的判断在 deploy.sh renew-cert 里：剩得比阈值多就什么都不做。
+# 「每天跑」不等于「每天换证书」——后者会让所有浏览器刚记住的「继续前往」例外天天作废，
+# 现场只会觉得这个站点莫名其妙一直在红。
+[Unit]
+Description=每天检查一次 AppFramework 平台自签证书是否需要重签（阈值 __RENEW_DAYS__ 天）
+
+[Timer]
+# 错开整点，避免几十台机器同一分钟一起抢；Persistent 让关机期间错过的那一次补跑。
+OnCalendar=*-*-* 06:17:00
+RandomizedDelaySec=30min
+Persistent=true
+Unit=appframework-platform-cert-renew.service
+
+[Install]
+WantedBy=timers.target

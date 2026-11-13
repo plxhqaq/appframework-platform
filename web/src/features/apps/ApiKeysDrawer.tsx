@@ -140,6 +140,7 @@ export function ApiKeysDrawer({ open, app, onClose }: ApiKeysDrawerProps) {
       />
 
       <Table<ApiKeySummary>
+        scroll={{ x: 'max-content' }}
         rowKey="id"
         size="small"
         loading={keys.isPending}

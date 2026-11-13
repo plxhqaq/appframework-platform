@@ -1,0 +1,37 @@
+# 嵌入 PostgreSQL：仅当 deploy/.env 里 USE_EMBEDDED_POSTGRES=true 时由 deploy.sh 附加。
+#
+# 端口刻意只发布到 127.0.0.1，且默认用 5433 而不是 5432：
+#   · 测试/生产机上往往已经跑着一个占着 0.0.0.0:5432 的 PG，绑不上要等镜像拉完
+#     一分多钟才报错；5433 让两套库并存，现场既有的 PG 不受影响。
+#   · API 走容器网络（Host=postgres），压根不需要这个映射；发布出来只为让运维能从
+#     宿主机 psql/DBeaver 直连这个库排查。不想开放就改 POSTGRES_PUBLISH_PORT 到一个
+#     只有本机听得见的端口，完全不发布请直接用已有库模式（USE_EMBEDDED_POSTGRES=false）。
+name: appframework-platform
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-appframework_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-platform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?deploy/.env 里必须设置 POSTGRES_PASSWORD}
+      # 中文排序与大小写行为在 initdb 时定死，避免后续迁移踩 locale 差异
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${POSTGRES_PUBLISH_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-platform} -d ${POSTGRES_DB:-appframework_platform}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  api:
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

@@ -49,8 +49,10 @@ curl -s -X POST http://localhost:5080/api/v1/admin/documents \
 2. 长度/哈希校验通过后写 `documents` + `document_revisions` 并提交；
 3. 提交成功再 rename 为 `r1.bin`。
 
-发布失败会回滚数据库记录并丢弃临时文件，不会出现「有行无文件」。请求体上限为
-`Documents:MaxFileSizeBytes + 8 MB`（给 multipart 头留余量）。
+发布失败会回滚数据库记录并丢弃临时文件，不会出现「有行无文件」。上传/修订端点的请求体上限与
+`FormOptions.MultipartBodyLengthLimit` 在启动时统一按 `Documents:MaxFileSizeBytes + 8 MB` 配置
+（给 multipart 头留余量），200 MB 文档不会被默认 128 MB 的表单上限提前拒绝；实际单文件大小仍由
+服务层按 `Documents:MaxFileSizeBytes` 校验。
 
 ## 3. 修订
 

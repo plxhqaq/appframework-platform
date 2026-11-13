@@ -120,6 +120,7 @@ export function SessionsPanel() {
       ) : null}
 
       <Table<SessionSummary>
+        scroll={{ x: 'max-content' }}
         rowKey="id"
         size="small"
         loading={sessions.isPending}

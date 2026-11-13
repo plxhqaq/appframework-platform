@@ -149,6 +149,7 @@ export function AuditPage() {
         extra={<Typography.Text type="secondary">共 {logs.data?.total ?? 0} 条</Typography.Text>}
       >
         <Table<AuditLog>
+          scroll={{ x: 'max-content' }}
           rowKey="id"
           size="small"
           loading={logs.isFetching}

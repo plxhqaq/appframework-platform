@@ -437,6 +437,7 @@ export function BackupsPage() {
           <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(namespaces.error as Error).message} />
         ) : null}
         <Table<BackupNamespace>
+          scroll={{ x: 'max-content' }}
           rowKey="id"
           size="small"
           loading={namespaces.isPending}
@@ -477,6 +478,7 @@ export function BackupsPage() {
           <Alert type="error" showIcon style={{ marginBottom: 16 }} message={(backups.error as Error).message} />
         ) : null}
         <Table<BackupSummary>
+          scroll={{ x: 'max-content' }}
           rowKey="id"
           size="small"
           loading={backups.isPending}

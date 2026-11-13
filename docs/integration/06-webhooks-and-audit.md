@@ -73,9 +73,31 @@ curl -s -X POST http://localhost:5080/api/v1/admin/webhooks \
 | 项 | 规则 | 违反时的错误码 |
 |---|---|---|
 | `url` | 必须 http/https 绝对地址，≤ 2048 字符 | `701` `WebhooksUrlInvalid` |
+| `url` 目标地址 | 默认拒绝环回、私网、链路本地与保留地址；内网回调须列入 `Webhooks:AllowedHosts` | `701` `WebhooksUrlInvalid` |
 | `eventTypes` | 必须在 §1 白名单内，去重后 ≤ 20 | `702` `WebhooksEventUnknown` |
 | `description` | ≤ 1024 字符 | 校验失败（通用码） |
 | 订阅不存在 | 任何按 `{id}` 的操作 | `700` `WebhooksSubscriptionNotFound` |
+
+出站地址策略（SSRF）：
+
+- 循环判断覆盖 IPv4 的 `0.0.0.0/8`、`10/8`、`100.64/10`、`127/8`、`169.254/16`、
+  `172.16/12`、`192.168/16`、`198.18/15`、组播与保留段，以及 IPv6 的 `::1`、`::/96`（IPv4 兼容格式，
+  可夹带 `127/8` 等地址）、`fc00::/7`、`fe80::/10`、`ff00::/8`、6to4/Teredo/NAT64 前缀；
+  `localhost` 与 `*.localhost` 直接拒绝。
+- 主机名会在创建/修改时解析一次，**每次投递前再解析一次** —— 防止先解析到公网、随后被改成内网
+  的 DNS 重绑定。解析超时或失败按「当前不可达」放行，投递阶段仍会复检。
+- 投递客户端**不跟随重定向**（3xx 直接记失败）：否则公网地址 302 到内网同样能绕过地址校验。
+- 内网目标必须显式配置白名单：支持精确主机名、`*.example.com` 通配子域、精确 IP 与 CIDR，
+  多个值用逗号或分号分隔：
+
+```json
+{ "Webhooks": { "AllowedHosts": "hooks.internal.example.com,10.20.0.0/16,192.168.5.10" } }
+```
+
+`AllowedHosts` 是**逗号/分号分隔的字符串**（不是数组），这样容器里可以直接用单个环境变量：
+`Webhooks__AllowedHosts=10.20.0.0/16,hooks.internal.example.com`。
+白名单按「显式信任」处理：命中白名单的主机名不再解析校验；IP/CIDR 只匹配解析结果中的地址，
+同一次解析里混有未列入白名单的私网地址时仍然拒绝。
 
 ### 2.3 轮换密钥
 
@@ -96,7 +118,7 @@ curl -s -X POST http://localhost:5080/api/v1/admin/webhooks/$ID/secret/rotate
 
 ## 3. 签名与接收端验签
 
-每次投递都带四个头（`WebhookConventions.cs:28-37`，发送在 `WebhookSender.cs:76-83`）：
+每次投递都带四个头（`WebhookConventions.cs:28-37`，发送在 `WebhookSender.cs:91-98`）：
 
 | 头 | 含义 |
 |---|---|
@@ -166,6 +188,7 @@ pending ──成功(2xx)──> succeeded
 | 扫描间隔 | 15 秒（下限 5） | `DispatchIntervalSeconds` |
 | 单轮批量 | 50（下限 1） | `BatchSize` |
 | 投递器开关 | `true` | `DispatcherEnabled` |
+| 终态台账保留 | 30 天（下限 1） | `DeliveryRetentionDays` |
 
 退避公式：`delay = min(BaseDelaySeconds × 2^(attempts-1), MaxDelaySeconds)`，指数封顶 16，
 **没有抖动**（`WebhooksOptions.cs:33-40`）。前 8 次的等待：
@@ -190,11 +213,23 @@ pending ──成功(2xx)──> succeeded
 2. 投递时订阅已被删除 → `dead`，原因「订阅不存在或已停用。」；
 3. 投递时订阅已停用 → 同上。
 
-### 4.1 多副本必须只开一个投递器
+### 4.1 台账保留与清理
+
+`WebhookDeliveryCleanupTask`（名称 `webhooks`）挂在 `RetentionWorker` 上，每轮按
+`Webhooks:DeliveryRetentionDays`（默认 30 天）分批删除 `succeeded` / `dead` 的投递记录，
+按 `updated_at` 计时，单批 500 行。`pending` / `failed` 即使很旧也不动，避免误删待投递队列。
+删除数量累加到 `platform_retention_deleted_rows_total{task="webhooks"}`。需要长期留存的投递明细
+请在保留期之前导出。
+
+### 4.2 多副本：当前由启动守卫拒绝
 
 `DispatchDueAsync` 是「查出到期行 → 逐条发 → 回写」，**没有行级抢占**
 （`WebhookDispatcher.cs:66-72`）。两个副本同开 `DispatcherEnabled` 会把同一事件投递两次。
-单投递者拓扑：其余副本设 `Webhooks__DispatcherEnabled=false`（入队仍在任意副本发生）。
+
+当前版本在启动期用 PostgreSQL advisory lock 强制单副本（`Deployment:RequireSingleInstance`），
+共用同一数据库的第二个实例会启动失败，因此正常情况下不会出现双投递。
+只有在实现投递行级认领后再关闭守卫、改为多副本时，才需要让其余副本设
+`Webhooks__DispatcherEnabled=false`（入队仍在任意副本发生），并补齐 SignalR 背板与回执路由。
 
 ---
 
@@ -311,11 +346,13 @@ curl -s -G "http://localhost:5080/api/v1/admin/audit-logs" \
 1. **拿解析后的 JSON 验签** —— 一定失败。签名对象是原始字节，先验签再解析。
 2. **只配了密钥没配事件**：`eventTypes: []` 是全订阅，不是「不订阅」；想停投用 `isEnabled: false`。
 3. **删订阅 = 已有投递立即变 `dead`**，台账仍在，排查时别看错成投递失败。
-4. **多副本双开投递器** —— 下游收到重复事件（§4.1）。
-5. **对 4xx 返回 4xx**：接收端返回非 2xx 就会退避重投，一个永久性拒绝（比如业务校验失败）
+4. **多副本双开投递器** —— 下游收到重复事件（§4.2）。
+5. **内网回调未加白名单**：升级后默认拒绝私网/环回目标，既有内网订阅会被投递前复检拦下并记失败；
+   把主机或网段加入 `Webhooks:AllowedHosts` 后重投即可。
+6. **对 4xx 返回 4xx**：接收端返回非 2xx 就会退避重投，一个永久性拒绝（比如业务校验失败）
    会打满 8 次；正确处理是收下并返回 2xx，在自己的系统里记录拒绝原因。
-6. **轮换密钥后立即调用旧密钥签名** —— 切换窗口的投递全部验签失败，先下游后上游。
-7. **把审计当指标用**：审计是按行查询的台账，聚合看 `/metrics`（见 [`08-observability.md`](08-observability.md)）。
+7. **轮换密钥后立即调用旧密钥签名** —— 切换窗口的投递全部验签失败，先下游后上游。
+8. **把审计当指标用**：审计是按行查询的台账，聚合看 `/metrics`（见 [`08-observability.md`](08-observability.md)）。
 
 ---
 

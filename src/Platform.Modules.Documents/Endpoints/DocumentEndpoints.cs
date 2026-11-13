@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
 using Platform.Contracts;
 using Platform.Contracts.Documents;
@@ -10,6 +12,7 @@ using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
 using Platform.Kernel.Http;
 using Platform.Kernel.Security;
+using Platform.Modules.Documents.Options;
 using Platform.Modules.Documents.Services;
 
 namespace Platform.Modules.Documents.Endpoints;
@@ -19,17 +22,21 @@ internal static class DocumentEndpoints
 {
     private static readonly TimeSpan IdempotencyTtl = TimeSpan.FromHours(24);
 
-    /// <summary>上传请求体上限（文件上限 + multipart 开销），实际单文件上限由配置校验。</summary>
-    private const long UploadRequestLimitBytes = DocumentConventions.MaxFileSizeBytes + (8L * 1024 * 1024);
-
     public static void MapDocumentEndpoints(this IEndpointRouteBuilder api)
     {
+        // 上传请求体上限 = 配置的单文件上限 + multipart 开销；单文件上限仍由服务层按文件校验。
+        var uploadRequestLimit = api.ServiceProvider
+                                     .GetRequiredService<IOptions<DocumentsOptions>>()
+                                     .Value
+                                     .MaxFileSizeBytes
+                                 + RequestLimits.MultipartOverheadBytes;
+
         var admin = api
             .MapGroup(PlatformRoutes.AdminModule(PlatformModuleKeys.Documents))
             .WithTags(PlatformModuleKeys.Documents);
 
         MapCollectionEndpoints(admin);
-        MapDocumentAdminEndpoints(admin);
+        MapDocumentAdminEndpoints(admin, uploadRequestLimit);
 
         var client = api
             .MapGroup(PlatformRoutes.ClientModule(PlatformModuleKeys.Documents))
@@ -143,7 +150,7 @@ internal static class DocumentEndpoints
             .RequirePermission(PermissionCatalog.DocumentCollectionManage);
     }
 
-    private static void MapDocumentAdminEndpoints(RouteGroupBuilder admin)
+    private static void MapDocumentAdminEndpoints(RouteGroupBuilder admin, long uploadRequestLimit)
     {
         admin.MapGet(
                 "",
@@ -243,7 +250,7 @@ internal static class DocumentEndpoints
                 })
             .WithName("documents.create")
             .WithSummary("上传新文档（multipart/form-data；支持 Idempotency-Key）")
-            .WithMetadata(new RequestSizeLimitAttribute(UploadRequestLimitBytes))
+            .WithMetadata(new RequestSizeLimitAttribute(uploadRequestLimit))
             .RequirePermission(PermissionCatalog.DocumentManage);
 
         admin.MapPost(
@@ -297,7 +304,7 @@ internal static class DocumentEndpoints
                 })
             .WithName("documents.revisions.add")
             .WithSummary("追加修订（multipart/form-data）")
-            .WithMetadata(new RequestSizeLimitAttribute(UploadRequestLimitBytes))
+            .WithMetadata(new RequestSizeLimitAttribute(uploadRequestLimit))
             .RequirePermission(PermissionCatalog.DocumentManage);
 
         admin.MapPatch(

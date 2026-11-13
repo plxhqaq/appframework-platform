@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Platform.Infrastructure.Auditing;
+using Platform.Infrastructure.Deployment;
 using Platform.Infrastructure.Idempotency;
 using Platform.Infrastructure.Persistence;
 using Platform.Infrastructure.Storage;
@@ -39,6 +40,9 @@ public static class InfrastructureServiceCollectionExtensions
 
         services.Configure<BlobStorageOptions>(configuration.GetSection(BlobStorageOptions.SectionName));
         services.AddSingleton<IBlobStorage, LocalBlobStorage>();
+
+        // 单实例守卫按启动时的作用域取 DbContext；连接需活到进程退出，故不注册为单例。
+        services.AddScoped<SingleInstanceGuard>();
 
         // 横切能力：审计与幂等都依赖业务 DbContext，必须随请求作用域创建。
         services.AddScoped<IAuditWriter, EfAuditWriter>();

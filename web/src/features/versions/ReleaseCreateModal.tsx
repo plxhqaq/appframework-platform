@@ -291,7 +291,7 @@ export function ReleaseCreateModal({ open, channels, onClose, onSaved }: Release
         size="small"
         dataSource={files}
         pagination={false}
-        scroll={{ y: 240 }}
+        scroll={{ x: 'max-content', y: 240 }}
         locale={{ emptyText: '选择文件或文件夹后在此确认清单（路径相对安装目录）' }}
         columns={[
           {

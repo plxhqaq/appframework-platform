@@ -65,10 +65,39 @@ public sealed class UserSessionFactory : IUserSessionFactory
             .OrderBy(static x => x.Name)
             .ToList();
 
-        var roleNames = roles.Select(static x => x.Name).ToList();
+        // 应用级角色只在该应用上下文授予权限；平台级角色（含内置通配符）始终生效。
+        // 通配符只认平台角色，避免一条脏数据里的 app 角色把权限放大到全局。
+        var wildcard = roles.Any(static role => IsPlatformScoped(role)
+            && role.Permissions.Contains(PermissionCatalog.Wildcard, StringComparer.Ordinal));
 
-        var wildcard = roles.Any(
-            static role => role.Permissions.Contains(PermissionCatalog.Wildcard, StringComparer.Ordinal));
+        var appScopedKeys = roles
+            .Where(static role => IsAppScoped(role) && !string.IsNullOrWhiteSpace(role.AppKey))
+            .Select(static role => role.AppKey!.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        // 只有平台管理员或存在应用角色的用户才需要查启用应用；结果同时用于会话里的
+        // 可切换应用列表和 requestedAppKey 的停用校验。
+        IReadOnlyList<string> enabledAppKeys = wildcard || appScopedKeys.Count > 0
+            ? await _apps.ListEnabledKeysAsync(cancellationToken)
+            : [];
+        var enabledAppKeySet = enabledAppKeys.ToHashSet(StringComparer.Ordinal);
+
+        var sessionAppKeys = wildcard
+            ? enabledAppKeys
+            : appScopedKeys.Where(enabledAppKeySet.Contains).ToList();
+
+        var appKey = ResolveAppKey(
+            grantedAppKeys: wildcard ? enabledAppKeys : appScopedKeys,
+            enabledAppKeys: enabledAppKeySet,
+            appScopedKeys,
+            requestedAppKey);
+
+        var effectiveRoles = roles
+            .Where(role => IsPlatformScoped(role) || IsCurrentAppRole(role, appKey))
+            .ToList();
+        var roleNames = effectiveRoles.Select(static x => x.Name).ToList();
 
         IReadOnlyList<string> permissions;
         if (wildcard)
@@ -77,7 +106,7 @@ public sealed class UserSessionFactory : IUserSessionFactory
         }
         else
         {
-            permissions = roles
+            permissions = effectiveRoles
                 .SelectMany(static role => role.Permissions)
                 .Where(PermissionCatalog.IsKnown)
                 .Distinct(StringComparer.Ordinal)
@@ -85,58 +114,58 @@ public sealed class UserSessionFactory : IUserSessionFactory
                 .ToList();
         }
 
-        var appKeys = new List<string>();
-        var appScopedKeys = new List<string>();
-        if (wildcard)
-        {
-            appKeys.AddRange(await _apps.ListEnabledKeysAsync(cancellationToken));
-        }
-
-        foreach (var role in roles)
-        {
-            if (string.Equals(role.Scope, IdentityConventions.ScopeApp, StringComparison.Ordinal)
-                && !string.IsNullOrWhiteSpace(role.AppKey))
-            {
-                appScopedKeys.Add(role.AppKey);
-                appKeys.Add(role.AppKey);
-            }
-        }
-
-        var distinctAppKeys = appKeys.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
-        var appKey = ResolveAppKey(distinctAppKeys, appScopedKeys, requestedAppKey);
-
         var session = new UserSessionDto(
             user.Id,
             user.UserName,
             user.DisplayName,
             roleNames,
             permissions,
-            distinctAppKeys,
+            sessionAppKeys,
             user.MustChangePassword,
             appKey);
 
         return new UserSessionContext(session, appKey);
     }
 
+    private static bool IsPlatformScoped(Role role) =>
+        !string.Equals(role.Scope, IdentityConventions.ScopeApp, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsAppScoped(Role role) =>
+        string.Equals(role.Scope, IdentityConventions.ScopeApp, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsCurrentAppRole(Role role, string? appKey) =>
+        IsAppScoped(role)
+        && !string.IsNullOrEmpty(appKey)
+        && string.Equals(role.AppKey?.Trim(), appKey, StringComparison.Ordinal);
+
     private static string? ResolveAppKey(
-        IReadOnlyList<string> granted,
-        List<string> appScoped,
+        IReadOnlyList<string> grantedAppKeys,
+        HashSet<string> enabledAppKeys,
+        IReadOnlyList<string> appScopedKeys,
         string? requested)
     {
         if (string.IsNullOrWhiteSpace(requested))
         {
-            // 平台管理员不主动进入某个应用时，令牌不带"当前应用"，但仍可访问全部启用应用。
-            return appScoped.Count > 0 ? appScoped[0] : null;
+            // 未显式指定时优先进入第一个已启用、且用户有 app 角色的应用；
+            // 平台管理员没有 app 角色时保持 null，由令牌里的可访问应用列表决定首个 app。
+            return appScopedKeys.FirstOrDefault(enabledAppKeys.Contains);
         }
 
         var appKey = requested.Trim();
-        if (granted.Contains(appKey, StringComparer.Ordinal))
+        if (!grantedAppKeys.Contains(appKey, StringComparer.Ordinal))
         {
-            return appKey;
+            throw new BusinessException(
+                ApiErrorCode.IdentityPermissionDenied,
+                $"当前用户无权进入应用 {appKey}。");
         }
 
-        throw new BusinessException(
-            ApiErrorCode.IdentityPermissionDenied,
-            $"当前用户无权进入应用 {appKey}。");
+        if (!enabledAppKeys.Contains(appKey))
+        {
+            throw new BusinessException(
+                ApiErrorCode.IdentityPermissionDenied,
+                $"应用 {appKey} 已停用，不能再签发该应用的令牌。");
+        }
+
+        return appKey;
     }
 }

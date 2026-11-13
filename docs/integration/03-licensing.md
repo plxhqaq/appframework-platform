@@ -62,8 +62,10 @@
 | `Licensing__MaxLicenseDays` | `Licensing:MaxLicenseDays` | 单次签发最大授权天数，`appsettings.json` 默认 **3650**（10 年） |
 
 > 私钥在启动时经 `services.Configure<LicensingOptions>(GetSection("Licensing"))` 绑定，**换钥需重启进程才生效**。
-> `deploy/env.example` 与 `deploy/docker-compose.yml` 目前**未内置** `Licensing__SigningKeyPkcs8`，
-> 需自行按上面的键名注入（本地直跑见 00-quickstart 6.1 的 `export ... && dotnet run`）。
+> `deploy/deploy.sh` 首装会自动生成一对 P-256 密钥并把私钥与派生的公钥写进 `deploy/.env`（600），
+> 现场用 `bash deploy/deploy.sh info` 读 keyId 与公钥指纹交给客户端打包；`up --no-license-key`
+> 或 `.env` 里 `LICENSING_GENERATE_KEY=false` 则整个模块保持 `unmanaged`。
+> 私钥一旦非空，重跑部署**绝不重新生成**（本地直跑见 00-quickstart 6.1 的 `export ... && dotnet run`）。
 
 生成并注入开发私钥：
 

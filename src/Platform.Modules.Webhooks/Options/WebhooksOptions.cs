@@ -27,6 +27,16 @@ public sealed class WebhooksOptions
     /// <summary>是否启用后台投递（集成测试可关闭）。</summary>
     public bool DispatcherEnabled { get; set; } = true;
 
+    /// <summary>终态（succeeded/dead）投递记录保留天数；pending/failed 属于重试队列，不在此清理。</summary>
+    public int DeliveryRetentionDays { get; set; } = 30;
+
+    /// <summary>
+    /// 允许的内网目标（主机名、<c>*.example.com</c> 通配子域、IP 或 CIDR），逗号/分号分隔。
+    /// 用字符串而不是数组，环境变量（<c>Webhooks__AllowedHosts</c>）才能直接整串注入。
+    /// 未列入的环回/私网/链路本地地址一律拒绝。
+    /// </summary>
+    public string AllowedHosts { get; set; } = string.Empty;
+
     /// <summary>规范化后的投递次数上限。</summary>
     public int EffectiveMaxAttempts => Math.Max(1, MaxAttempts);
 

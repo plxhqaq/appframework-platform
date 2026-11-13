@@ -46,3 +46,17 @@ export const PERMISSIONS = {
   webhookManage: 'webhook.manage',
   auditRead: 'audit.read',
 } as const;
+
+/** `*` 是平台管理员通配，命中即全放行。 */
+export function hasPermissionCode(permissions: string[] | null | undefined, code: string): boolean {
+  const granted = permissions ?? [];
+  return granted.includes('*') || granted.includes(code);
+}
+
+/** 命中任一码即可；空要求表示人人可进。 */
+export function hasAnyPermissionCode(
+  permissions: string[] | null | undefined,
+  codes: string[],
+): boolean {
+  return codes.length === 0 || codes.some((code) => hasPermissionCode(permissions, code));
+}

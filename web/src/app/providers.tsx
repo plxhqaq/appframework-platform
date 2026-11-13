@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App as AntdApp, ConfigProvider, theme as antdTheme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useMemo, type ReactNode } from 'react';
 import { getThemeTokens, isDarkMode } from '../styles/antd-theme';
 import { ThemeProvider, useTheme } from './theme-context';
 
@@ -15,17 +15,57 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * 把 antd 解析后的 token 投影到 `:root` 上的 CSS 变量。
+ *
+ * 画布底色、外壳分隔线、滚动条这些表面不是 antd 组件，拿不到 ConfigProvider 的 token，
+ * 只能走 CSS 变量；变量在这里由 token 生成，色值仍然只有 design/tokens.json 一个源。
+ * 同时定下 `color-scheme`，让原生滚动条、输入控件与 `Canvas` 兜底色跟着明暗走。
+ */
+function ThemeSurface() {
+  const { token } = antdTheme.useToken();
+  const { mode } = useTheme();
+
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const surfaces: Record<string, string> = {
+      '--app-bg-layout': token.colorBgLayout,
+      '--app-bg-container': token.colorBgContainer,
+      '--app-bg-elevated': token.colorBgElevated,
+      '--app-text': token.colorText,
+      '--app-text-secondary': token.colorTextSecondary,
+      '--app-split': token.colorSplit,
+      '--app-primary': token.colorPrimary,
+      '--app-scrollbar-thumb': token.colorTextQuaternary,
+      '--app-scrollbar-thumb-hover': token.colorTextTertiary,
+    };
+
+    for (const [name, value] of Object.entries(surfaces)) {
+      root.style.setProperty(name, value);
+    }
+
+    root.style.colorScheme = isDarkMode(mode) ? 'dark' : 'light';
+    root.dataset.themeMode = mode;
+  }, [token, mode]);
+
+  return null;
+}
+
 function ThemedShell({ children }: { children: ReactNode }) {
   const { family, mode } = useTheme();
 
+  // 每次渲染都新建 theme 对象会让 antd 重算整棵 token 树，按选择缓存住
+  const theme = useMemo(
+    () => ({
+      algorithm: isDarkMode(mode) ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+      token: getThemeTokens(family, mode),
+    }),
+    [family, mode],
+  );
+
   return (
-    <ConfigProvider
-      locale={zhCN}
-      theme={{
-        algorithm: isDarkMode(mode) ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-        token: getThemeTokens(family, mode),
-      }}
-    >
+    <ConfigProvider locale={zhCN} theme={theme}>
+      <ThemeSurface />
       <AntdApp>{children}</AntdApp>
     </ConfigProvider>
   );

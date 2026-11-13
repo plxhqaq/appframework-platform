@@ -75,6 +75,7 @@ internal static class SingleLoginEndpoints
                     var created = await qr.CreateAsync(
                         request,
                         context.Connection.RemoteIpAddress?.ToString(),
+                        $"{context.Request.Scheme}://{context.Request.Host}",
                         cancellationToken);
                     return ApiResults.Ok(context, created);
                 })
@@ -152,7 +153,21 @@ internal static class SingleLoginEndpoints
                 })
             .WithName("identity.singlekeys.issue")
             .WithSummary("签发 6 位单次密钥（支持 Idempotency-Key；明文只返回一次）")
-            .RequirePermission(PermissionCatalog.IdentitySingleKeyIssue);
+            .RequirePermission(PermissionCatalog.IdentitySingleKeyIssue)
+            .RequireNonTemporaryPrincipal();
+
+        admin.MapGet(
+                "/qr/sessions/{id:guid}",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    IQrLoginService qr,
+                    CancellationToken cancellationToken) =>
+                    ApiResults.Ok(context, await qr.GetAsync(id, cancellationToken)))
+            .WithName("identity.qr.sessions.get")
+            .WithSummary("按 id 取单个扫码会话（手机扫码直达审批页）")
+            .RequirePermission(PermissionCatalog.IdentityQrApprove)
+            .RequireNonTemporaryPrincipal();
 
         admin.MapGet(
                 "/qr/sessions",
@@ -169,7 +184,8 @@ internal static class SingleLoginEndpoints
                 })
             .WithName("identity.qr.sessions.list")
             .WithSummary("扫码会话列表（默认全部；status=pending/expired/approved/rejected）")
-            .RequirePermission(PermissionCatalog.IdentityQrApprove);
+            .RequirePermission(PermissionCatalog.IdentityQrApprove)
+            .RequireNonTemporaryPrincipal();
 
         admin.MapPost(
                 "/qr/sessions/{id:guid}/approve",
@@ -215,7 +231,8 @@ internal static class SingleLoginEndpoints
                 })
             .WithName("identity.qr.sessions.approve")
             .WithSummary("批准扫码登录并签发临时令牌")
-            .RequirePermission(PermissionCatalog.IdentityQrApprove);
+            .RequirePermission(PermissionCatalog.IdentityQrApprove)
+            .RequireNonTemporaryPrincipal();
 
         admin.MapPost(
                 "/qr/sessions/{id:guid}/reject",
@@ -259,7 +276,8 @@ internal static class SingleLoginEndpoints
                 })
             .WithName("identity.qr.sessions.reject")
             .WithSummary("拒绝扫码登录")
-            .RequirePermission(PermissionCatalog.IdentityQrApprove);
+            .RequirePermission(PermissionCatalog.IdentityQrApprove)
+            .RequireNonTemporaryPrincipal();
     }
 
     private static Task WriteAuditAsync(

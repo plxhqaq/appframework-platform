@@ -1,8 +1,10 @@
 using Platform.Contracts;
 using Platform.Contracts.Apps;
 using Platform.Contracts.Permissions;
+using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
+using Platform.Kernel.Security;
 using Platform.Modules.Apps.Services;
 using Platform.IntegrationTests.Support;
 
@@ -16,7 +18,7 @@ public sealed class AppsServiceTests
     {
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
-        var registry = new AppRegistryService(db);
+        var registry = CreateRegistry(db, clock);
 
         var created = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用", "说明"));
         Assert.Equal("demo", created.Key);
@@ -40,7 +42,7 @@ public sealed class AppsServiceTests
     {
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
-        var registry = new AppRegistryService(db);
+        var registry = CreateRegistry(db, clock);
 
         var exception = await Assert.ThrowsAsync<BusinessException>(
             () => registry.CreateAsync(new CreateAppRequest(key, "名称")));
@@ -52,7 +54,7 @@ public sealed class AppsServiceTests
     {
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
-        var registry = new AppRegistryService(db);
+        var registry = CreateRegistry(db, clock);
         var keys = new ApiKeyService(db, clock);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
 
@@ -81,7 +83,7 @@ public sealed class AppsServiceTests
     {
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
-        var registry = new AppRegistryService(db);
+        var registry = CreateRegistry(db, clock);
         var keys = new ApiKeyService(db, clock);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
         var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest());
@@ -101,7 +103,7 @@ public sealed class AppsServiceTests
     {
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
-        var registry = new AppRegistryService(db);
+        var registry = CreateRegistry(db, clock);
         var keys = new ApiKeyService(db, clock);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
         var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest());
@@ -119,7 +121,7 @@ public sealed class AppsServiceTests
     {
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
-        var registry = new AppRegistryService(db);
+        var registry = CreateRegistry(db, clock);
         var keys = new ApiKeyService(db, clock);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
         var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest(
@@ -137,7 +139,7 @@ public sealed class AppsServiceTests
     {
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
-        var registry = new AppRegistryService(db);
+        var registry = CreateRegistry(db, clock);
         var keys = new ApiKeyService(db, clock);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
         var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest());
@@ -154,7 +156,7 @@ public sealed class AppsServiceTests
     {
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
-        var registry = new AppRegistryService(db);
+        var registry = CreateRegistry(db, clock);
         var keys = new ApiKeyService(db, clock);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
 
@@ -172,7 +174,7 @@ public sealed class AppsServiceTests
     {
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
-        var registry = new AppRegistryService(db);
+        var registry = CreateRegistry(db, clock);
         var keys = new ApiKeyService(db, clock);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
         var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest(
@@ -197,7 +199,7 @@ public sealed class AppsServiceTests
     {
         var clock = new TestClock();
         await using var db = TestDbContext.Create(clock);
-        var registry = new AppRegistryService(db);
+        var registry = CreateRegistry(db, clock);
         var keys = new ApiKeyService(db, clock);
         var app = await registry.CreateAsync(new CreateAppRequest("demo", "演示应用"));
         var created = await keys.CreateAsync(app.Id, new CreateApiKeyRequest(Scopes: ["versions.release.read"]));
@@ -208,6 +210,9 @@ public sealed class AppsServiceTests
 
         Assert.Equal(ApiErrorCode.AppsApiKeyScopeDenied, exception.Code);
     }
+
+    private static AppRegistryService CreateRegistry(PlatformDbContext db, IClock clock) =>
+        new(db, new AppStateCache(clock, TimeSpan.FromMinutes(1)));
 
     private sealed class RecordingIssuer : IAccessTokenIssuer
     {

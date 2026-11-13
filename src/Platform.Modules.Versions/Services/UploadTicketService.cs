@@ -96,11 +96,13 @@ public sealed partial class UploadTicketService : IUploadTicketService
             throw BusinessException.Invalid("sha256 必须是 64 位小写十六进制。");
         }
 
-        if (request.SizeBytes <= 0 || request.SizeBytes > _options.MaxFileSizeBytes)
+        // 单文件与增量包是两个上限；票据只声明整包字节数，按较大值放行，细粒度上限由发布清单校验。
+        var maxSizeBytes = Math.Max(_options.MaxFileSizeBytes, _options.MaxPackageSizeBytes);
+        if (request.SizeBytes <= 0 || request.SizeBytes > maxSizeBytes)
         {
             throw new BusinessException(
                 ApiErrorCode.PayloadTooLarge,
-                $"文件大小必须大于 0 且不超过 {_options.MaxFileSizeBytes} 字节。");
+                $"文件大小必须大于 0 且不超过 {maxSizeBytes} 字节。");
         }
 
         var now = _clock.UtcNow;

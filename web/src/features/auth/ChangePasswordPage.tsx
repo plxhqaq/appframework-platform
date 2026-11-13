@@ -1,7 +1,8 @@
 import { App, Button, Card, Form, Input, Typography } from 'antd';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '../../shared/api/auth';
+import { loginPath, safeReturnTo } from '../../shared/returnTo';
 import { useAuthStore } from '../../stores/auth';
 
 interface ChangePasswordValues {
@@ -18,6 +19,7 @@ const PASSWORD_PATTERN = /^(?=.*[A-Za-z])(?=.*\d).{8,128}$/;
  */
 export function ChangePasswordPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { message } = App.useApp();
   const session = useAuthStore((state) => state.session);
   const signOut = useAuthStore((state) => state.signOut);
@@ -30,7 +32,8 @@ export function ChangePasswordPage() {
       const result = await authApi.changePassword(values.currentPassword, values.newPassword);
       message.success(`口令已修改，已吊销 ${result.revokedSessions} 个会话，请重新登录`);
       await signOut();
-      navigate('/login', { replace: true });
+      // 扫码直达时先被要求改密的，改完重新登录还要回到那一单
+      navigate(loginPath(safeReturnTo(searchParams.get('returnTo'))), { replace: true });
     } catch (caught) {
       message.error(caught instanceof Error ? caught.message : '修改口令失败');
     } finally {

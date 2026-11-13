@@ -1,8 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Platform.Contracts;
 using Platform.Contracts.Permissions;
+using Platform.Kernel.Abstractions;
+using Platform.Kernel.Errors;
 
 namespace Platform.Kernel.Security;
 
@@ -152,5 +156,29 @@ public static class PermissionEndpointExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
         return builder.RequireAuthorization(PermissionPolicyProvider.PolicyName(codes, requireAll: true));
+    }
+
+    /// <summary>
+    /// 拒绝临时会话（单次密钥/扫码签发的令牌）访问，用于签发新凭据这类不能自我续期的入口。
+    /// </summary>
+    /// <remarks>
+    /// 权限声明拦不住这件事：临时令牌与真人工程师账号共用同一个内置角色，
+    /// 权限集合里摘掉入口码只是第一道，角色被管理员改过以后这道就没了，所以端点侧再按身份种类判一次。
+    /// </remarks>
+    public static RouteHandlerBuilder RequireNonTemporaryPrincipal(this RouteHandlerBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        return builder.AddEndpointFilter(static async (context, next) =>
+        {
+            var principal = context.HttpContext.RequestServices.GetRequiredService<ICurrentPrincipal>();
+            if (principal.IsTemporary)
+            {
+                throw new BusinessException(
+                    ApiErrorCode.IdentityPermissionDenied,
+                    "临时会话不能签发密钥或审批扫码，请用工程师账号登录管理台后操作。");
+            }
+
+            return await next(context);
+        });
     }
 }

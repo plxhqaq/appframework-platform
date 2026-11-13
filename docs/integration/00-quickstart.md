@@ -57,6 +57,11 @@ dotnet run --project src/Platform.Api
 > 新增迁移必须从 `Platform.Api` 启动：设计时工厂在 Api 工程里，才能把各模块的
 > `IPlatformModelContributor` 一并加载；否则生成出来的迁移会漏掉模块表。
 
+> **单副本约束（当前版本）**：启动时用 PostgreSQL 会话级 advisory lock 抢占唯一实例锁，
+> 第二个共用同一数据库的进程会直接启动失败并打印锁号与原因，而不是带着重复投递跑起来。
+> 原因：Webhook 投递没有行级认领，备份回执协调器与 SignalR 连接表都是进程内状态。
+> 只有实现了投递行级认领 + SignalR 背板后才可设 `Deployment:RequireSingleInstance=false`。
+
 ### 管理台依赖（目录搬移后必读）
 
 `web/node_modules` 里的 pnpm 符号链接记录的是**绝对路径**。仓库整体搬目录后必须重装一次，
@@ -71,18 +76,73 @@ pnpm verify              # tokens:check + lint + typecheck + test
 ### B. 一键部署（想验证部署产物时用）
 
 ```bash
-bash deploy/deploy.sh up      # 首次会生成 deploy/.env（随机强口令 + JWT 密钥 + 种子口令），起 pg → 迁移 → 起 api → 等 /ready
+bash deploy/deploy.sh up      # 首次生成 deploy/.env（数据库口令 + JWT 密钥 + 种子口令 + 授权签发密钥）：
+                              # 预检端口 → 构建 → 起库 → 迁移 → 起 api → 等 /ready → 起管理台 → 打印现场信息汇总
 ```
 
-脚本动作只有六个：`up` / `migrate` / `status` / `logs` / `health` / `down`。
-`up` 先等 `postgres` 健康、再跑一次 `--migrate`、然后 `up -d --build api` 并轮询 `/ready`（最多 3 分钟，
-超时会自己打印 `compose ps` 与最近 50 行日志）。`SKIP_BUILD=1` 复用已有镜像。
-它**不会覆盖已存在的 `deploy/.env`**，密码与密钥只在首次生成时随机。手写 compose 也支持：
+脚本动作：`up` / `migrate` / `fix-pg-password` / `renew-cert` / `reset-admin-password` / `status` / `logs` / `health` / `down` / `info`。
+`up` 的顺序是「先探端口 → 起库并按 API 那条 TCP 路径验一次口令 → 再构建镜像 → 迁移 → 起 api → 等 `/ready`
+→ 起管理台 → 等首页」：端口撞了（5432/8080 这类）和 `.env` 与数据卷口令对不上（28P01）这两类失败都跟镜像无关，
+现在都在**构建之前**报出来，不用等一分多钟构建完才在「设置容器网络」时看到 `address already in use`，
+也不用读一叠 Npgsql 栈才发现是 `.env` 被重生成过。报错里会直接给出对应选项与修法。
+`SKIP_BUILD=1` 复用已有镜像。它**不会覆盖 `deploy/.env` 里已有的值**，只在留空时补写并告知。
+结尾那份汇总（口令、keyId、指纹、脱敏后的密钥）事后随时可重取：`bash deploy/deploy.sh info [--show-secrets]`。
+
+现场参数一律走 `.env` 或下面的选项（都会写回 `.env`，重跑 `up` 沿用，不用每次带；
+**不要直接改 compose 文件**，升级覆盖文件时改动会丢）：
+
+| 选项 | `.env` 键 | 默认 | 什么时候用 |
+|---|---|---|---|
+| `--api-port <n>` | `API_PORT` | 8080 | 宿主机 8080 已被现场 nginx / 别的 Web 占用 |
+| `--api-bind <地址>` | `API_BIND_HOST` | 0.0.0.0 | 前面已有反代，让 API 只听 127.0.0.1 |
+| `--pg-port <n>` | `POSTGRES_PUBLISH_PORT` | 5433 | 连回环上的 5433 也被占；只影响运维直连，API 不看它 |
+| `--blobs-dir <绝对路径>` | `BLOB_STORAGE_HOST_PATH` | 空 = 具名卷 | 安装包/附件要放数据盘。脚本建目录并 chown 到 uid 1001；换位置**不自动搬既有文件**（会打印搬法） |
+| `--use-existing-pg "<conn>"` | `USE_EMBEDDED_POSTGRES=false`、`POSTGRES_*` | 建容器库 | 机器上已跑着 PostgreSQL |
+| `--web` / `--no-web` | `WEB_ENABLED` | 起管理台容器 | 只做接口对接、或坚持把静态资源挂在宿主 nginx 上 |
+| `--web-port <n>` / `--web-https-port <n>` | `WEB_HTTP_PORT` / `WEB_HTTPS_PORT` | 8081 / 8443 | 这两个端口也被占了（默认值刻意避开 80/443，见下） |
+| `--web-bind <地址>` | `WEB_BIND_HOST` | 0.0.0.0 | 管理台只留给本机反代对外 |
+| `--https` / `--no-https` | `WEB_HTTPS` | https | 纯 http 只适合内网临时验证：口令不加密，刷新 Cookie 也拿不到 `Secure` |
+| `--cert-dir <绝对路径>` | `WEB_CERT_DIR` | `/var/lib/appframework-platform/certs` | 证书放别处（现场 CA 签的也放这里，脚本认出非自签就不再动它） |
+| `--server-name <名字>` | `WEB_SERVER_NAME` | 主机名 | 自签证书的 CN / SAN 里的 DNS 项要与浏览器访问的名字对得上 |
+| `--days <n>` | `WEB_SSL_RENEW_DAYS` | 30 | 低于这个剩余天数才重签（1–365；调太大等于每次部署都换证书） |
+| `--no-license-key` | — | 生成一对 | 不需要授权签发，整体保持 unmanaged |
+| `--skip-preflight` | — | 预检 | 明知端口能用、要跳过探测（谨慎） |
+
+```bash
+bash deploy/deploy.sh up --api-port 18080                      # 对外端口挪开
+bash deploy/deploy.sh up --api-bind 127.0.0.1 --api-port 18080 # 只给本机反代，反代 upstream 指 127.0.0.1:18080
+bash deploy/deploy.sh up --blobs-dir /data/appframework-blobs  # 附件放数据盘
+bash deploy/deploy.sh up --web-port 8082 --web-https-port 8444 # 管理台端口挪开
+bash deploy/deploy.sh up --no-web                              # 不起管理台容器（下次 up --web 恢复）
+```
+
+手写 compose 也支持，两种模式两份文件：
 
 ```bash
 cp deploy/env.example deploy/.env     # 填 POSTGRES_PASSWORD 与 JWT_SIGNING_KEY（≥32 字符）
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.postgres.yml \
+  --env-file deploy/.env up -d --build                       # 嵌入库
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+                                                             # 已有库：USE_EMBEDDED_POSTGRES=false
+                                                             # 并填 POSTGRES_HOST/PORT/DB/USER/PASSWORD
 ```
+
+管理台是再往上的两层，与库的两个模式自由组合（`deploy.sh` 就是按 `.env` 里这两个键拼 `-f` 的）：
+
+```bash
+  -f deploy/docker-compose.web.yml                           # 起管理台（http 8081）
+  -f deploy/docker-compose.web.yml -f deploy/docker-compose.web.https.yml
+                                                             # 起管理台 + https（8443，证书见 WEB_CERT_DIR）
+```
+
+手工敲这两层之前先把证书准备好：https 那份挂载 `WEB_CERT_DIR/web.crt` 与 `web.key`，
+`deploy.sh up --https` 会在缺的时候自签一张；纯手工路线就自己放一对进去（`bash deploy/deploy.sh renew-cert`
+也能签）。
+
+镜像构建上下文由仓库根的 `.dockerignore` 限定：`obj/` 与 `bin/` 一律不进上下文。
+带着 Windows 上 `dotnet restore` 产物建树（尤其 zip 整包拷到 Linux）时，`COPY src/` 会把镜像内
+刚 restore 出来的资产文件盖成记录本机路径的那份，`--no-restore` 的 publish 随即报
+`MSB4018: Unable to find fallback package folder 'D:\Program Files (x86)\...'`。
 
 ---
 
@@ -162,7 +222,7 @@ curl -s -X POST http://localhost:5080/api/v1/identity/singlekey/redeem \
 ```
 
 成功后返回 `accessToken` / `expiresAt` / `user`：主体是内置 `engineer` 角色的 `temp-user`，
-`whoami` 里 `isTemporary=true`，权限集不含任何 `identity.*` 管理码。
+`whoami` 里 `isTemporary=true`，权限集不含任何 `identity.*` 管理码（真人工程师账号才有签发/审批入口）。
 
 消费语义是**原子单次**的（条件 `ExecuteUpdateAsync`：未使用、未过期、尝试数未满、指纹匹配），
 同一密钥并发兑换只有一个成功。失败码：`105` 无效、`106` 已过期、`107` 已使用/尝试超限、`108` 设备不符。
@@ -177,7 +237,10 @@ curl -s -X POST http://localhost:5080/api/v1/identity/qr/sessions \
   -d '{"deviceFingerprint":"line-1-pc","clientName":"1 号线操作台"}'
 ```
 
-返回 `requestId`、`expiresAt`（默认 10 分钟）与 `payload`（`appframework://qr-login?requestId=...`，供二维码渲染）。
+返回 `requestId`、`expiresAt`（默认 10 分钟）与 `payload`——`payload` 是管理台审批页的 https 链接
+（`QrLogin:ApprovalUrlBase` + `/qr-login/` + 请求 id 的 `N` 形式），直接渲染成二维码，
+现场工程师用手机相机扫开就能审批。基址要配成手机能访问到的地址，详见
+[01-identity.md](01-identity.md) 第 5 节。
 
 2. 客户端轮询 `GET /api/v1/identity/qr/sessions/{requestId}`，状态为
    `pending` / `approved` / `rejected` / `expired`；`approved` 时响应带 `session.accessToken`（令牌过期后不再回传）。
@@ -187,7 +250,7 @@ curl -s -X POST http://localhost:5080/api/v1/identity/qr/sessions \
 ```bash
 curl -s -b admin.jar 'http://localhost:5080/api/v1/admin/identity/qr/sessions?status=pending'
 curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sessions/$REQUEST_ID/approve \
-  -H 'Content-Type: application/json' -d '{"durationMinutes":30}'
+  -H 'Content-Type: application/json' -d '{"durationMinutes":120}'
 # 或拒绝
 curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sessions/$REQUEST_ID/reject
 ```
@@ -552,7 +615,10 @@ X-Platform-Signature: sha256=hex(Lower)(HMAC-SHA256(secret, "{timestamp}.{rawBod
 ```
 
 退避 `30s → 1m → 2m → 4m → 8m → 16m → 32m`（上限 1 小时，含首次共 8 次尝试，超时 10 秒，2xx 记成功）。
-**投递器只能在一个副本启用**（`Webhooks:DispatcherEnabled`，没有行级抢占）。
+**当前版本只支持单副本**：启动守卫会用 PostgreSQL advisory lock 把第二个实例挡在启动阶段
+（见 §0 数据库迁移后的说明）。单副本内投递器可保持 `Webhooks:DispatcherEnabled=true`；
+若关闭了守卫（`Deployment:RequireSingleInstance=false`），必须自行保证多副本下只有一个投递器
+且回执/推送可跨副本路由。
 完整语义、验签示例与错误码（`700–704`）见 [`06-webhooks-and-audit.md`](06-webhooks-and-audit.md)。
 上面这些步骤（建订阅、拿密钥、轮换、测试、查台账与重投）在管理台「Webhook」页都有对应入口，见 §15。
 
@@ -677,17 +743,58 @@ dotnet pack src/AppFramework.Platform.Client/AppFramework.Platform.Client.csproj
 ## 14. 可观测与部署
 
 ```bash
-bash deploy/deploy.sh up        # 生成 .env（随机密钥）→ 等 pg 健康 → 迁移 → 构建 → 起 api → 等 /ready
-bash deploy/deploy.sh health    # healthz / ready / metrics / scalar / openapi 一次打完
+bash deploy/deploy.sh up        # 生成 .env（随机密钥 + 授权签发密钥）→ 预检端口与库口令 → 构建 → 迁移 → 起 api → 等 /ready → 起管理台 → 等首页
+bash deploy/deploy.sh health    # healthz / ready / metrics / scalar / openapi 一次打完（启用了管理台会再多打一条）
 bash deploy/deploy.sh status    # compose ps
-bash deploy/deploy.sh logs      # 最近 api 日志
+bash deploy/deploy.sh logs      # 最近 api 日志（可带服务名：logs web / logs postgres）
 bash deploy/deploy.sh migrate   # 只跑迁移（compose run --rm api --migrate）
 bash deploy/deploy.sh down      # 停栈（不删卷）
+bash deploy/deploy.sh info      # 只读重打现场信息汇总（脱敏）；--show-secrets 打全文
+bash deploy/deploy.sh fix-pg-password   # 只 ALTER ROLE 把 pgdata 卷里的角色口令对到 .env，数据不动
+bash deploy/deploy.sh renew-cert [--force]  # 自签证书到期前重签（--force 点名换一张）
+bash deploy/deploy.sh reset-admin-password  # 把 admin 的口令对回 .env 里那份引导口令（旧会话全部作废）
 ```
 
-- `deploy/.env` 首次生成后**不会被覆盖**，里面是 `POSTGRES_PASSWORD` / `JWT_SIGNING_KEY` /
-  `SEED_ADMIN_PASSWORD`，需要授权签名私钥时再手工加 `LICENSING_SIGNING_KEY_PKCS8`。
-- `SKIP_BUILD=1 bash deploy/deploy.sh up` 复用现有镜像；`API_PORT` / `POSTGRES_PORT` 改端口。
+- 现场要改的参数（端口、绑定地址、附件目录、库）都做成了 `up` 的选项并写回 `.env`，见上面 B 节的表；
+  **不要直接改 compose 文件**，升级覆盖文件时改动会丢。
+- 撞过 `28P01: password authentication failed for user "platform"` 的话原因基本只有一个：
+  `.env` 被删过或重新生成过，而 `pgdata` 卷还在——`initdb` 只在空卷上跑一次，之后改 `.env` 不会跟着改
+  库里的角色口令。现在 `up` 会在**构建之前**用 API 那条 TCP 路径先验一次并把这件事说清楚；
+  修法是 `bash deploy/deploy.sh fix-pg-password`（只改角色口令，不动数据、不改 `.env`，
+  走容器内 unix socket 所以不需要旧口令）。这个库真不要了才用 `down -v`（连卷删，附件卷也一起没）。
+
+- 登录报「用户名或口令错误」而 `info` 里明明印着引导口令：种子的口令只在 admin 账号**不存在**时写入，
+  所以 `.env` 重新生成过而数据卷还留着（或已经按提示改过密）就会这样，而且它不会自己好。
+  `bash deploy/deploy.sh reset-admin-password` 把库里那份强行对回 `.env`（`.env` 为空则先生成再写回），
+  同时作废该账号全部会话并清掉登录节流——连续试错 10 次会锁 15 分钟，这件事它也一并解决。
+  排查用的原始证据在两边：`logs api` 里搜「身份种子」（有没有跳过创建），库里 `users` 表有没有那行 `admin`。
+- `deploy/.env` 首次生成后**不会被覆盖已有值**，但留空的密钥会就地补写并告知：`POSTGRES_PASSWORD` /
+  `JWT_SIGNING_KEY` / `SEED_ADMIN_PASSWORD` / `LICENSING_SIGNING_KEY_PKCS8`（ECDSA P-256，同一次生成，
+  公钥与 keyId 由它派生后写回，用 `info` 查）。不想启用授权：`up --no-license-key`，
+  或 `.env` 里 `LICENSING_GENERATE_KEY=false`——授权模块整体按 unmanaged 运行，客户端不受限。
+  私钥只要非空，重跑部署绝不重新生成（换钥会让已签发的快照与离线码全部失效）。
+- 机器上已有 PostgreSQL 时不用改 yml，也不用等镜像拉完才发现 5432 被占：
+  `bash deploy/deploy.sh up --use-existing-pg "Host=...;Port=...;Database=...;Username=...;Password=***"`
+  会切到外部库模式（`USE_EMBEDDED_POSTGRES=false`，不建容器、不动那套库）。宿主机自装的库要写
+  `host.docker.internal`——容器里的 127.0.0.1 是容器自己，脚本会代填这个别名。仍用容器库就只挪
+  发布端口 `POSTGRES_PUBLISH_PORT`（默认 5433，且只发布到 127.0.0.1）。
+- `SKIP_BUILD=1 bash deploy/deploy.sh up` 复用现有镜像；`API_PORT` 改对外端口。
+- 管理台（前端）默认一起部署成容器：`WEB_ENABLED`（`--web` / `--no-web`）与 `WEB_HTTPS`（`--https` /
+  `--no-https`）两个开关各对应一份附加 yml，`WEB_HTTP_PORT` / `WEB_HTTPS_PORT` 默认 **8081 / 8443**。
+  刻意避开 80/443：现场机器上往往已经有一套 nginx 在代理别的应用的站点，本栈不碰它，也不在 443 上抢
+  `default_server`（那会把别人的站点顶掉）。三种走法：换一对空闲端口、`--web-bind 127.0.0.1` 由宿主反代
+  对外、或 `--no-web` 后把 `deploy/nginx/site.d/` 里对应那份的 location 抄进现有站点。
+- https 用的是自签证书（397 天，SAN 带主机名 + `WEB_SERVER_NAME` + 本机内网 IP），装在
+  `WEB_CERT_DIR`（默认 `/var/lib/appframework-platform/certs`，非 root 建不出来会自动退到
+  `deploy/certs/` 并写回 `.env`）。root + systemd 的机器上 `up` 会顺手装一个每天 06:17 检查一次的定时器，
+  剩余有效期低于 `WEB_SSL_RENEW_DAYS`（默认 30 天）才重签，重签后只 `nginx -s reload`（不重启容器，
+  已开着的页面不受影响）。`--no-cert-timer` 跳过安装，脚本会打印该自己安排的命令。
+  换证书会让所有浏览器记住的「继续前往」例外作废，每台机器各点一次；不想吃这一步就把现场 CA 签的
+  `web.crt` / `web.key` 放进同一个目录——脚本认出非自签后只报到期时间，不再覆盖、也不装定时器。
+- 设备端（扫码、更新下载）继续走明文：客户端没有配置信任自签证书，硬赶上 https 会直接连不上。
+  https 站点上 `/api`、`/hubs` 在 80 端口照常通，只有浏览器路径才 301 到 https 端口。
+- 内网机器访问不到 npm registry 时：在有外网的机器上构建好管理台镜像，再
+  `docker save appframework-platform-web | docker load` 搬过去，或 `SKIP_BUILD=1 bash deploy/deploy.sh up`。
 - 指标清单、Prometheus 抓取与告警规则：[`08-observability.md`](08-observability.md)。
 - 备份恢复 / 密钥轮换 / 版本回滚的演练脚本：[`09-operations-drills.md`](09-operations-drills.md)。
 
@@ -695,16 +802,29 @@ bash deploy/deploy.sh down      # 停栈（不删卷）
 
 ## 15. 管理台
 
+开发形态（vite dev，改代码即时生效）：
+
 ```bash
 cd web
 pnpm install
 pnpm dev            # http://localhost:5173，/api 自动代理到 http://localhost:5080
 ```
 
+交付形态不用手工挂静态资源：`bash deploy/deploy.sh up` 会把构建好的管理台连同 nginx 反代一起起来
+（默认 `https://<内网 IP>:8443`，纯 http 是 8081），详见 14 节。此时登录地址就是那个端口，
+`pnpm dev` 的 5173 只在本机开发时用。
+
+> 前端始终与 API **同源**部署：刷新令牌是 httpOnly Cookie（`SameSite=Strict` + 固定 Path），
+> `Secure` 标记由 API 按 `X-Forwarded-Proto` 决定。所以不要给管理台配 `VITE_API_BASE_URL` 指向另一个源——
+> 跨源要 CORS + `SameSite=None` + 真的 https，登录会拿不到刷新令牌（表现为过一阵子被踢回登录页）。
+
 用种子管理员 `admin` / `Admin@12345` 登录；首次登录会跳转强制改密，改密后全部会话被吊销，需要重新登录。
-登录后总览页展示当前主体与平台模块；「身份与权限」页按权限展示标签页：用户 / 角色 / 会话
-（`identity.user.read`、`identity.role.read`、`identity.session.read`），以及「单次密钥」
-（`identity.singlekey.issue`）和「扫码审批」（`identity.qr.approve`）。
+登录后总览页展示当前主体与平台模块。左侧菜单按权限裁剪，直接敲无权地址会被路由守卫拦住：
+「密钥登录」（`/single-key`，`identity.singlekey.issue`）与「扫码登录」（`/qr-approval`，`identity.qr.approve`）
+是两个独立页面，内置 `engineer` 角色只有这两个码也能正常干活，有效期最长可设 2 小时；
+手机扫二维码直达 `/qr-login/{requestId}`，窄屏下审批列表是卡片 + 整宽按钮。
+「身份与权限」页只剩用户 / 角色 / 会话三个标签页
+（`identity.user.read`、`identity.role.read`、`identity.session.read`）。
 「版本与渠道」页（`versions.channel.*` / `versions.release.*` / `versions.artifact.upload`）
 支持新建/编辑渠道、选文件后浏览器端算 SHA-256 并直传、创建并发布、查看产物清单与归档；
 「授权」页（`license.product.*` / `license.issue` / `license.revoke` / `license.offlinecode.issue` /

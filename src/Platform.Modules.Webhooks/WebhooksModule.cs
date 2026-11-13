@@ -47,14 +47,20 @@ public sealed class WebhooksModule : IPlatformModule
         services.Replace(ServiceDescriptor.Scoped<IPlatformEventPublisher, WebhookEventPublisher>());
         services.AddScoped<IWebhookSubscriptionService, WebhookSubscriptionService>();
         services.AddScoped<IWebhookDispatcher, WebhookDispatcher>();
+        services.TryAddSingleton<IWebhookHostResolver, DnsWebhookHostResolver>();
+        services.AddSingleton<WebhookUrlPolicy>();
         services.AddHttpClient<IWebhookSender, HttpWebhookSender>(
-            static client => client.Timeout = Timeout.InfiniteTimeSpan);
+                static client => client.Timeout = Timeout.InfiniteTimeSpan)
+            // 不跟随重定向：公网地址 302 到内网同样是 SSRF，3xx 按投递失败处理。
+            .ConfigurePrimaryHttpMessageHandler(static () => new HttpClientHandler { AllowAutoRedirect = false });
         services.AddHostedService<WebhookDispatchWorker>();
 
         services.TryAddEnumerable(
             ServiceDescriptor.Scoped<IPlatformModelContributor, WebhooksModelContributor>());
         services.TryAddEnumerable(
             ServiceDescriptor.Scoped<IPlatformMetricSource, WebhookMetricSource>());
+        services.TryAddEnumerable(
+            ServiceDescriptor.Scoped<IRetentionCleanupTask, WebhookDeliveryCleanupTask>());
     }
 
     /// <inheritdoc />

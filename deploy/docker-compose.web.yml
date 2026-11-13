@@ -1,0 +1,32 @@
+# 管理台前端容器：仅当 deploy/.env 里 WEB_ENABLED=true（默认）时由 deploy.sh 附加。
+#
+# 为什么又拆一份文件（与 docker-compose.postgres.yml 同一个理由）：前端是可省的层——
+# 只做接口对接的开发机、或者坚持把静态资源挂在宿主 nginx 上的现场，都不该被强迫多构建
+# 一个 node 镜像（首次两三分钟）。用附加文件当开关比 profile 直白：profile 里的服务
+# 被 depends_on 引用时 up 会直接报依赖缺失。
+#
+# 端口刻意避开 80/443：现场机器上往往已经有一个 nginx 在代理别的应用的站点，本栈不去动它，
+# 也不在 443 上再挂一个 default_server（那会把别人的站点顶掉）。管理台默认发布在 8081，
+# 开 https 再另开 8443；要让浏览器从标准 80/443 进来，见 README「管理台（前端容器）与 HTTPS」。
+#
+# 现场要改的还是 .env 里的键，别改这份文件：WEB_HTTP_PORT / WEB_HTTPS_PORT / WEB_BIND_HOST /
+# WEB_CERT_DIR / WEB_API_UPSTREAM，对应 deploy.sh 的 --web-port / --web-https-port / --web-bind。
+name: appframework-platform
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      # 站点选哪份模板由入口脚本按 WEB_HTTPS 决定；这两份叠加文件之间是「标量取后者」，
+      # 所以 https.yml 里把它顶成 1 就够了，.env 里那个 WEB_HTTPS 只给 deploy.sh 自己看。
+      WEB_HTTPS: "0"
+      # 同源反代的上游。默认容器网络里的服务名 api；API 部署在别处时改成 host:port。
+      API_UPSTREAM: ${WEB_API_UPSTREAM:-api:8080}
+    ports:
+      # WEB_BIND_HOST=127.0.0.1 适合把管理台只留给本机、由宿主 nginx 对外的拓扑。
+      - "${WEB_BIND_HOST:-0.0.0.0}:${WEB_HTTP_PORT:-8081}:80"

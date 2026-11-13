@@ -1,7 +1,9 @@
 import { LockOutlined, UserOutlined } from '@ant-design/icons';
 import { Alert, App, Button, Card, Form, Input, Typography } from 'antd';
 import { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { HOME_PATH } from '../../app/navigation';
+import { safeReturnTo } from '../../shared/returnTo';
 import { useAuthStore } from '../../stores/auth';
 
 interface LoginFormValues {
@@ -9,17 +11,25 @@ interface LoginFormValues {
   password: string;
 }
 
-/** 管理端登录：口令校验通过后刷新令牌由服务端写入 httpOnly Cookie。 */
+/**
+ * 管理端登录：口令校验通过后刷新令牌由服务端写入 httpOnly Cookie。
+ *
+ * 带 returnTo 时登录完回到原目标——手机扫开的审批链接会先落到这里，
+ * 登录完必须回到那一单，而不是被扔到总览让现场再找一遍。
+ */
 export function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { message } = App.useApp();
   const signIn = useAuthStore((state) => state.signIn);
   const status = useAuthStore((state) => state.status);
   const pending = useAuthStore((state) => state.pending);
   const [error, setError] = useState<string | null>(null);
 
+  const returnTo = safeReturnTo(searchParams.get('returnTo')) ?? HOME_PATH;
+
   if (status === 'authenticated') {
-    return <Navigate to="/overview" replace />;
+    return <Navigate to={returnTo} replace />;
   }
 
   const handleFinish = async (values: LoginFormValues) => {
@@ -28,10 +38,15 @@ export function LoginPage() {
       const session = await signIn(values.userName, values.password);
       if (session.mustChangePassword) {
         message.warning('首次登录或口令已被重置，请先修改口令');
-        navigate('/password', { replace: true });
+        navigate(
+          returnTo === HOME_PATH
+            ? '/password'
+            : `/password?returnTo=${encodeURIComponent(returnTo)}`,
+          { replace: true },
+        );
         return;
       }
-      navigate('/overview', { replace: true });
+      navigate(returnTo, { replace: true });
     } catch (caught) {
       const text = caught instanceof Error ? caught.message : '登录失败';
       setError(text);
@@ -46,6 +61,15 @@ export function LoginPage() {
           AppFramework 平台
         </Typography.Title>
         <Typography.Paragraph type="secondary">通用服务提供平台 · 管理台</Typography.Paragraph>
+
+        {returnTo !== HOME_PATH ? (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="登录后会回到你刚才打开的页面"
+          />
+        ) : null}
 
         {error ? <Alert type="error" showIcon style={{ marginBottom: 16 }} message={error} /> : null}
 

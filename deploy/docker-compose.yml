@@ -1,43 +1,37 @@
-# 平台服务端最小可运行栈：PostgreSQL + Platform.Api
+# 平台服务端 API 容器（数据库另说，见下面两个模式）。
 #
-# 用法：
-#   cp deploy/env.example deploy/.env   # 改掉 POSTGRES_PASSWORD 与 JWT_SIGNING_KEY
-#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
-#   curl http://localhost:8080/healthz
-#   curl http://localhost:8080/ready
+# 用法（日常请走 deploy/deploy.sh，它按 .env 自动挑文件，不用手工拼 -f）：
+#   · 嵌入库：docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.postgres.yml \
+#             --env-file deploy/.env up -d --build
+#   · 已有库：docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+#             （.env 里 USE_EMBEDDED_POSTGRES=false 并填 POSTGRES_HOST/PORT/DB/USER/PASSWORD）
+#
+# 为什么把 postgres 拆到另一个文件：现场最常撞的是宿主机 5432 已被既有 PG 占用，
+# 而 compose 的 profile 与 depends_on 不能共存（被依赖的服务没启用时 up 直接报依赖缺失），
+# 只能用附加文件切换。拆开后外部库模式根本不往宿主机发布数据库端口，嵌入模式也只发到 127.0.0.1。
+#
+# 现场要改的东西全部是 .env 里的键，别改这份文件（改了升级时会被仓库版本覆盖）：
+#   API_PORT / API_BIND_HOST / POSTGRES_PUBLISH_PORT / BLOB_STORAGE_HOST_PATH / POSTGRES_*
+#   对应 deploy.sh 的 --api-port / --api-bind / --pg-port / --blobs-dir / --use-existing-pg
+# 管理台前端在 docker-compose.web.yml（WEB_ENABLED）与 docker-compose.web.https.yml
+# （WEB_HTTPS）里，同样是 .env 的键切换，api 这一份保持只有后端。
 name: appframework-platform
 
 services:
-  postgres:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-appframework_platform}
-      POSTGRES_USER: ${POSTGRES_USER:-platform}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?deploy/.env 里必须设置 POSTGRES_PASSWORD}
-      # 中文排序与大小写行为在 initdb 时定死，避免后续迁移踩 locale 差异
-      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-platform} -d ${POSTGRES_DB:-appframework_platform}"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-
   api:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.api
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
+      # 连接串整体由 .env 的 POSTGRES_* 渲染。POSTGRES_HOST/POSTGRES_PORT 是「API 往哪连」，
+      # 嵌入模式下恒为 postgres/5432（容器网络内部），与宿主机的发布端口无关。
+      ConnectionStrings__Platform: "Host=${POSTGRES_HOST:-postgres};Port=${POSTGRES_PORT:-5432};Database=${POSTGRES_DB:-appframework_platform};Username=${POSTGRES_USER:-platform};Password=${POSTGRES_PASSWORD:?deploy/.env 里必须设置 POSTGRES_PASSWORD}"
+      # 复用宿主机自装的 PG 时，.env 里写 host.docker.internal 而不是 127.0.0.1：
+      # 容器内的 127.0.0.1 是容器自己。Linux 上这个映射靠下面的 host-gateway 才成立。
+      # 当前仅支持单副本：启动时用 PostgreSQL advisory lock 互斥，第二个实例会启动失败。
+      Deployment__RequireSingleInstance: ${DEPLOYMENT_REQUIRE_SINGLE_INSTANCE:-true}
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
-      ConnectionStrings__Platform: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-appframework_platform};Username=${POSTGRES_USER:-platform};Password=${POSTGRES_PASSWORD}"
       Jwt__Issuer: ${JWT_ISSUER:-appframework-platform}
       Jwt__Audience: ${JWT_AUDIENCE:-appframework}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?deploy/.env 里必须设置 JWT_SIGNING_KEY（≥32 字符）}
@@ -46,22 +40,41 @@ services:
       # 首个管理员口令：留空则跳过管理员创建（内置角色与演示应用仍会就绪）；
       # 首次登录会被强制改密，改完全部会话作废，所以这里只用于引导。
       Seed__AdminPassword: ${SEED_ADMIN_PASSWORD:-}
+      # 扫码登录：二维码里写的是手机能直接打开的审批页链接，基址必须显式给。
+      # 反代把 Host 改写成不带端口的主机名，API 从请求推出来的地址手机扫开连不上。
+      # 留空时 deploy.sh 会按「证书 CN 或本机内网 IP + 浏览器访问端口」推一个写回 .env。
+      QrLogin__ApprovalUrlBase: ${QR_APPROVAL_URL_BASE:-}
+      # 两种临时登录的最长有效期（分钟）：现场按班次算，默认放宽到 2 小时。
+      SingleLogin__MaxDurationMinutes: ${SINGLE_LOGIN_MAX_MINUTES:-120}
+      QrLogin__MaxDurationMinutes: ${QR_LOGIN_MAX_MINUTES:-120}
       # 授权签发私钥（ECDSA P-256 PKCS#8 DER 的 Base64）：留空即 unmanaged，客户端不采信任何授权。
+      # deploy.sh 首装会自动生成一对并写回 .env（--no-license-key 可跳过），公钥与指纹用
+      # ./deploy/deploy.sh info 查看。
       Licensing__SigningKeyPkcs8: ${LICENSING_SIGNING_KEY_PKCS8:-}
       # 指标端点：默认开且匿名可抓，只暴露聚合运行指标。公网可达时务必设 scrape token，
       # 或直接在边缘把 /metrics 限制在内网。
       Metrics__Enabled: ${METRICS_ENABLED:-true}
       Metrics__ScrapeToken: ${METRICS_SCRAPE_TOKEN:-}
-      # Webhook 投递器：多副本部署时只让一个副本开着，避免同一事件被并发重复投递。
+      # Webhook 投递器：单副本保持开启；关闭单实例守卫后只让一个副本开着，避免重复投递。
       Webhooks__DispatcherEnabled: ${WEBHOOKS_DISPATCHER_ENABLED:-true}
+      # 内网回调白名单（逗号分隔的主机/通配子域/IP/CIDR）：默认拒绝私网与环回目标。
+      Webhooks__AllowedHosts: ${WEBHOOKS_ALLOWED_HOSTS:-}
       BlobStorage__RootPath: /data/blobs
       # 反向代理后取真实客户端 IP 与协议（限流按 IP 分区，不能拿到代理 IP）
       ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - blobs:/data/blobs
+      # 附件/安装包存储位置由 .env 的 BLOB_STORAGE_HOST_PATH 决定，两种取值一份文件兼容：
+      #   空（默认）→ 具名卷 blobs，数据在 docker 的卷目录里
+      #   绝对路径   → bind 挂到宿主机目录（包体大、要放数据盘时用），目录须对 uid 1001 可写
+      # deploy.sh 的 --blobs-dir 负责建目录与 chown；换位置不会自动搬既有文件。
+      - "${BLOB_STORAGE_HOST_PATH:-blobs}:/data/blobs"
     ports:
-      - "${API_PORT:-8080}:8080"
+      # 宿主机侧「对外端口 + 绑定地址」都可挪开：现场机器上 8080 往往已经被既有的
+      # Web/反代占着，而 API_PORT 只改宿主机发布端口、容器内恒为 8080（ASPNETCORE_URLS 不动）。
+      # API_BIND_HOST=127.0.0.1 适合前面有 nginx 的拓扑；公网直连则保持 0.0.0.0。
+      - "${API_BIND_HOST:-0.0.0.0}:${API_PORT:-8080}:8080"
 
 volumes:
-  pgdata:
   blobs:

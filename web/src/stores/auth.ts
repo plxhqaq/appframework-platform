@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { authApi } from '../shared/api/auth';
 import { setRefreshHandler, setTokenProvider } from '../shared/api/client';
 import type { UserSession } from '../shared/api/types';
+import { hasPermissionCode } from '../shared/permissions';
 
 export type AuthStatus = 'unknown' | 'authenticated' | 'anonymous';
 
@@ -118,10 +119,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  hasPermission: (code) => {
-    const permissions = get().session?.permissions ?? [];
-    return permissions.includes('*') || permissions.includes(code);
-  },
+  hasPermission: (code) => hasPermissionCode(get().session?.permissions, code),
 }));
 
 // 令牌注入点：fetch 封装只认这两个 provider，不直接依赖 store

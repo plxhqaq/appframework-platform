@@ -155,7 +155,10 @@ public sealed class PlatformClientTests : IClassFixture<PlatformApiFactory>, IDi
         using (raw)
         {
             var created = await sdk.CreateQrLoginSessionAsync("sdk-qr", "SDK 操作台");
-            Assert.StartsWith(QrLoginConventions.PayloadPrefix, created.Payload, StringComparison.Ordinal);
+            Assert.EndsWith(
+                QrLoginConventions.ApprovalPath + created.RequestId.ToString("N"),
+                created.Payload,
+                StringComparison.Ordinal);
 
             await Assert.ThrowsAsync<TimeoutException>(
                 () => sdk.WaitForQrLoginApprovalAsync(created.RequestId, TimeSpan.FromMilliseconds(300), TimeSpan.FromMilliseconds(50)));

@@ -12,6 +12,9 @@ public interface IAppDirectory
     /// <summary>应用键是否存在（无论启用状态）。</summary>
     Task<bool> ExistsAsync(string appKey, CancellationToken cancellationToken = default);
 
+    /// <summary>应用是否处于启用状态；应用不存在时返回 <c>false</c>。</summary>
+    Task<bool> IsEnabledAsync(string appKey, CancellationToken cancellationToken = default);
+
     /// <summary>确保应用存在（幂等种子使用）；已存在则不改动。</summary>
     Task EnsureAsync(string appKey, string name, CancellationToken cancellationToken = default);
 }

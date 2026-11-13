@@ -18,13 +18,21 @@ namespace Platform.Modules.Identity.Services;
 public interface IQrLoginService
 {
     /// <summary>创建待审批会话（匿名入口）。</summary>
+    /// <param name="request">客户端自述信息。</param>
+    /// <param name="ipAddress">发起方 IP。</param>
+    /// <param name="requestOrigin">当前请求的 scheme://host[:port]，仅在未配置 <c>QrLogin:ApprovalUrlBase</c> 时兜底。</param>
+    /// <param name="cancellationToken">取消标记。</param>
     Task<QrSessionCreatedDto> CreateAsync(
         CreateQrSessionRequest request,
         string? ipAddress,
+        string? requestOrigin,
         CancellationToken cancellationToken = default);
 
     /// <summary>客户端轮询状态；批准后用同一请求 id 领取临时令牌。</summary>
     Task<QrSessionStatusDto> GetStatusAsync(Guid requestId, CancellationToken cancellationToken = default);
+
+    /// <summary>管理端按 id 取单个会话概要（手机扫码直达审批页时用）。</summary>
+    Task<QrSessionSummaryDto> GetAsync(Guid requestId, CancellationToken cancellationToken = default);
 
     /// <summary>管理端分页查询会话。</summary>
     Task<PageResult<QrSessionSummaryDto>> ListAsync(
@@ -89,6 +97,7 @@ public sealed class QrLoginService : IQrLoginService
     public async Task<QrSessionCreatedDto> CreateAsync(
         CreateQrSessionRequest request,
         string? ipAddress,
+        string? requestOrigin,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -109,7 +118,18 @@ public sealed class QrLoginService : IQrLoginService
         return new QrSessionCreatedDto(
             session.Id,
             session.ExpiresAt,
-            QrLoginConventions.PayloadPrefix + session.Id.ToString("N"));
+            BuildApprovalUrl(session.Id, requestOrigin));
+    }
+
+    /// <inheritdoc />
+    public async Task<QrSessionSummaryDto> GetAsync(Guid requestId, CancellationToken cancellationToken = default)
+    {
+        var session = await _db.Set<QrLoginSession>()
+                          .AsNoTracking()
+                          .FirstOrDefaultAsync(x => x.Id == requestId, cancellationToken)
+                      ?? throw SessionNotFound(requestId);
+
+        return ToSummary(session, _clock.UtcNow);
     }
 
     /// <inheritdoc />
@@ -418,6 +438,17 @@ public sealed class QrLoginService : IQrLoginService
         var fallback = Math.Max(1, _options.DefaultDurationMinutes);
         var max = Math.Max(fallback, _options.MaxDurationMinutes);
         return Math.Clamp(requestedMinutes ?? fallback, 1, max);
+    }
+
+    /// <summary>
+    /// 二维码里放的是手机相机能直接打开的 https 链接。基址优先取配置：
+    /// 反代把 Host 改成不带端口的主机名时，从请求推出来的地址扫开是连不上的。
+    /// </summary>
+    private string BuildApprovalUrl(Guid requestId, string? requestOrigin)
+    {
+        var baseUrl = Normalize(_options.ApprovalUrlBase) ?? Normalize(requestOrigin);
+        var path = QrLoginConventions.ApprovalPath + requestId.ToString("N");
+        return baseUrl is null ? path : baseUrl.TrimEnd('/') + path;
     }
 
     private static string? NormalizeStatus(string? status)

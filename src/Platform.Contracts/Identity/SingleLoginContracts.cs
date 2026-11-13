@@ -17,19 +17,28 @@ public static class SingleLoginConventions
 
     /// <summary>默认令牌有效期（分钟）。</summary>
     public const int DefaultDurationMinutes = 30;
+
+    /// <summary>可设置的最长有效期（分钟，2 小时）：现场一次作业窗口通常按班次算，半小时不够用。</summary>
+    public const int MaxDurationMinutes = 120;
 }
 
-/// <summary>扫码登录约定。二维码里只放不透明请求 id，它本身就是客户端轮询的能力凭证。</summary>
+/// <summary>扫码登录约定。二维码里放的是管理台审批页的 https 链接，手机相机直接扫开即可。</summary>
 public static class QrLoginConventions
 {
-    /// <summary>二维码载荷前缀；客户端据此解析请求 id。</summary>
-    public const string PayloadPrefix = "appframework://qr-login?requestId=";
+    /// <summary>
+    /// 审批页路径前缀，后面接 <c>N</c> 格式的请求 id。
+    /// 完整载荷 = 管理台公网基址 + 此路径 + 请求 id，例如 <c>https://ops.example.com:8444/qr-login/9f2c…</c>。
+    /// </summary>
+    public const string ApprovalPath = "/qr-login/";
 
     /// <summary>待审批会话的默认存活时间（分钟）。</summary>
     public const int ExpireMinutes = 10;
 
     /// <summary>审批通过后临时令牌的默认有效期（分钟）。</summary>
     public const int DefaultDurationMinutes = 30;
+
+    /// <summary>审批时可指定的最长有效期（分钟，2 小时）。</summary>
+    public const int MaxDurationMinutes = 120;
 }
 
 /// <summary>扫码会话状态。</summary>
@@ -83,7 +92,7 @@ public sealed record CreateQrSessionRequest(string? DeviceFingerprint = null, st
 /// <summary>扫码会话创建结果。</summary>
 /// <param name="RequestId">会话 id（客户端轮询与审批的唯一标识）。</param>
 /// <param name="ExpiresAt">待审批截止时间。</param>
-/// <param name="Payload">二维码载荷文本。</param>
+/// <param name="Payload">二维码载荷文本：管理台审批页的完整 https 链接，末段即请求 id。</param>
 public sealed record QrSessionCreatedDto(Guid RequestId, DateTimeOffset ExpiresAt, string Payload);
 
 /// <summary>扫码会话状态（客户端轮询）。<see cref="Session"/> 仅在批准且令牌未过期时非空。</summary>

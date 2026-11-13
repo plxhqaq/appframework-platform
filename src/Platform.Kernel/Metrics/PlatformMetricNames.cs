@@ -18,6 +18,10 @@ public static class PlatformMetricNames
     public const string ProcessThreads = "platform_process_thread_pool_size";
     public const string HttpRequestDuration = "platform_http_request_duration_seconds";
 
+    // ━━━ 后台维护 ━━━
+    public const string RetentionDeletedRows = "platform_retention_deleted_rows_total";
+    public const string RetentionDeletedFiles = "platform_retention_deleted_files_total";
+
     // ━━━ 横切失败 ━━━
     public const string AuditWriteFailures = "platform_audit_write_failures_total";
     public const string MetricSourceErrors = "platform_metric_source_errors_total";
@@ -36,4 +40,8 @@ public static class PlatformMetricNames
     public const string AuditWriteFailuresHelp = "审计写入失败次数（失败只记日志，不阻断业务）。";
 
     public const string MetricSourceErrorsHelp = "抓取指标时业务数据源采集失败次数。";
+
+    public const string RetentionDeletedRowsHelp = "保留策略清理删除的数据库行数，按任务分组。";
+
+    public const string RetentionDeletedFilesHelp = "保留策略清理删除的物理文件数，按任务分组。";
 }

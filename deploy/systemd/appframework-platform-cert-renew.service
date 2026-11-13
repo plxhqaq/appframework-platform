@@ -1,0 +1,18 @@
+# AppFramework 平台管理台：自签证书到期重签的一次性任务。
+#
+# 这份是模板：deploy.sh 的 install_cert_timer 会把 __SELF__ 换成 deploy.sh 的绝对路径，
+# 再写进 /etc/systemd/system/。手工安装也照这份改，别在 /etc 里另抄一份会漂移的副本。
+#
+# 为什么需要定时器：自签证书只签 397 天（Chrome 对长期证书另加限制），而靠人记得
+# 「快到期了再去跑一下」这件事从来靠不住——到期那天正好是有人要登录管理台的那天。
+[Unit]
+Description=AppFramework 平台管理台自签证书到期重签
+# 网络没起来时 compose exec reload 会白跑一趟；Type=oneshot 让它等网络就绪再动
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# systemd 的这一行是「命令 + 参数」，不是 shell：路径里带空格要靠引号，
+# 也别指望在这里做变量展开（$HOME 之类不会被替换）。
+ExecStart=/usr/bin/env bash "__SELF__" renew-cert

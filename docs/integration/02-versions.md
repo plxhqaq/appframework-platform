@@ -89,8 +89,9 @@ curl -s -X PUT "http://localhost:5080$UPLOAD_URL" \
 ```
 
 - 请求体 `CreateUploadTicketRequest`：`sha256` 必须是 64 位**小写**十六进制（`^[0-9a-f]{64}$`，
-  服务端先 `Trim` 再转小写）；`sizeBytes` 必须 `> 0` 且 `<= Versions:MaxFileSizeBytes`，
-  否则 `12`（HTTP 413）。
+  服务端先 `Trim` 再转小写）；`sizeBytes` 必须 `> 0` 且
+  `<= max(Versions:MaxFileSizeBytes, Versions:MaxPackageSizeBytes)`，否则 `12`（HTTP 413）。
+  票据只承载整包字节数，单文件上限在发布清单校验时才逐条生效。
 - 响应 `UploadTicketDto`：`id`（票据号，即 PUT 地址末段）、`uploadUrl`（**相对本服务的路径**，
   形如 `/api/v1/admin/versions/uploads/{guid}`，不含主机名）、`expiresAt`（`now + Versions:UploadTicketMinutes`）。
 - 直传前服务端把 `MaxRequestBodySize` 收紧为票据声明的 `SizeBytes`，超大请求不会写满磁盘；请求体
@@ -367,7 +368,8 @@ curl -s -X POST http://localhost:5080/api/v1/client/versions/check \
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `Versions:UploadTicketMinutes` | 30 | 票据有效期（分钟），代码 `Math.Max(1, …)` 兜底 |
-| `Versions:MaxFileSizeBytes` | 4294967296 | 单文件上限（4 GiB），票据与清单两处都校验 |
+| `Versions:MaxFileSizeBytes` | 4294967296 | 单文件上限（4 GiB），发布清单逐条校验 |
+| `Versions:MaxPackageSizeBytes` | 4294967296 | 增量包上限（4 GiB）；票据放行取它与单文件上限的较大值 |
 | `Versions:MaxFilesPerArtifact` | 50000 | 单产物文件条数上限 |
 | `BlobStorage:RootPath` | `data/blobs` | Blob 根目录；compose 中 `/data/blobs`（`blobs` 卷） |
 | `BlobStorage:BufferSize` / `TempDirectoryName` | 81920 / `.tmp` | 缓冲区实际取 `Math.Max(4096, 值)`；写入先落 `.part` 再 rename，不留半成品 |

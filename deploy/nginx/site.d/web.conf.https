@@ -1,0 +1,129 @@
+# 平台管理台站点（https 版）：TLS 只在 nginx 终结，应用容器仍旧只听明文 http。
+#
+# 容器启动时 40-site.sh 用 envsubst 渲染 ${API_UPSTREAM} 与 ${WEB_PUBLIC_HTTPS_PORT}
+# 两处，再写进 /etc/nginx/conf.d/default.conf；$host/$scheme 这些 nginx 变量原样留着。
+#
+# 80 与 443 两个 server 的分工照搬老服务端那条约束：
+#   · 浏览器侧要 https：管理台口令不能在内网里裸跑，而且刷新令牌的 Secure 标记是靠
+#     请求头里的 X-Forwarded-Proto 判定的——只有 https 进来才拿得到 Secure Cookie。
+#   · 设备侧不能上 https：客户端（HttpClient/SignalR）没有配置自签信任，硬把它赶上
+#     https 会直接连不上。所以 80 上只保留设备通路（/api、/hubs、探针），其余 301 到 443。
+#   · 绝不给 Kestrel 加 https 绑定：TLS 一进到应用进程，明文请求就要处理重定向，
+#     而设备的地址是现场配的，不该由应用去猜端口。
+#
+# ${WEB_PUBLIC_HTTPS_PORT} 是浏览器实际访问的 https 端口（宿主机发布端口）。本栈默认
+# 8443 这种非标准端口，硬写 443 会把浏览器redirect 到一个没人听的地址；真的另有前置
+# 反代接管了 443，就把 .env 里的 WEB_PUBLIC_HTTPS_PORT 设成 443。
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+gzip on;
+gzip_min_length 1k;
+gzip_comp_level 5;
+gzip_types text/css application/javascript application/json image/svg+xml;
+gzip_vary on;
+
+# 明文 80：只留设备通路，管理台一律 301 上 https
+server {
+    listen 80;
+    listen [::]:80;
+    server_name _;
+
+    client_max_body_size 2100m;
+
+    location /hubs/ {
+        proxy_pass http://${API_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    location /api/ {
+        proxy_pass http://${API_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_request_buffering off;
+        client_body_timeout 900s;
+        proxy_send_timeout 1800s;
+        proxy_read_timeout 300s;
+    }
+
+    location = /healthz { proxy_pass http://${API_UPSTREAM}/healthz; }
+    location = /ready   { proxy_pass http://${API_UPSTREAM}/ready; }
+
+    location / { return 301 https://$host:${WEB_PUBLIC_HTTPS_PORT}$request_uri; }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name _;
+
+    ssl_certificate     /etc/nginx/certs/web.crt;
+    ssl_certificate_key /etc/nginx/certs/web.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:AFWebSSL:10m;
+    ssl_session_timeout 1d;
+    # 刻意不发 HSTS：自签证书一旦被替换或过期，HSTS 会把浏览器锁在错误页里出不来
+    # （没有备用合法地址可跳，只能去清站点数据）。
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    client_max_body_size 2100m;
+
+    location /hubs/ {
+        proxy_pass http://${API_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    location /api/ {
+        proxy_pass http://${API_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_request_buffering off;
+        client_body_timeout 900s;
+        proxy_send_timeout 1800s;
+        proxy_read_timeout 300s;
+    }
+
+    location = /healthz { proxy_pass http://${API_UPSTREAM}/healthz; }
+    location = /ready   { proxy_pass http://${API_UPSTREAM}/ready; }
+    location /scalar/  { proxy_pass http://${API_UPSTREAM}; }
+    location /openapi/ { proxy_pass http://${API_UPSTREAM}; }
+
+    # /metrics 不代理：抓指标走 API 自己发布的端口
+
+    location /assets/ {
+        try_files $uri =404;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

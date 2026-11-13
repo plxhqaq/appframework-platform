@@ -33,6 +33,10 @@ public sealed class AppDirectory : IAppDirectory
         _db.Set<App>().AsNoTracking().AnyAsync(x => x.Key == appKey, cancellationToken);
 
     /// <inheritdoc />
+    public Task<bool> IsEnabledAsync(string appKey, CancellationToken cancellationToken = default) =>
+        _db.Set<App>().AsNoTracking().AnyAsync(x => x.Key == appKey && x.IsEnabled, cancellationToken);
+
+    /// <inheritdoc />
     public async Task EnsureAsync(string appKey, string name, CancellationToken cancellationToken = default)
     {
         if (await ExistsAsync(appKey, cancellationToken))

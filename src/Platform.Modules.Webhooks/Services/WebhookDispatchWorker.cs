@@ -10,8 +10,9 @@ namespace Platform.Modules.Webhooks.Services;
 /// 后台投递循环：按配置间隔扫描到期投递。
 /// </summary>
 /// <remarks>
-/// 单实例假设：多副本部署时需改为分布式租约或行级抢占，否则可能重复外呼；
-/// 接收方用 <c>X-Platform-Delivery</c> 做幂等即可抵御重复。
+/// 单实例假设：启动期 <c>SingleInstanceGuard</c> 用 PostgreSQL advisory lock 挡住第二个副本，
+/// 因此这里不需要分布式租约；扩容前需改为行级抢占。接收方仍应按
+/// <c>X-Platform-Delivery</c> 幂等，抵御重试与人工重投。
 /// </remarks>
 public sealed class WebhookDispatchWorker : BackgroundService
 {
