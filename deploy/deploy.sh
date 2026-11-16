@@ -75,6 +75,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# 镜像构建上下文被 .dockerignore 排除了 .git，版本第四段要在构建前算好传进去。
+if [ -z "${GIT_COMMIT_COUNT:-}" ]; then
+  GIT_COMMIT_COUNT=0
+  if command -v git >/dev/null 2>&1; then
+    GIT_COMMIT_COUNT="$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || echo 0)"
+  fi
+fi
+export GIT_COMMIT_COUNT
 COMPOSE_FILE="$ROOT_DIR/deploy/docker-compose.yml"
 PG_COMPOSE_FILE="$ROOT_DIR/deploy/docker-compose.postgres.yml"
 WEB_COMPOSE_FILE="$ROOT_DIR/deploy/docker-compose.web.yml"

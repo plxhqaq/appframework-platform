@@ -22,7 +22,10 @@ COPY src/Platform.Api/Platform.Api.csproj src/Platform.Api/
 RUN dotnet restore src/Platform.Api/Platform.Api.csproj
 
 COPY src/ src/
-RUN dotnet publish src/Platform.Api/Platform.Api.csproj -c Release -o /app --no-restore /p:UseAppHost=false
+# 构建上下文不含 .git（见根目录 .dockerignore），提交数由 compose 的 build args 传入；
+# 未提供时版本退化为 1.0.0.0，仍保持四段可解析。
+ARG GIT_COMMIT_COUNT=0
+RUN dotnet publish src/Platform.Api/Platform.Api.csproj -c Release -o /app --no-restore /p:UseAppHost=false /p:GitCommitCount=${GIT_COMMIT_COUNT}
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app

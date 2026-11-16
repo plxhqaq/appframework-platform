@@ -25,6 +25,34 @@
     <ProjectReference Include="..\Platform.Modules.Webhooks\Platform.Modules.Webhooks.csproj" />
   </ItemGroup>
 
+  <!--
+    产品版本 = VersionPrefix + git 提交数（第四段），例如 1.0.0.13。
+    契约包/客户端 SDK 走各自的 PlatformContractsVersion / PlatformClientVersion，不受影响。
+    没有 git 元数据（源码包、镜像内构建）时提交数退化为 0，仍保持四段可解析。
+  -->
+  <Target Name="ApplyGitCommitVersion" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo">
+    <PropertyGroup>
+      <GitCommitCount Condition="'$(GitCommitCount)' == ''">0</GitCommitCount>
+    </PropertyGroup>
+    <Exec
+      Command="git rev-list --count HEAD"
+      WorkingDirectory="$(MSBuildProjectDirectory)/../.."
+      ConsoleToMSBuild="true"
+      IgnoreExitCode="true"
+      StandardOutputImportance="low"
+      Condition="'$(GitCommitCount)' == '0'">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitCommitCountOutput" />
+    </Exec>
+    <PropertyGroup Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(_GitCommitCountOutput.Trim())', '^[0-9]+$'))">
+      <GitCommitCount>$(_GitCommitCountOutput.Trim())</GitCommitCount>
+    </PropertyGroup>
+    <PropertyGroup>
+      <Version>$(VersionPrefix).$(GitCommitCount)</Version>
+      <FileVersion>$(VersionPrefix).$(GitCommitCount)</FileVersion>
+      <InformationalVersion>$(VersionPrefix).$(GitCommitCount)</InformationalVersion>
+    </PropertyGroup>
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />

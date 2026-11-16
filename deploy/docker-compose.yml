@@ -22,6 +22,9 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.api
+      args:
+        # deploy.sh 自动取 git 提交数；直接跑 compose 时可用环境变量覆盖
+        GIT_COMMIT_COUNT: ${GIT_COMMIT_COUNT:-0}
     restart: unless-stopped
     environment:
       # 连接串整体由 .env 的 POSTGRES_* 渲染。POSTGRES_HOST/POSTGRES_PORT 是「API 往哪连」，

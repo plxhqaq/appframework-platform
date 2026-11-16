@@ -18,7 +18,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <Company>AppFramework</Company>
     <Product>AppFramework Platform</Product>
-    <VersionPrefix>0.1.0</VersionPrefix>
+    <VersionPrefix>1.0.0</VersionPrefix>
     <!-- 契约包版本：独立于产品版本，客户端以精确版本 pin -->
     <PlatformContractsVersion>0.2.0-preview.2</PlatformContractsVersion>
     <!-- 客户端 SDK 包版本：与契约包同版本线发布，客户端 pin 精确版本 -->
