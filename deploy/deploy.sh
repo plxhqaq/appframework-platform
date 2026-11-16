@@ -38,7 +38,10 @@
 #   --web-port <n>              管理台 http 发布端口，默认 8081；开 https 时它是 301 跳板与设备通路
 #   --web-https-port <n>        管理台 https 发布端口，默认 8443（浏览器实际访问的端口）
 #   --web-bind <地址>           管理台对外绑定地址，默认 0.0.0.0；127.0.0.1 = 只留给宿主反代
-#   --https | --no-https        管理台要不要 TLS。默认开：自签证书，口令不裸跑，Secure Cookie 才生效
+#   --https | --no-https        管理台整站要不要 TLS。默认开：自签证书，口令不裸跑，Secure Cookie 才生效；
+#                               关掉是纯 http（手机微信扫码不弹证书警告，口令/令牌在内网明文）
+#   --qr-base <url>             扫码审批页基址（QR_APPROVAL_URL_BASE，必须手机能打开）。
+#                               切换 --https/--no-https 时脚本会按当前模式自动改写；外部域名钉住用这个
 #   --cert-dir <绝对路径>       证书目录，默认 /var/lib/appframework-platform/certs
 #                               （写不进去时自动退回 <仓库>/deploy/certs 并说明）
 #   --server-name <名字>        自签证书的主机名（CN 与 SAN 里的 DNS 项），默认取 hostname -f
@@ -168,6 +171,7 @@ OPT_CERT_DIR=""
 OPT_SERVER_NAME=""
 OPT_SSL_DAYS=""
 OPT_WEB_HTTPS=""
+OPT_QR_BASE=""
 SERVICES=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -179,6 +183,7 @@ while [ "$#" -gt 0 ]; do
     --no-cert-timer)  NO_CERT_TIMER=1 ;;
     --https)          OPT_WEB_HTTPS=1 ;;
     --no-https)       OPT_WEB_HTTPS=0 ;;
+    --qr-base)        need_value "$1" "${2:-}"; OPT_QR_BASE="$2"; shift ;;
     --force)          FORCE_SIGN=1 ;;
     --yes|-y)         UNINSTALL_YES=1 ;;
     --keep-images)    UNINSTALL_KEEP_IMAGES=1 ;;
@@ -211,11 +216,19 @@ case "$OPT_SERVER_NAME" in
   *[^A-Za-z0-9._-]*) die "--server-name 只能用字母、数字、点、连字符：$OPT_SERVER_NAME" ;;
 esac
 
-if [ -n "$EXISTING_PG$OPT_API_PORT$OPT_API_BIND$OPT_PG_PORT$OPT_BLOBS_DIR$OPT_WEB_HTTP_PORT$OPT_WEB_HTTPS_PORT$OPT_WEB_BIND$OPT_WEB$OPT_CERT_DIR$OPT_SERVER_NAME$OPT_SSL_DAYS$OPT_WEB_HTTPS" ] \
+# 二维码里要写成一个手机相机能直接打开的地址：只认 http/https 绝对地址。
+case "$OPT_QR_BASE" in
+  "") ;;
+  http://*|https://*) ;;
+  *) die "--qr-base 必须是 http:// 或 https:// 开头的绝对地址：$OPT_QR_BASE" ;;
+esac
+
+if [ -n "$EXISTING_PG$OPT_API_PORT$OPT_API_BIND$OPT_PG_PORT$OPT_BLOBS_DIR$OPT_WEB_HTTP_PORT$OPT_WEB_HTTPS_PORT$OPT_WEB_BIND$OPT_WEB$OPT_CERT_DIR$OPT_SERVER_NAME$OPT_SSL_DAYS$OPT_WEB_HTTPS$OPT_QR_BASE" ] \
    && [ "$ACTION" != up ] && [ "$ACTION" != migrate ] && [ "$ACTION" != renew-cert ]; then
   die "这些选项只在 up/migrate/renew-cert 时写 .env（其它动作请直接改 $ENV_FILE 里的对应键）：
   --use-existing-pg --api-port --api-bind --pg-port --blobs-dir
-  --web/--no-web --web-port --web-https-port --web-bind --cert-dir --server-name --days --https/--no-https"
+  --web/--no-web --web-port --web-https-port --web-bind --cert-dir --server-name --days
+  --https/--no-https --qr-base"
 fi
 
 # --force 只对 renew-cert 有意义：留在 up 里会被读成「这次部署强制重签一张新证书」，
@@ -548,13 +561,25 @@ ensure_env() {
 
 # 二维码里写的是手机相机直接打开的审批页链接，基址必须显式喂给 API：
 # nginx 转发的 Host 不带端口，API 从请求里推出来的地址手机扫开连不上。
-# 留空时按「证书 CN 或本机内网 IP + 浏览器实际访问的端口」推一个写回 .env；
-# 已经有值就一个字都不动——现场可能填的是外部域名，脚本猜不出来。
+# 管理台整站切 http/https（--no-https/--https）时，基址跟着当前模式改写，
+# 否则切了 http 还留着旧的 https 链接，手机微信照样弹证书警告。
+# 手工填的外部域名/反代地址用 --qr-base 钉住；没带模式开关的日常 up 不动已有值。
 ensure_qr_approval_base() {
-  [ -n "$(env_value QR_APPROVAL_URL_BASE)" ] && return 0
+  if [ -n "$OPT_QR_BASE" ]; then
+    env_set QR_APPROVAL_URL_BASE "$OPT_QR_BASE"
+    log "扫码审批基址 → QR_APPROVAL_URL_BASE=$OPT_QR_BASE（--qr-base 指定）。"
+    return 0
+  fi
+
   [ "$(env_flag WEB_ENABLED 1)" = 1 ] || return 0
 
-  local host scheme port
+  local host scheme port current desired
+  current="$(env_value QR_APPROVAL_URL_BASE)"
+
+  if [ -n "$current" ] && [ -z "$OPT_WEB_HTTPS" ]; then
+    return 0
+  fi
+
   host="$(env_value WEB_SERVER_NAME)"
   host="${host:-$(lan_ip)}"
   if [ "$(env_flag WEB_HTTPS 1)" = 1 ]; then
@@ -566,9 +591,18 @@ ensure_qr_approval_base() {
     port="$WEB_HTTP_PORT"
   fi
 
-  QR_APPROVAL_URL_BASE="$scheme://$host:$port"
-  env_set QR_APPROVAL_URL_BASE "$QR_APPROVAL_URL_BASE"
-  log "扫码审批基址 → QR_APPROVAL_URL_BASE=$QR_APPROVAL_URL_BASE（写回 .env）。"
+  desired="$scheme://$host:$port"
+  if [ "$current" = "$desired" ]; then
+    return 0
+  fi
+
+  env_set QR_APPROVAL_URL_BASE "$desired"
+  if [ -n "$current" ]; then
+    log "扫码审批基址随管理台模式 → QR_APPROVAL_URL_BASE=$desired（原 $current）。"
+    log "  外部域名/反代地址请用 --qr-base <url> 钉住，避免下次切换模式被改写。"
+  else
+    log "扫码审批基址 → QR_APPROVAL_URL_BASE=$desired（写回 .env）。"
+  fi
   log "  二维码里就是这个地址，手机必须能访问到它；换网段或上域名后改这一项再 bash $SELF up。"
 }
 
@@ -1493,6 +1527,7 @@ print_info() {
   printf '              WEB_ENABLED/--web|--no-web · WEB_HTTP_PORT/--web-port · WEB_HTTPS/--https\n'
   printf '              WEB_HTTPS_PORT/--web-https-port · WEB_BIND_HOST/--web-bind · WEB_CERT_DIR/--cert-dir\n'
   printf '              WEB_SERVER_NAME/--server-name · WEB_SSL_RENEW_DAYS/--days · WEB_API_UPSTREAM\n'
+  printf '              QR_APPROVAL_URL_BASE/--qr-base（切 --https/--no-https 时会按模式自动改写）\n'
   printf '              METRICS_SCRAPE_TOKEN · WEBHOOKS_DISPATCHER_ENABLED · JWT_ACCESS_TOKEN_MINUTES\n'
   printf '  日常动作  bash %s status · logs [api|web|postgres] · health · migrate · up · info\n' "$SELF"
   printf '              证书续期：bash %s renew-cert [--force]\n' "$SELF"

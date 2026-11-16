@@ -1,4 +1,5 @@
 import { request } from './client';
+import { idempotencyKey } from './idempotency';
 import type {
   BackupNamespace,
   BackupSummary,
@@ -15,10 +16,6 @@ import type {
  *
  * 应用隔离轴来自令牌的应用上下文；下发只发推送提示，目标客户端回拉下载并回执。
  */
-function idempotencyKey(): string {
-  return crypto.randomUUID();
-}
-
 function toQueryString(params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {

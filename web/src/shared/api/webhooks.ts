@@ -1,5 +1,6 @@
 import { tr } from '../../i18n/translate';
 import { request } from './client';
+import { idempotencyKey } from './idempotency';
 import type {
   CreateWebhookSubscriptionRequest,
   CreatedWebhookSubscription,
@@ -29,10 +30,6 @@ export const WEBHOOK_EVENT_TYPES = [
 
 /** 单条订阅的事件数上限（与 `WebhookConventions.MaxEventTypes` 一致）。 */
 export const WEBHOOK_MAX_EVENT_TYPES = 20;
-
-function idempotencyKey(): string {
-  return crypto.randomUUID();
-}
 
 function toQueryString(params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams();

@@ -1,4 +1,5 @@
 import { request, uploadWithProgress } from './client';
+import { idempotencyKey } from './idempotency';
 import type {
   CreateReleaseChannelRequest,
   CreateReleaseRequest,
@@ -22,10 +23,6 @@ import type {
  * 应用隔离轴来自访问令牌的应用上下文（`/admin/auth/context` 切换），
  * 前端不传 appKey；创建类接口都带 `Idempotency-Key`。
  */
-function idempotencyKey(): string {
-  return crypto.randomUUID();
-}
-
 export interface ReleaseListQuery {
   page?: number;
   pageSize?: number;

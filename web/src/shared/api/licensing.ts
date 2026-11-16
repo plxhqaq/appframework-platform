@@ -1,4 +1,5 @@
 import { request } from './client';
+import { idempotencyKey } from './idempotency';
 import type {
   CreateLicenseProductRequest,
   IssueLicenseRequest,
@@ -19,10 +20,6 @@ import type {
  * 应用隔离轴来自令牌上下文，前端不传 appKey；创建类接口带 `Idempotency-Key`。
  * 签名密钥是全局资源（公钥不是秘密，客户端匿名发现），不受应用上下文限制。
  */
-function idempotencyKey(): string {
-  return crypto.randomUUID();
-}
-
 export interface EntitlementListQuery {
   page?: number;
   pageSize?: number;

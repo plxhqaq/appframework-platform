@@ -1,4 +1,5 @@
 import { request } from './client';
+import { idempotencyKey } from './idempotency';
 import type {
   ApiKeySummary,
   AppDetail,
@@ -17,10 +18,6 @@ import type {
  * 创建类接口都带 `Idempotency-Key`：网络重试/双击不能造出两个应用或两把密钥。
  * 键由调用方生成并在重试时复用，服务端在 TTL 内回放首次结果。
  */
-function idempotencyKey(): string {
-  return crypto.randomUUID();
-}
-
 export const appsApi = {
   list: (signal?: AbortSignal) => request<AppSummary[]>('/api/v1/admin/apps', { signal }),
 

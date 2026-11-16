@@ -1,4 +1,5 @@
 import { request } from './client';
+import { idempotencyKey } from './idempotency';
 import type {
   ClientDocumentManifest,
   CreateDocumentCollectionRequest,
@@ -16,10 +17,6 @@ import type {
  * 可见性由服务端强制：客户端清单只返回 visibility=client 且集合启用的文档，
  * 前端隐藏只是体验，不构成安全边界。
  */
-function idempotencyKey(): string {
-  return crypto.randomUUID();
-}
-
 function toQueryString(params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {

@@ -1,4 +1,5 @@
 import { request } from './client';
+import { idempotencyKey } from './idempotency';
 import type {
   ApproveQrSessionRequest,
   CreateRoleRequest,
@@ -22,10 +23,6 @@ import type {
  *
  * 用户/角色创建都带 `Idempotency-Key`：网络重试不能造出两个同名账号或角色。
  */
-function idempotencyKey(): string {
-  return crypto.randomUUID();
-}
-
 export interface UserListQuery {
   page?: number;
   pageSize?: number;
