@@ -41,6 +41,7 @@ public sealed class DocumentsModelContributor : IPlatformModelContributor
             builder.Property(static x => x.CollectionId).HasColumnName("collection_id");
             builder.Property(static x => x.Title).HasColumnName("title").HasMaxLength(256).IsRequired();
             builder.Property(static x => x.Visibility).HasColumnName("visibility").HasMaxLength(16).IsRequired();
+            builder.Property(static x => x.ApplicableVersion).HasColumnName("applicable_version").HasMaxLength(64);
             builder.Property(static x => x.Revision).HasColumnName("revision");
             builder.Property(static x => x.FileName).HasColumnName("file_name").HasMaxLength(256).IsRequired();
             builder.Property(static x => x.ContentType).HasColumnName("content_type").HasMaxLength(128);

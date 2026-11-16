@@ -455,6 +455,132 @@ namespace Platform.Infrastructure.Migrations
                     b.ToTable("backup_namespaces", (string)null);
                 });
 
+            modelBuilder.Entity("Platform.Modules.Devices.Domain.Device", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AlarmLevel")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("alarm_level");
+
+                    b.Property<string>("AlarmMessage")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("alarm_message");
+
+                    b.Property<string>("AppKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("app_key");
+
+                    b.Property<string>("AutoName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("auto_name");
+
+                    b.Property<string>("Branch")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("branch");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CustomName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("custom_name");
+
+                    b.Property<string>("DeviceKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("device_key");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("display_name");
+
+                    b.Property<DateTimeOffset?>("FirstConnectedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("first_connected_at");
+
+                    b.Property<string>("FrameworkVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("framework_version");
+
+                    b.Property<int>("HeartbeatSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("heartbeat_seconds");
+
+                    b.Property<Guid?>("InstallGuid")
+                        .HasColumnType("uuid")
+                        .HasColumnName("install_guid");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("ip_address");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<DateTimeOffset?>("LastConnectedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_connected_at");
+
+                    b.Property<DateTimeOffset?>("LastHeartbeatAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_heartbeat_at");
+
+                    b.Property<string>("MachineCode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("machine_code");
+
+                    b.Property<string>("OnlineStatus")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("online_status");
+
+                    b.Property<string>("StationStatus")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("station_status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppKey", "DeviceKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_devices_app_device_key");
+
+                    b.HasIndex("AppKey", "LastHeartbeatAt")
+                        .HasDatabaseName("ix_devices_app_last_heartbeat");
+
+                    b.HasIndex("AppKey", "MachineCode")
+                        .HasDatabaseName("ix_devices_app_machine_code");
+
+                    b.ToTable("devices", (string)null);
+                });
+
             modelBuilder.Entity("Platform.Modules.Documents.Domain.Document", b =>
                 {
                     b.Property<Guid>("Id")
@@ -467,6 +593,11 @@ namespace Platform.Infrastructure.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
                         .HasColumnName("app_key");
+
+                    b.Property<string>("ApplicableVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("applicable_version");
 
                     b.Property<string>("BlobPath")
                         .IsRequired()

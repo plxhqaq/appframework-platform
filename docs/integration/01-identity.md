@@ -155,7 +155,7 @@ curl -s -X POST http://localhost:5080/api/v1/identity/singlekey/redeem \
 - **原子单次**：消费靠一条带条件的 UPDATE（`used_at IS NULL AND expires_at > now AND attempt_count < maxAttempts AND 指纹匹配`），受影响行数为 1 才算赢，多副本并发只有一个成功（`SingleLoginKeyService.cs:136`）。尝试上限 `SingleLogin:MaxAttempts`（默认 5）；指纹不匹配同样累计一次尝试，累计到上限后密钥作废。
 - 临时令牌有效期 = **密钥剩余时间**（`record.ExpiresAt - now`），不是重新计 30 分钟；已过期返回 `106`。响应 `TemporarySessionResponse{accessToken, expiresAt, user}`，**没有刷新令牌**，过期即失去访问。错误码 `105`/`107`/`108` 见第 7 节。
 - 临时主体：`sub` 为随机 v7 guid（不落用户表）、`name` = `temp-user`、`displayName` = `临时用户`、`role` = `engineer`、`is_temporary` = `true`、`app` = 全部启用应用、`machine` = 请求里的 `machineCode`（只写入声明，不与密钥记录比对）。
-- 权限取自内置 `engineer` 角色（`IdentitySeeder.cs`），但**摘掉 `identity.singlekey.issue` 与 `identity.qr.approve`**：剩下 `apps.read`、`versions.*` 的读与下载、`license.product.read`/`license.read`、`backup.*`、`document.*` 与全部 `client.*` 码，不含任何其它 `identity.*` 管理码。
+- 权限取自内置 `engineer` 角色（`IdentitySeeder.cs`），但**摘掉 `identity.singlekey.issue` 与 `identity.qr.approve`**：剩下 `apps.read`、`versions.*` 的读与下载、`license.product.read`/`license.read`、`backup.*`、`device.read`、`document.*` 与全部 `client.*` 码，不含任何其它 `identity.*` 管理码。`device.read` 是备份下发的前置条件：下发改成必须选设备后，没有设备读取权限的账号无法完成下发。
 - 这个内置角色同时给**真人现场工程师账号**用，那份是带签发/审批两个入口码的（否则工程师登录后两个页面都用不了）。两者的边界靠身份种类而不是权限集合：四个管理端点都挂了 `RequireNonTemporaryPrincipal()`，临时令牌即便被管理员手工改开的角色喂饱了权限，也仍然返回 `102`（403），无法自我续期。
 
 ---

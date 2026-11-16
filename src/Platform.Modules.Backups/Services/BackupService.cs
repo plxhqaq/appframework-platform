@@ -23,6 +23,7 @@ public interface IBackupService
         string? namespaceKey,
         string? kind,
         string? keyword,
+        Guid? deviceId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>读取备份详情；不存在/已删除抛 <see cref="ApiErrorCode.BackupsNotFound"/>。</summary>
@@ -99,6 +100,7 @@ public sealed partial class BackupService : IBackupService
         string? namespaceKey,
         string? kind,
         string? keyword,
+        Guid? deviceId = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -115,6 +117,11 @@ public sealed partial class BackupService : IBackupService
         if (!string.IsNullOrWhiteSpace(kind))
         {
             source = source.Where(x => x.Kind == kind);
+        }
+
+        if (deviceId is { } device)
+        {
+            source = source.Where(x => x.DeviceId == device);
         }
 
         if (!string.IsNullOrWhiteSpace(keyword))

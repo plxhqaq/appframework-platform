@@ -136,6 +136,13 @@ public static class ApiErrorHttpStatus
         ApiErrorCode.WebhooksDeliveryNotFound => StatusCodes.Status404NotFound,
         ApiErrorCode.WebhooksDeliveryNotRetryable => StatusCodes.Status409Conflict,
 
+        // ━━━ 设备 ━━━
+        ApiErrorCode.DevicesNotFound => StatusCodes.Status404NotFound,
+        ApiErrorCode.DevicesIdentityInvalid => StatusCodes.Status400BadRequest,
+        ApiErrorCode.DevicesDisabled => StatusCodes.Status403Forbidden,
+        ApiErrorCode.DevicesOffline => StatusCodes.Status409Conflict,
+        ApiErrorCode.DevicesBusy => StatusCodes.Status409Conflict,
+
         _ => StatusCodes.Status500InternalServerError,
     };
 }

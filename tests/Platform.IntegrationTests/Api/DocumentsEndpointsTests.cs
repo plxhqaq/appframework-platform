@@ -62,6 +62,64 @@ public sealed class DocumentsEndpointsTests : IClassFixture<PlatformApiFactory>
     }
 
     [Fact]
+    public async Task 适用版本可上传更新清空并随客户端清单下发()
+    {
+        using var client = _factory.CreateClient();
+        var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
+
+        await CreateCollectionAsync(client, token, "release-guide", "发布手册");
+
+        var legacy = await UploadAsync(
+            client, token, "release-guide", "legacy.txt", "legacy"u8.ToArray());
+        Assert.Null(legacy.ApplicableVersion);
+
+        var document = await UploadAsync(
+            client, token, "release-guide", "guide.txt", "guide-v3"u8.ToArray(),
+            visibility: DocumentConventions.VisibilityClient,
+            applicableVersion: "3.2.0");
+        Assert.Equal("3.2.0", document.ApplicableVersion);
+
+        var manifestItem = Assert.Single(
+            (await GetManifestAsync(client, token)).Items,
+            x => x.DocumentId == document.Id);
+        Assert.Equal("3.2.0", manifestItem.ApplicableVersion);
+
+        var updated = await IdentityTestHelpers.ReadDataAsync<DocumentDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Patch,
+                $"/api/v1/admin/documents/{document.Id}",
+                token,
+                new UpdateDocumentRequest(null, null, "3.3.0"))));
+        Assert.Equal("3.3.0", updated.ApplicableVersion);
+
+        var tooLong = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Patch,
+            $"/api/v1/admin/documents/{document.Id}",
+            token,
+            new UpdateDocumentRequest(
+                null,
+                null,
+                new string('v', DocumentConventions.MaxApplicableVersionLength + 1))));
+        Assert.Equal(
+            (int)ApiErrorCode.ValidationFailed,
+            await IdentityTestHelpers.ReadErrorCodeAsync(tooLong, HttpStatusCode.BadRequest));
+
+        var cleared = await IdentityTestHelpers.ReadDataAsync<DocumentDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Patch,
+                $"/api/v1/admin/documents/{document.Id}",
+                token,
+                new UpdateDocumentRequest(null, null, string.Empty))));
+        Assert.Null(cleared.ApplicableVersion);
+
+        var list = await IdentityTestHelpers.ReadDataAsync<PageResult<DocumentSummaryDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, "/api/v1/admin/documents?collectionKey=release-guide", token)));
+        Assert.Null(list.Items.Single(x => x.Id == legacy.Id).ApplicableVersion);
+        Assert.Null(list.Items.Single(x => x.Id == document.Id).ApplicableVersion);
+    }
+
+    [Fact]
     public async Task 每次上传生成新修订且旧修订仍可下载删除后不可见()
     {
         using var client = _factory.CreateClient();
@@ -164,7 +222,8 @@ public sealed class DocumentsEndpointsTests : IClassFixture<PlatformApiFactory>
         string fileName,
         byte[] content,
         string? visibility = null,
-        string? title = null)
+        string? title = null,
+        string? applicableVersion = null)
     {
         using var form = new MultipartFormDataContent
         {
@@ -179,6 +238,11 @@ public sealed class DocumentsEndpointsTests : IClassFixture<PlatformApiFactory>
         if (title is not null)
         {
             form.Add(new StringContent(title), "title");
+        }
+
+        if (applicableVersion is not null)
+        {
+            form.Add(new StringContent(applicableVersion), "applicableVersion");
         }
 
         var file = new ByteArrayContent(content);

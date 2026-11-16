@@ -32,6 +32,7 @@ curl -s -X POST http://localhost:5080/api/v1/admin/documents/collections \
 | `collectionKey` | 是 | 目标集合键 |
 | `title` | 是 | 文档标题，≤256 字符 |
 | `visibility` | 否 | `client` / `internal`，缺省 **`internal`** |
+| `applicableVersion` | 否 | 适用版本（如客户端框架版本），≤64 字符；空值落 `null` |
 
 ```bash
 curl -s -X POST http://localhost:5080/api/v1/admin/documents \
@@ -94,14 +95,17 @@ curl -s -OJ "http://localhost:5080/api/v1/client/documents/$ID/download" \
   -H "Authorization: Bearer $CLIENT_TOKEN"
 ```
 
-清单条目包含 `documentId`、`collectionKey`、`title`、`revision`、`fileName`、`contentType`、
-`sizeBytes`、`sha256`、`updatedAt` 与服务端生成的 `downloadUrl`。客户端应用文档前应校验 SHA-256。
+清单条目包含 `documentId`、`collectionKey`、`title`、`applicableVersion`、`revision`、`fileName`、
+`contentType`、`sizeBytes`、`sha256`、`updatedAt` 与服务端生成的 `downloadUrl`。
+`applicableVersion` 只是元数据（可空，≤64 字符），不参与可见性判定；旧文档与未填写的文档返回 `null`。
+客户端应用文档前应校验 SHA-256。
 
 下载支持 `ETag`（内容哈希）、`Range`/`206` 与 `If-None-Match`/`304`，文件名按 RFC 5987 下发。
 
 ## 6. 更新、删除与清理
 
-- `PATCH /documents/{id}` 可改标题与可见性。
+- `PATCH /documents/{id}` 可改标题、可见性与适用版本。
+- 更新契约里 `applicableVersion` 省略（`null`）= 不修改，传空串 = 清空；超长 400 `ValidationFailed`。
 - `DELETE /documents/{id}` 是软删除：立刻从管理端列表、客户端清单与下载中消失。
 - 宽限期后由 `RetentionWorker` 清理：先删修订文件与文档文件，再删 `document_revisions` 与 `documents` 行；
   文件删不掉时保留行，下一轮重试。

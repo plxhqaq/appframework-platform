@@ -38,6 +38,50 @@ export interface WhoAmI {
   appKeys: string[];
 }
 
+/** 总览仪表盘快照（GET /api/v1/platform/dashboard）。 */
+export interface PlatformDashboard {
+  serverTime: string;
+  startedAt: string;
+  uptimeSeconds: number;
+  system: SystemStatus;
+  devices: DeviceStatistics;
+  platform: PlatformInfo;
+}
+
+/** 进程与资源状态。 */
+export interface SystemStatus {
+  status: string;
+  cpuUsagePercent: number;
+  memoryUsagePercent: number;
+  workingSetBytes: number;
+  managedMemoryBytes: number;
+  totalMemoryBytes: number;
+  availableStorageBytes?: number | null;
+  processorCount: number;
+}
+
+/** 设备统计；connected 为实时连接数。 */
+export interface DeviceStatistics {
+  total: number;
+  online: number;
+  idle: number;
+  running: number;
+  offline: number;
+  disabled: number;
+  connected: number;
+}
+
+/** 运行平台信息。 */
+export interface PlatformInfo {
+  machineName: string;
+  osDescription: string;
+  osArchitecture: string;
+  runtimeVersion: string;
+  environmentName: string;
+  platformVersion: string;
+  moduleCount: number;
+}
+
 /** 分页结果（与服务端 PageResult<T> 对齐）。 */
 export interface PageResult<T> {
   items: T[];
@@ -708,21 +752,38 @@ export interface CreateBackupRequest {
 
 /** 下发备份；服务端复核渠道硬门禁与主版本兼容。 */
 export interface PushBackupRequest {
+  /** 兼容字段：单设备下发；与 targetDeviceIds 合并去重。 */
   targetDeviceId?: string | null;
+  /** 目标设备集合（多选）。留空且未显式广播时服务端拒绝。 */
+  targetDeviceIds?: string[] | null;
+  /** 显式应用组广播（兼容能力，管理台不提供）。 */
+  broadcastToApp?: boolean;
   targetChannel?: string | null;
   targetFrameworkVersion?: string | null;
   restartAfterApply: boolean;
   force: boolean;
+  /** 仅单设备下发允许；多设备时服务端拒绝。 */
   currentHash?: string | null;
   confirmCrossDevice: boolean;
 }
 
-/** 下发结果。 */
+/** 单台设备的下发结果。 */
+export interface PushTargetResult {
+  deviceId: string;
+  delivered: boolean;
+  acked: boolean;
+  success: boolean;
+  message?: string | null;
+}
+
+/** 下发结果；多设备时 success 表示全部目标成功。 */
 export interface PushBackupResult {
   acked: boolean;
   success: boolean;
   message?: string | null;
   snapshotBackupId?: string | null;
+  /** 逐设备结果；应用组广播时为空。 */
+  targets?: PushTargetResult[] | null;
 }
 
 /** 文档集合。 */
@@ -773,6 +834,7 @@ export interface DocumentSummary {
   collectionKey: string;
   title: string;
   visibility: DocumentVisibility;
+  applicableVersion?: string | null;
   revision: number;
   fileName: string;
   sizeBytes: number;
@@ -786,10 +848,11 @@ export interface DocumentDetail extends DocumentSummary {
   revisions: DocumentRevision[];
 }
 
-/** 更新文档元数据。 */
+/** 更新文档元数据；applicableVersion 传空串表示清空。 */
 export interface UpdateDocumentRequest {
   title?: string | null;
   visibility?: DocumentVisibility | null;
+  applicableVersion?: string | null;
 }
 
 /** 客户端文档清单条目。 */
@@ -797,6 +860,7 @@ export interface ClientDocument {
   documentId: string;
   collectionKey: string;
   title: string;
+  applicableVersion?: string | null;
   revision: number;
   fileName: string;
   contentType?: string | null;
@@ -810,6 +874,61 @@ export interface ClientDocument {
 export interface ClientDocumentManifest {
   items: ClientDocument[];
   generatedAt: string;
+}
+
+/** 设备在线状态。 */
+export type DeviceOnlineStatus = 'online' | 'offline';
+
+/** 工位状态：idle 才允许下发配置/档案。 */
+export type DeviceStationStatus = 'idle' | 'online';
+
+/** 设备报警级别。 */
+export type DeviceAlarmLevel = 'none' | 'info' | 'warning' | 'error';
+
+/** 设备摘要（管理端列表）。 */
+export interface DeviceSummary {
+  id: string;
+  shortId: string;
+  machineCode: string;
+  displayName: string;
+  autoName?: string | null;
+  customName?: string | null;
+  ipAddress?: string | null;
+  branch?: string | null;
+  frameworkVersion?: string | null;
+  onlineStatus: DeviceOnlineStatus;
+  stationStatus: DeviceStationStatus;
+  alarmLevel: DeviceAlarmLevel;
+  alarmMessage?: string | null;
+  lastConnectedAt?: string | null;
+  lastHeartbeatAt?: string | null;
+  heartbeatSeconds: number;
+  isEnabled: boolean;
+}
+
+/** 设备详情。 */
+export interface DeviceDetail extends DeviceSummary {
+  deviceKey: string;
+  installGuid?: string | null;
+  firstConnectedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 更新设备；customName 传空串表示清除。 */
+export interface UpdateDeviceRequest {
+  customName?: string | null;
+  isEnabled?: boolean | null;
+}
+
+/** 重启设备。 */
+export interface DeviceRestartRequest {
+  reason?: string | null;
+}
+
+/** 重启受理结果。 */
+export interface DeviceRestartAccepted {
+  deviceId: string;
 }
 
 /** 审计记录（平台级只读视图）。 */

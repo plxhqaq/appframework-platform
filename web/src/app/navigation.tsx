@@ -2,6 +2,7 @@ import {
   AppstoreOutlined,
   DashboardOutlined,
   DatabaseOutlined,
+  DesktopOutlined,
   FileTextOutlined,
   HistoryOutlined,
   KeyOutlined,
@@ -73,6 +74,13 @@ export const NAV_ITEMS: NavItem[] = [
     icon: <RocketOutlined />,
     label: '更新器',
     anyOf: [PERMISSIONS.versionsReleaseRead],
+    requiresApp: true,
+  },
+  {
+    key: '/devices',
+    icon: <DesktopOutlined />,
+    label: '设备',
+    anyOf: [PERMISSIONS.deviceRead],
     requiresApp: true,
   },
   {

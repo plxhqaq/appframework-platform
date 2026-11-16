@@ -35,9 +35,9 @@ curl -s http://localhost:5080/openapi/v1.json | jq '{paths: (.paths|length), sch
 
 | 项 | 说明 |
 |---|---|
-| `paths` | 全部业务端点（约 90 条），含 `tags`、`summary`、`operationId`、`requestBody` 的 schema 引用 |
-| `components.schemas` | 请求/响应 DTO 记录（约 40 个） |
-| `tags` | `platform` / `apps` / `identity` / `versions` / `licensing` / `backups` / `documents` / `webhooks` |
+| `paths` | 全部业务端点（约 96 条），含 `tags`、`summary`、`operationId`、`requestBody` 的 schema 引用 |
+| `components.schemas` | 请求/响应 DTO 记录（约 55 个） |
+| `tags` | `platform` / `apps` / `identity` / `versions` / `licensing` / `devices` / `backups` / `documents` / `webhooks` |
 | `servers` | 由**当前请求的基址**推导，从反向代理后面拿到的地址可能与外网地址不一致 |
 
 没有（刻意的，也是已知缺口）：
@@ -66,16 +66,17 @@ dotnet pack src/Platform.Contracts/Platform.Contracts.csproj -c Release \
   -p:PackageId=AppFramework.Platform.Contracts -o artifacts/packages
 ```
 
-版本由 `Directory.Build.props` 的 `PlatformContractsVersion` 给出（当前 `0.2.0-preview.1`），
+版本由 `Directory.Build.props` 的 `PlatformContractsVersion` 给出（当前 `0.2.0-preview.2`），
 零第三方依赖，包内含：
 
 | 内容 | 类型 |
 |---|---|
-| 各模块 DTO / 请求记录 | `Platform.Contracts.{Apps,Identity,Versions,Licensing,Backups,Documents,Webhooks,Audit}` |
-| 错误码分段枚举 | `ApiErrorCode`（0–99 通用 / 100 身份 / 200 版本 / 300 授权 / 400 备份 / 500 文档 / 600 应用 / 700 Webhook） |
+| 各模块 DTO / 请求记录 | `Platform.Contracts.{Apps,Identity,Versions,Licensing,Devices,Backups,Documents,Webhooks,Audit}` |
+| 错误码分段枚举 | `ApiErrorCode`（0–99 通用 / 100 身份 / 200 版本 / 300 授权 / 400 备份 / 500 文档 / 600 应用 / 700 Webhook / 800 设备） |
 | 统一返回信封 | `ApiResult` / `ApiResult<T>` |
 | 权限码目录 | `PermissionCatalog`（含 `Wildcard`）、`ClientPermissionCatalog`、`PermissionDescriptor` |
-| SignalR 契约 | `PlatformHubPaths.Root = "/hubs/platform"`、分组 `app:{appKey}`、事件名 `LicenseChanged` / `ConfigPush` / `ConfigPushAck` / `QrLoginApproved` / `ReleasePublished` / `DocumentChanged` 及通知记录类型 |
+| SignalR 契约 | `PlatformHubPaths.Root = "/hubs/platform"`、`DeviceHubPaths.Root = "/hubs/devices"`、分组 `app:{appKey}` / `device:{deviceId}`、事件名 `LicenseChanged` / `ConfigPush` / `ConfigPushAck` / `QrLoginApproved` / `ReleasePublished` / `DocumentChanged` / `Restart` / `SessionReplaced` 及通知记录类型 |
+| 设备身份 | `DeviceIdentityHasher`（稳定键/机器码，客户端与服务端必须同结果）、`DeviceNaming` 与状态词表 |
 | 分页 | `PageQuery` / `PageResult<T>` |
 | 约定与常量 | `PlatformConventions`（路由前缀、头名、声明名、认证方案名）、`PlatformModuleKeys`、`PlatformRoutes` |
 | 授权编解码 | `LicenseSnapshotCodec` / `OfflineLicenseCodec` / `Base32Crockford` / `LicenseConventions` |
@@ -100,7 +101,7 @@ CI 会 `dotnet pack` 契约包与客户端 SDK 两个包，一起作为 `contrac
 dotnet pack src/AppFramework.Platform.Client/AppFramework.Platform.Client.csproj -c Release -o artifacts/packages
 
 # 客户端仓库
-dotnet add package AppFramework.Platform.Client --version 0.2.0-preview.1
+dotnet add package AppFramework.Platform.Client --version 0.2.0-preview.2
 ```
 
 版本线跟契约包一致（`Directory.Build.props` 的 `PlatformClientVersion`），
@@ -136,6 +137,7 @@ PLATFORM_PASSWORD='<管理台种子口令，只走环境变量>' \
 
 ```bash
 curl -s http://localhost:5080/api/v1/platform/modules     # 模块键、路由前缀、所需权限码
+curl -s http://localhost:5080/api/v1/platform/dashboard   # 仪表盘：系统状态、资源占用、设备统计（需登录）
 curl -s http://localhost:5080/api/v1/platform/permissions # 全部权限码描述符（code/moduleKey/displayNameKey/sort/platformAdminOnly）
 curl -s http://localhost:5080/api/v1/webhooks/info        # 单模块自述（匿名）
 ```
@@ -150,7 +152,7 @@ curl -s http://localhost:5080/api/v1/webhooks/info        # 单模块自述（�
 1. **拿 Scalar 调试通过就以为契约完整** —— Scalar 不会提醒你错误分支没有模型；业务失败仍然是 HTTP 200 + `isSuccess=false` 的情况在文档里完全看不出来。
 2. **用生成器代码接下载端点** —— 版本/备份/文档下载是流式 + Range + ETag，`Results.Stream` 不是 JSON 信封，生成器会按 200 schema 去反序列化。
 3. **忽略 `X-App-Key`** —— M2M 换发令牌靠 `X-App-Key` + `X-Api-Key` 两个头，OpenAPI 里没有它们。
-4. **把 `info.version` 当包版本** —— 它是 `v1`，与 `0.2.0-preview.1` 无关；pin 版本看 `Directory.Build.props`。
+4. **把 `info.version` 当包版本** —— 它是 `v1`，与 `0.2.0-preview.2` 无关；pin 版本看 `Directory.Build.props`。
 5. **改了端点没同步文档** —— CI 不校验 OpenAPI，`docs/integration/*` 才是人工同步点。
 
 ---
@@ -158,4 +160,5 @@ curl -s http://localhost:5080/api/v1/webhooks/info        # 单模块自述（�
 相关文档：
 [`00-quickstart.md`](00-quickstart.md) ·
 [`06-webhooks-and-audit.md`](06-webhooks-and-audit.md) ·
-[`08-observability.md`](08-observability.md)
+[`08-observability.md`](08-observability.md) ·
+[`11-devices.md`](11-devices.md)

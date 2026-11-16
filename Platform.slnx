@@ -10,6 +10,7 @@
     <Project Path="src/Platform.Kernel/Platform.Kernel.csproj" />
     <Project Path="src/Platform.Modules.Apps/Platform.Modules.Apps.csproj" />
     <Project Path="src/Platform.Modules.Backups/Platform.Modules.Backups.csproj" />
+    <Project Path="src/Platform.Modules.Devices/Platform.Modules.Devices.csproj" />
     <Project Path="src/Platform.Modules.Documents/Platform.Modules.Documents.csproj" />
     <Project Path="src/Platform.Modules.Identity/Platform.Modules.Identity.csproj" />
     <Project Path="src/Platform.Modules.Licensing/Platform.Modules.Licensing.csproj" />

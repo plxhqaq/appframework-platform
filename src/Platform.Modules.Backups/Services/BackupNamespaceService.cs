@@ -31,6 +31,13 @@ public interface IBackupNamespaceService
 
     /// <summary>按应用 + 键读取启用中的命名空间；不存在抛 <see cref="ApiErrorCode.BackupsNamespaceNotFound"/>。</summary>
     Task<BackupNamespace> GetEnabledAsync(string appKey, string key, CancellationToken cancellationToken = default);
+
+    /// <summary>幂等确保命名空间存在（已存在不改动）；用于客户端首次按设备上传。</summary>
+    Task EnsureAsync(
+        string appKey,
+        string key,
+        string name,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>命名空间服务实现。</summary>
@@ -172,6 +179,43 @@ public sealed partial class BackupNamespaceService : IBackupNamespaceService
         }
 
         return entity;
+    }
+
+    /// <inheritdoc />
+    public async Task EnsureAsync(
+        string appKey,
+        string key,
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(appKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+
+        if (await _db.Set<BackupNamespace>()
+                .AnyAsync(x => x.AppKey == appKey && x.Key == key, cancellationToken))
+        {
+            return;
+        }
+
+        var entity = new BackupNamespace
+        {
+            AppKey = appKey,
+            Key = key,
+            Name = name,
+            Channel = BackupConventions.DefaultChannel,
+            MaxVersions = _options.DefaultMaxVersions,
+        };
+
+        _db.Set<BackupNamespace>().Add(entity);
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // 并发首次上传：唯一索引兜底，另一个请求已创建，视为成功。
+            _db.ChangeTracker.Clear();
+        }
     }
 
     private static string RequireName(string? name)

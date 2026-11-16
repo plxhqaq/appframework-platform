@@ -20,6 +20,7 @@
     <ProjectReference Include="..\Platform.Modules.Versions\Platform.Modules.Versions.csproj" />
     <ProjectReference Include="..\Platform.Modules.Licensing\Platform.Modules.Licensing.csproj" />
     <ProjectReference Include="..\Platform.Modules.Backups\Platform.Modules.Backups.csproj" />
+    <ProjectReference Include="..\Platform.Modules.Devices\Platform.Modules.Devices.csproj" />
     <ProjectReference Include="..\Platform.Modules.Documents\Platform.Modules.Documents.csproj" />
     <ProjectReference Include="..\Platform.Modules.Webhooks\Platform.Modules.Webhooks.csproj" />
   </ItemGroup>

@@ -68,6 +68,8 @@ public class PlatformApiFactory : WebApplicationFactory<Program>
                 ["Webhooks:DispatcherEnabled"] = "false",
                 // 摄取循环在测试里关闭，用例直接驱动 IReleasePackageIngestionService，避免时序抖动
                 ["Versions:IngestionEnabled"] = "false",
+                // 设备离线扫描在测试里关闭，用例直接驱动 IDevicePresence
+                ["Devices:OfflineScanEnabled"] = "false",
                 // 测试机的临时盘容量不可控，磁盘保护用配置关掉；默认值在生产仍是 5 GiB
                 ["Versions:MinFreeDiskBytes"] = "0",
                 // 登记类用例在一次宿主内会连续发多个请求，放大版本入口配额避免误触 429

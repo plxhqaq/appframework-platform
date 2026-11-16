@@ -18,6 +18,9 @@ public static class DocumentConventions
     /// <summary>文件名最大长度。</summary>
     public const int MaxFileNameLength = 256;
 
+    /// <summary>适用版本最大长度。</summary>
+    public const int MaxApplicableVersionLength = 64;
+
     /// <summary>是否合法的可见性。</summary>
     public static bool IsValidVisibility(string? visibility) =>
         visibility is VisibilityClient or VisibilityInternal;
@@ -61,6 +64,7 @@ public sealed record DocumentSummaryDto(
     string CollectionKey,
     string Title,
     string Visibility,
+    string? ApplicableVersion,
     int Revision,
     string FileName,
     long SizeBytes,
@@ -74,6 +78,7 @@ public sealed record DocumentDetailDto(
     string CollectionKey,
     string Title,
     string Visibility,
+    string? ApplicableVersion,
     int Revision,
     string FileName,
     long SizeBytes,
@@ -82,14 +87,15 @@ public sealed record DocumentDetailDto(
     DateTimeOffset UpdatedAt,
     IReadOnlyList<DocumentRevisionDto> Revisions);
 
-/// <summary>更新文档元数据（不产生新修订）。</summary>
-public sealed record UpdateDocumentRequest(string? Title, string? Visibility);
+/// <summary>更新文档元数据（不产生新修订）；字段为 null 表示不修改，<see cref="ApplicableVersion"/> 传空串表示清空。</summary>
+public sealed record UpdateDocumentRequest(string? Title, string? Visibility, string? ApplicableVersion = null);
 
 /// <summary>客户端文档清单条目；下载地址由服务端生成，客户端不得自行拼接。</summary>
 public sealed record ClientDocumentDto(
     Guid DocumentId,
     string CollectionKey,
     string Title,
+    string? ApplicableVersion,
     int Revision,
     string FileName,
     string? ContentType,

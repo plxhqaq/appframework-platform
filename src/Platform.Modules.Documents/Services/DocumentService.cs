@@ -70,6 +70,7 @@ public sealed record DocumentUpload(
     string? CollectionKey,
     string? Title,
     string? Visibility,
+    string? ApplicableVersion,
     string? FileName,
     string? ContentType,
     long SizeBytes,
@@ -203,6 +204,7 @@ public sealed partial class DocumentService : IDocumentService
         var fileName = NormalizeFileName(upload.FileName);
         var title = NormalizeTitle(upload.Title, fileName);
         var visibility = NormalizeVisibility(upload.Visibility);
+        var applicableVersion = NormalizeApplicableVersion(upload.ApplicableVersion);
         var contentType = NormalizeContentType(upload.ContentType);
         ValidateSize(upload.SizeBytes);
 
@@ -212,6 +214,7 @@ public sealed partial class DocumentService : IDocumentService
             CollectionId = collection.Id,
             Title = title,
             Visibility = visibility,
+            ApplicableVersion = applicableVersion,
             Revision = 1,
             FileName = fileName,
             ContentType = contentType,
@@ -404,6 +407,11 @@ public sealed partial class DocumentService : IDocumentService
             document.Visibility = NormalizeVisibility(request.Visibility);
         }
 
+        if (request.ApplicableVersion is not null)
+        {
+            document.ApplicableVersion = NormalizeApplicableVersion(request.ApplicableVersion);
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
         return await GetAsync(appKey, id, cancellationToken);
     }
@@ -531,6 +539,7 @@ public sealed partial class DocumentService : IDocumentService
                 x.Id,
                 CollectionKey = x.Collection.Key,
                 x.Title,
+                x.ApplicableVersion,
                 x.Revision,
                 x.FileName,
                 x.ContentType,
@@ -545,6 +554,7 @@ public sealed partial class DocumentService : IDocumentService
                 x.Id,
                 x.CollectionKey,
                 x.Title,
+                x.ApplicableVersion,
                 x.Revision,
                 x.FileName,
                 x.ContentType,
@@ -630,6 +640,20 @@ public sealed partial class DocumentService : IDocumentService
             : throw BusinessException.Invalid("visibility 只能是 client 或 internal。");
     }
 
+    private static string? NormalizeApplicableVersion(string? applicableVersion)
+    {
+        var value = applicableVersion?.Trim();
+        if (string.IsNullOrEmpty(value))
+        {
+            return null;
+        }
+
+        return value.Length > DocumentConventions.MaxApplicableVersionLength
+            ? throw BusinessException.Invalid(
+                $"适用版本不超过 {DocumentConventions.MaxApplicableVersionLength} 个字符。")
+            : value;
+    }
+
     private static string NormalizeFileName(string? fileName)
     {
         var value = Path.GetFileName(fileName?.Trim() ?? string.Empty);
@@ -663,6 +687,7 @@ public sealed partial class DocumentService : IDocumentService
             collectionKey,
             entity.Title,
             entity.Visibility,
+            entity.ApplicableVersion,
             entity.Revision,
             entity.FileName,
             entity.SizeBytes,
@@ -679,6 +704,7 @@ public sealed partial class DocumentService : IDocumentService
             collectionKey,
             entity.Title,
             entity.Visibility,
+            entity.ApplicableVersion,
             entity.Revision,
             entity.FileName,
             entity.SizeBytes,

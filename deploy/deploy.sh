@@ -20,6 +20,10 @@
 #                                 只在账号不存在时写入，所以「info 印的引导口令进不去」不会自己好；
 #                                 .env 为空时先生成一个再写回。执行后该账号全部旧会话作废
 #   status | logs [服务...] | health | down
+#   uninstall                     开发期重置：拆掉本栈容器/网络/卷（嵌入库 pgdata 与附件 blobs）、
+#                                 本栈镜像、deploy/.env、自签证书与重签定时器，回到「从没部署过」。
+#                                 外部库模式不会 DROP 别人的库，只打印该就地执行的 SQL。
+#                                 默认交互确认；--yes 免确认。想重新部署就紧接着 up
 #   info                          只读重打现场要抄的信息（凭据脱敏），不碰 docker、不改任何文件
 #   info --show-secrets           同上，并打印 JWT 签名密钥、数据库口令、授权私钥全文
 #
@@ -41,6 +45,14 @@
 #   --days <n>                  自签证书剩多少天内才重签，默认 30
 #   --no-cert-timer             不装每天定时重签的 systemd 定时器（自己安排续期时用）
 #   --force                     只给 renew-cert：不管还剩多少天，立刻重签
+#   --yes                       只给 uninstall：跳过交互确认（脚本/CI 里用）
+#   --keep-images               只给 uninstall：保留本栈构建的镜像，下次 up 省一次构建
+#   --keep-env                  只给 uninstall：保留 deploy/.env（口令与密钥沿用）
+#   --keep-certs                只给 uninstall：保留自签证书（浏览器已记住的例外继续有效）
+#   --purge-blobs               只给 uninstall：连 --blobs-dir 指向的宿主机附件目录一起删；
+#                               默认只删具名卷 blobs，绑到数据盘的目录不会被脚本擅自清空
+#   --drop-external-db          只给 uninstall：外部库模式下连数据一起清（DROP + 重建同名空库）。
+#                               不加就只打印该执行的 SQL——外部库可能还装着别的应用的库
 #   --no-license-key            不生成授权签发私钥，授权模块整体保持 unmanaged
 #   --skip-preflight            跳过端口占用预探测（明知端口能用时；谨慎，撞端口要等构建完才报）
 #   --show-secrets              汇总里打印密钥全文（默认脱敏）
@@ -85,7 +97,7 @@ usage() {
 # ── 参数 ────────────────────────────────────────────────────────────────
 ACTION="up"
 case "${1:-}" in
-  up|migrate|status|logs|health|down|info|fix-pg-password|renew-cert|reset-admin-password) ACTION="$1"; shift ;;
+  up|migrate|status|logs|health|down|info|fix-pg-password|renew-cert|reset-admin-password|uninstall) ACTION="$1"; shift ;;
 esac
 
 # 选项校验放在参数循环之前定义：bash 按定义顺序执行函数，循环里要用到它们。
@@ -128,6 +140,13 @@ NO_LICENSE_KEY=0
 SKIP_PREFLIGHT=0
 NO_CERT_TIMER=0
 FORCE_SIGN=0
+UNINSTALL_YES=0
+UNINSTALL_KEEP_IMAGES=0
+UNINSTALL_KEEP_ENV=0
+UNINSTALL_KEEP_CERTS=0
+UNINSTALL_PURGE_BLOBS=0
+UNINSTALL_DROP_EXTERNAL_DB=0
+UNINSTALL_HAS_ENV=0
 EXISTING_PG=""
 OPT_API_PORT=""
 OPT_API_BIND=""
@@ -153,6 +172,12 @@ while [ "$#" -gt 0 ]; do
     --https)          OPT_WEB_HTTPS=1 ;;
     --no-https)       OPT_WEB_HTTPS=0 ;;
     --force)          FORCE_SIGN=1 ;;
+    --yes|-y)         UNINSTALL_YES=1 ;;
+    --keep-images)    UNINSTALL_KEEP_IMAGES=1 ;;
+    --keep-env)       UNINSTALL_KEEP_ENV=1 ;;
+    --keep-certs)     UNINSTALL_KEEP_CERTS=1 ;;
+    --purge-blobs)    UNINSTALL_PURGE_BLOBS=1 ;;
+    --drop-external-db) UNINSTALL_DROP_EXTERNAL_DB=1 ;;
     --use-existing-pg)
       need_value "$1" "${2:-}"; EXISTING_PG="$2"; shift ;;
     --api-port)   need_value "$1" "${2:-}"; OPT_API_PORT="$2"; check_port "$1" "$2"; shift ;;
@@ -191,10 +216,16 @@ if [ "$FORCE_SIGN" = 1 ] && [ "$ACTION" != renew-cert ]; then
   die "--force 只给 renew-cert 用（up 会按剩余有效期自己决定要不要重签，不需要顶）"
 fi
 
+# 重置选项只属于 uninstall：写在 up 里会被读成「这次部署顺手删掉点什么」，代价太大。
+if [ "$UNINSTALL_YES$UNINSTALL_KEEP_IMAGES$UNINSTALL_KEEP_ENV$UNINSTALL_KEEP_CERTS$UNINSTALL_PURGE_BLOBS$UNINSTALL_DROP_EXTERNAL_DB" != "000000" ] \
+   && [ "$ACTION" != uninstall ]; then
+  die "--yes / --keep-images / --keep-env / --keep-certs / --purge-blobs / --drop-external-db 只给 uninstall 用"
+fi
+
 # 只有 logs 收位置参数（服务名）。其它动作收到多余参数基本是动作本身拼错了，
 # 静默忽略的话 `deploy.sh ap` 会被当成 up 真去构建部署，现场完全看不出打错了字。
 if [ "${#SERVICES[@]}" -gt 0 ] && [ "$ACTION" != logs ]; then
-  die "$ACTION 不接收这些参数：${SERVICES[*]}（动作拼错了？可用 up|migrate|fix-pg-password|renew-cert|reset-admin-password|status|logs|health|down|info）"
+  die "$ACTION 不接收这些参数：${SERVICES[*]}（动作拼错了？可用 up|migrate|fix-pg-password|renew-cert|reset-admin-password|status|logs|health|down|uninstall|info）"
 fi
 
 # ── 依赖检查（info 是只读动作，不需要 docker） ──────────────────────────
@@ -1465,6 +1496,214 @@ print_info() {
   printf '    dotnet run --project %s/samples/ConsoleQuickstart -c Release\n' "$ROOT_DIR"
 }
 
+# ── uninstall：开发期拆回「从没部署过」 ─────────────────────────────────
+# 与 down 的分界是「环境状态留不留」：down 只停容器，下次 up 接着用旧库、旧口令、旧证书；
+# uninstall 删容器/网络/卷/镜像/.env/自签证书/重签定时器，下一把 up 是全新的现场。
+# 外部库是别人的实例：默认只拆本栈容器，不 DROP / ALTER，只把该手工执行的 SQL 打出来；
+# 显式 --drop-external-db 才清 .env 指定的那一个库（DROP + 重建同名空库）。
+UNINSTALL_PROJECT="appframework-platform"
+
+# --purge-blobs 删的是 .env 里配的任意绝对路径，必须在动容器之前先把明显越界的挡掉：
+# 一旦这个路径是仓库的祖先目录，后面 rm -rf 会把代码树一起带走。
+check_purge_blob_path() {
+  [ "$UNINSTALL_PURGE_BLOBS" = 1 ] || return 0
+  case "${BLOB_PATH:-}" in
+    '') warn "--purge-blobs：.env 里没有 BLOB_STORAGE_HOST_PATH，附件在具名卷 blobs 里，已随卷删除。" ;;
+    /|/home|/root|/var|/usr|/etc|/opt|/tmp)
+      die "拒绝删除 $BLOB_PATH：这是系统/家目录本身，不可能是附件目录。" ;;
+    /*)
+      case "$BLOB_PATH" in
+        */../*|*/..) die "拒绝删除 $BLOB_PATH：路径里带 ..，规范化后可能指向仓库或系统目录。" ;;
+      esac
+      case "$ROOT_DIR/" in
+        "$BLOB_PATH"/*) die "拒绝删除 $BLOB_PATH：本仓库就在它里面，删了会连代码一起带走。" ;;
+      esac
+      ;;
+    *) die "--purge-blobs 指向的不是绝对路径：$BLOB_PATH" ;;
+  esac
+}
+
+confirm_uninstall() {
+  local ans db
+  if [ "$UNINSTALL_HAS_ENV" = 1 ] && [ "$EMBEDDED_PG" = 0 ]; then
+    if [ "$UNINSTALL_DROP_EXTERNAL_DB" = 1 ]; then
+      db="容器与网络；外部库 ${PG_HOST:-?}:${PG_PORT:-?}/${PG_DB:-?} 连数据一起清"
+    else
+      db="容器与网络；外部库 ${PG_HOST:-?}:${PG_PORT:-?}/${PG_DB:-?} 不动"
+    fi
+  elif [ "$UNINSTALL_HAS_ENV" = 1 ]; then
+    db="容器、网络、数据卷（嵌入库 pgdata 整库 + 附件 blobs）"
+  else
+    db="本项目的容器、网络、数据卷（pgdata / blobs，如果存在）"
+  fi
+  if [ "$UNINSTALL_YES" = 1 ]; then return 0; fi
+  [ -t 0 ] || die "没有交互终端，不替你删东西：确认无误后加 --yes 重跑（bash $SELF uninstall --yes）。"
+  printf '即将删除（开发期重置，不可恢复）：\n'
+  printf '  · %s\n' "$db"
+  if [ "$UNINSTALL_KEEP_IMAGES" != 1 ]; then printf '  · 本栈镜像（下次 up 重新构建）\n'; fi
+  if [ "$UNINSTALL_KEEP_ENV" != 1 ]; then
+    printf '  · deploy/.env（口令/JWT/授权私钥；下次 up 重新生成，已签发的离线授权码会失效）\n'
+  fi
+  if [ "$UNINSTALL_KEEP_CERTS" != 1 ]; then
+    printf '  · 自签证书与每日重签定时器（浏览器记住的「继续前往」例外会作废）\n'
+  fi
+  if [ "$UNINSTALL_PURGE_BLOBS" = 1 ] && [ -n "${BLOB_PATH:-}" ]; then
+    printf '  · 宿主机附件目录 %s\n' "$BLOB_PATH"
+  fi
+  if [ "$UNINSTALL_DROP_EXTERNAL_DB" = 1 ]; then
+    printf '  · 外部库 %s:%s/%s（DROP + 重建同名空库）\n' "${PG_HOST:-?}" "${PG_PORT:-?}" "${PG_DB:-?}"
+  fi
+  printf '继续请输入 yes：'
+  read -r ans || true
+  case "$ans" in
+    yes|YES|Yes) ;;
+    *) die "已取消，什么都没删。" ;;
+  esac
+}
+
+# 只拆本仓库装的那一份 unit：service 里的 ExecStart 必须指向本脚本，别把同名但属于
+# 别的仓库/手工复制的定时器一起 disable 掉。
+remove_cert_timer_units() {
+  local dest svc
+  dest="/etc/systemd/system/$CERT_TIMER_UNIT"
+  svc="/etc/systemd/system/$CERT_SERVICE_UNIT"
+  [ -f "$dest" ] || return 0
+  if [ "$(id -u)" != 0 ]; then
+    warn "证书重签定时器在 $dest，但不是 root 删不掉：sudo systemctl disable --now $CERT_TIMER_UNIT && sudo rm -f $dest $svc"
+    return 0
+  fi
+  if ! grep -qF "$SELF" "$svc" 2>/dev/null; then
+    warn "$CERT_SERVICE_UNIT 不是本仓库装的（ExecStart 没指向 $SELF）：没动它，核对后手工处理。"
+    return 0
+  fi
+  systemctl disable --now "$CERT_TIMER_UNIT" >/dev/null 2>&1 || true
+  systemctl stop "$CERT_SERVICE_UNIT" >/dev/null 2>&1 || true
+  rm -f "$dest" "$svc"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  log "→ 已删除证书重签定时器（$CERT_TIMER_UNIT）"
+}
+
+# 外部库清空：只在显式 --drop-external-db 时执行，且只 DROP/CREATE .env 里那一个库。
+# 口令走 stdin（不进程容器命令行），库名/用户名先过字符白名单再拼进 SQL，避免注入。
+check_drop_external_db() {
+  [ "$UNINSTALL_DROP_EXTERNAL_DB" = 1 ] || return 0
+  [ "$UNINSTALL_HAS_ENV" = 1 ] || die "--drop-external-db 需要 deploy/.env 提供外部库连接信息。"
+  [ "$EMBEDDED_PG" = 0 ] || die "--drop-external-db 只用于外部库模式；嵌入库的 pgdata 会随数据卷删除。"
+  case "$PG_DB" in ''|*[!A-Za-z0-9_]*) die "库名只支持字母、数字、下划线，拒绝拼进 SQL：$PG_DB" ;; esac
+  case "$PG_USER" in ''|*[!A-Za-z0-9_]*) die "用户名只支持字母、数字、下划线，拒绝拼进 SQL：$PG_USER" ;; esac
+  [ -n "$(env_value POSTGRES_PASSWORD)" ] || die "$ENV_FILE 里 POSTGRES_PASSWORD 是空的，连不上外部库。"
+}
+
+drop_external_database() {
+  local pass
+  [ "$UNINSTALL_DROP_EXTERNAL_DB" = 1 ] || return 0
+  pass="$(env_value POSTGRES_PASSWORD)"
+  log "→ 清空外部库 $PG_DB（$PG_HOST:$PG_PORT）：DROP DATABASE IF EXISTS + CREATE DATABASE"
+  if ! printf '%s\n%s\n' "$pass" "$PG_DB" | docker run --rm -i \
+        --add-host=host.docker.internal:host-gateway \
+        -e PGHOST="$PG_HOST" -e PGPORT="$PG_PORT" -e PGUSER="$PG_USER" \
+        postgres:17-alpine sh -c '
+          IFS= read -r pw; IFS= read -r db
+          PGPASSWORD="$pw" psql -v ON_ERROR_STOP=1 -d postgres \
+            -c "DROP DATABASE IF EXISTS \"$db\" WITH (FORCE);" \
+            -c "CREATE DATABASE \"$db\" OWNER \"$PGUSER\";"
+        '; then
+    die "外部库清空失败（库可能没动或只剩一半）。常见原因：账号没有 CREATEDB 权限、宿主库只监听回环导致容器连不上、拉不到 postgres:17-alpine。
+  手工执行：psql -h <宿主地址> -U $PG_USER -d postgres -c 'DROP DATABASE IF EXISTS \"$PG_DB\" WITH (FORCE);' -c 'CREATE DATABASE \"$PG_DB\" OWNER \"$PG_USER\";'"
+  fi
+  log "✓ 外部库已重建为空库（下一次 up 会重新跑迁移）"
+}
+
+uninstall_stack() {
+  local ids nets vols imgs crt key
+
+  require_docker
+  check_purge_blob_path
+  check_drop_external_db
+  confirm_uninstall
+
+  if [ "$UNINSTALL_HAS_ENV" = 1 ]; then
+    log "→ 停栈并删除 compose 声明的数据卷"
+    # down 失败不阻断：下面按项目标签兜底扫一遍，比停在半路更接近「拆干净」这个目标。
+    compose down --volumes --remove-orphans || warn "compose down 没干净退出，残留交给下面按标签清理。"
+  else
+    log "没有 $ENV_FILE：跳过 compose down，直接按项目标签清理残留。"
+  fi
+
+  # compose down 只认得当前 .env 选中的那几份叠加文件：换过模式（嵌入库↔外部库、
+  # 开过再关管理台）留下的容器/网络/卷它不管，所以再按项目标签完整扫一遍。
+  ids="$(docker ps -aq --filter "label=com.docker.compose.project=$UNINSTALL_PROJECT" 2>/dev/null || true)"
+  if [ -n "$ids" ]; then
+    log "→ 清理残留容器"
+    # shellcheck disable=SC2086  # 多个容器 id，故意按词展开
+    docker rm -f $ids >/dev/null 2>&1 || warn "有个别容器没删掉：docker ps -a 里核对后再 docker rm。"
+  fi
+
+  # 连接都断了再动库；失败就直接停住，别把本地产物删了却留下一个半清的库。
+  drop_external_database
+
+  nets="$(docker network ls -q --filter "label=com.docker.compose.project=$UNINSTALL_PROJECT" 2>/dev/null || true)"
+  if [ -n "$nets" ]; then
+    # shellcheck disable=SC2086  # 多个网络 id
+    docker network rm $nets >/dev/null 2>&1 || true
+  fi
+
+  vols="$(docker volume ls -q --filter "label=com.docker.compose.project=$UNINSTALL_PROJECT" 2>/dev/null || true)"
+  # 兜底按 compose 的命名规则再点名两个：条目少的时候标签未必都打上，名字是确定的。
+  vols="$vols $(docker volume ls -q --filter "name=${UNINSTALL_PROJECT}_pgdata" 2>/dev/null || true)"
+  vols="$vols $(docker volume ls -q --filter "name=${UNINSTALL_PROJECT}_blobs" 2>/dev/null || true)"
+  vols="$(printf '%s\n' $vols | sort -u | tr '\n' ' ')"
+  if [ -n "${vols// /}" ]; then
+    log "→ 删除数据卷"
+    # shellcheck disable=SC2086  # 多个卷名
+    docker volume rm $vols >/dev/null 2>&1 || warn "有个别卷没删掉（还被别的容器用着？）：docker volume ls 里核对后再 docker volume rm。"
+  fi
+
+  if [ "$UNINSTALL_KEEP_IMAGES" != 1 ]; then
+    imgs="$( { docker images -q --filter "label=com.docker.compose.project=$UNINSTALL_PROJECT" 2>/dev/null || true
+               docker images -q 'appframework-platform-*' 2>/dev/null || true; } | sort -u | tr '\n' ' ')"
+    if [ -n "${imgs// /}" ]; then
+      log "→ 删除本栈镜像"
+      # shellcheck disable=SC2086  # 多个镜像 id
+      docker image rm -f $imgs >/dev/null 2>&1 || warn "有个别镜像没删掉：docker image ls 里核对后再 docker image rm。"
+    fi
+  fi
+
+  if [ "$UNINSTALL_KEEP_CERTS" != 1 ]; then
+    remove_cert_timer_units
+    crt="$(web_crt)"; key="$(web_key)"
+    if [ -f "$crt" ] || [ -f "$key" ]; then
+      if command -v openssl >/dev/null 2>&1 && [ -f "$crt" ] && [ -f "$key" ] && cert_is_selfsigned; then
+        rm -f "$crt" "$key" 2>/dev/null || warn "删不掉 $crt / $key（权限？）：sudo rm -f 手工清。"
+        rmdir "$WEB_CERT_DIR" 2>/dev/null || true
+        log "→ 已删除自签证书（$WEB_CERT_DIR）"
+      else
+        warn "证书 $WEB_CERT_DIR 不是本脚本签的自签证书（或本机没有 openssl）：没删，需要清就手工处理。"
+      fi
+    fi
+  fi
+
+  if [ "$UNINSTALL_PURGE_BLOBS" = 1 ] && [ -n "${BLOB_PATH:-}" ] && [ -d "$BLOB_PATH" ]; then
+    if rm -rf -- "$BLOB_PATH" 2>/dev/null; then
+      log "→ 已删除宿主机附件目录 $BLOB_PATH"
+    else
+      warn "删不掉 $BLOB_PATH（权限？）：sudo rm -rf -- '$BLOB_PATH' 手工清。"
+    fi
+  fi
+
+  if [ "$UNINSTALL_HAS_ENV" = 1 ] && [ "$EMBEDDED_PG" = 0 ] && [ "$UNINSTALL_DROP_EXTERNAL_DB" != 1 ]; then
+    warn "外部库模式：$PG_HOST:$PG_PORT/$PG_DB 是别人的实例，本脚本没有 DROP。要连数据一起重来，加 --drop-external-db 重跑，或在那套 PG 上执行："
+    warn "  DROP DATABASE \"$PG_DB\" WITH (FORCE);   -- 用 $PG_USER 或超级用户；宿主机上执行时把 host.docker.internal 换成本机地址"
+  fi
+
+  if [ "$UNINSTALL_KEEP_ENV" != 1 ] && [ -f "$ENV_FILE" ]; then
+    rm -f "$ENV_FILE" || warn "删不掉 $ENV_FILE（权限？）：sudo rm -f 手工清。"
+    log "→ 已删除 $ENV_FILE（下次 up 重新生成口令/密钥/证书）"
+  fi
+
+  log "✓ 卸载完成。重新部署：bash $SELF up"
+}
+
 # ── 入口 ────────────────────────────────────────────────────────────────
 if [ "$ACTION" = info ]; then
   [ -f "$ENV_FILE" ] || die "还没有 $ENV_FILE，先跑 bash $SELF up（或 up --use-existing-pg \"...\"）。"
@@ -1491,6 +1730,19 @@ fi
 
 case "$ACTION" in
   up|migrate) ensure_env ;;
+  uninstall)
+    # 卸载不需要 .env：半套部署、.env 被删过都可能发生，按项目标签照样能拆干净。
+    # 有 .env 时读它，才能知道库是嵌入还是外部、附件绑在哪个目录、证书放哪。
+    if [ -f "$ENV_FILE" ]; then
+      UNINSTALL_HAS_ENV=1
+      env_normalize
+      load_vars
+    else
+      EMBEDDED_PG=1; WEB_ENABLED_ON=1; WEB_HTTPS_ON=1
+      PG_HOST=""; PG_PORT=""; PG_DB=""; PG_USER=""; BLOB_PATH=""
+      WEB_CERT_DIR="$DEFAULT_CERT_DIR"
+      COMPOSE=(); COMPOSE_FILES=()
+    fi ;;
   *)
     [ -f "$ENV_FILE" ] || die "还没有 $ENV_FILE，先跑 bash $SELF up。"
     env_normalize
@@ -1580,7 +1832,10 @@ case "$ACTION" in
       fi
     fi
     ;;
+  uninstall)
+    uninstall_stack
+    ;;
   *)
-    die "未知动作：$ACTION（可用 up|migrate|fix-pg-password|renew-cert|reset-admin-password|status|logs|health|down|info）"
+    die "未知动作：$ACTION（可用 up|migrate|fix-pg-password|renew-cert|reset-admin-password|status|logs|health|down|uninstall|info）"
     ;;
 esac

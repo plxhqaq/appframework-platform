@@ -49,11 +49,13 @@ interface UploadFormValues {
   collectionKey: string;
   title?: string;
   visibility: DocumentVisibility;
+  applicableVersion?: string;
 }
 
 interface EditFormValues {
   title: string;
   visibility: DocumentVisibility;
+  applicableVersion?: string;
 }
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -187,6 +189,7 @@ export function DocumentsPage() {
       collectionKey: first?.key ?? '',
       title: '',
       visibility: 'internal',
+      applicableVersion: '',
     });
     setUploadFiles([]);
     setUploadOpen(true);
@@ -211,6 +214,7 @@ export function DocumentsPage() {
         file,
         values.title?.trim() || undefined,
         values.visibility,
+        values.applicableVersion?.trim() || undefined,
       );
       message.success('文档已上传');
       setUploadOpen(false);
@@ -254,7 +258,11 @@ export function DocumentsPage() {
   const openEditForm = (row: DocumentSummary) => {
     setEditTarget(row);
     editForm.resetFields();
-    editForm.setFieldsValue({ title: row.title, visibility: row.visibility });
+    editForm.setFieldsValue({
+      title: row.title,
+      visibility: row.visibility,
+      applicableVersion: row.applicableVersion ?? '',
+    });
   };
 
   const submitEdit = async () => {
@@ -269,7 +277,12 @@ export function DocumentsPage() {
 
     setSaving(true);
     try {
-      const body: UpdateDocumentRequest = { title: values.title, visibility: values.visibility };
+      const body: UpdateDocumentRequest = {
+        title: values.title,
+        visibility: values.visibility,
+        // 空串表示清空；null 会被服务端视为「不修改」
+        applicableVersion: values.applicableVersion?.trim() ?? '',
+      };
       await documentsApi.updateDocument(editTarget.id, body);
       message.success('文档已更新');
       setEditTarget(null);
@@ -359,6 +372,14 @@ export function DocumentsPage() {
         const meta = VISIBILITY_META[visibility];
         return <Tag color={meta.color}>{meta.label}</Tag>;
       },
+    },
+    {
+      title: '适用版本',
+      dataIndex: 'applicableVersion',
+      key: 'applicableVersion',
+      width: 110,
+      responsive: ['md'],
+      render: (value: string | null) => value ?? '-',
     },
     { title: '修订', dataIndex: 'revision', key: 'revision', width: 70 },
     {
@@ -622,6 +643,13 @@ export function DocumentsPage() {
               ]}
             />
           </Form.Item>
+          <Form.Item
+            name="applicableVersion"
+            label="适用版本（可选）"
+            rules={[{ max: 64, message: '适用版本不超过 64 个字符' }]}
+          >
+            <Input placeholder="3.2.0" />
+          </Form.Item>
           <Form.Item label="文件" required>
             <Upload
               fileList={uploadFiles}
@@ -675,6 +703,13 @@ export function DocumentsPage() {
               ]}
             />
           </Form.Item>
+          <Form.Item
+            name="applicableVersion"
+            label="适用版本（留空清除）"
+            rules={[{ max: 64, message: '适用版本不超过 64 个字符' }]}
+          >
+            <Input placeholder="3.2.0" />
+          </Form.Item>
         </Form>
       </Modal>
 
@@ -714,6 +749,11 @@ export function DocumentsPage() {
                       {VISIBILITY_META[detail.data.visibility].label}
                     </Tag>
                   ),
+                },
+                {
+                  key: 'applicableVersion',
+                  label: '适用版本',
+                  children: detail.data.applicableVersion ?? '-',
                 },
                 { key: 'revision', label: '当前修订', children: detail.data.revision },
                 { key: 'fileName', label: '文件名', children: detail.data.fileName },

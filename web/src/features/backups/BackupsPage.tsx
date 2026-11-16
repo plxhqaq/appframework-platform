@@ -18,15 +18,19 @@ import {
   Typography,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { backupsApi } from '../../shared/api/backups';
 import { requestBlob } from '../../shared/api/client';
+import { devicesApi } from '../../shared/api/devices';
 import type {
   BackupKind,
   BackupNamespace,
   BackupSummary,
   CreateBackupNamespaceRequest,
+  DeviceSummary,
   PushBackupRequest,
+  PushBackupResult,
+  PushTargetResult,
   UpdateBackupNamespaceRequest,
 } from '../../shared/api/types';
 import { saveBlob } from '../../shared/download';
@@ -35,6 +39,8 @@ import { PERMISSIONS } from '../../shared/permissions';
 import { responsivePagination, responsiveWidth } from '../../shared/responsive';
 import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
+import { DevicePickerModal } from './DevicePickerModal';
+import { isDeviceSelectable } from './deviceSelection';
 
 interface NamespaceFormValues {
   key: string;
@@ -92,6 +98,14 @@ export function BackupsPage() {
   const [editingNamespace, setEditingNamespace] = useState<BackupNamespace | null>(null);
   const [backupOpen, setBackupOpen] = useState(false);
   const [pushTarget, setPushTarget] = useState<BackupSummary | null>(null);
+  const [selectedDevices, setSelectedDevices] = useState<Map<string, DeviceSummary>>(new Map());
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [sourceDeviceHint, setSourceDeviceHint] = useState<string | null>(null);
+  const [pushResult, setPushResult] = useState<{
+    result: PushBackupResult;
+    devices: Map<string, DeviceSummary>;
+  } | null>(null);
+  const pushOpenToken = useRef(0);
   const [namespaceFilter, setNamespaceFilter] = useState<string | undefined>();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -216,7 +230,11 @@ export function BackupsPage() {
   };
 
   const openPushForm = (row: BackupSummary) => {
+    const token = ++pushOpenToken.current;
     setPushTarget(row);
+    setSelectedDevices(new Map());
+    setSourceDeviceHint(null);
+    setPickerOpen(false);
     pushForm.resetFields();
     pushForm.setFieldsValue({
       targetChannel: row.channel,
@@ -224,6 +242,44 @@ export function BackupsPage() {
       force: false,
       currentHash: '',
       confirmCrossDevice: false,
+    });
+
+    // 默认选中备份上传时的来源设备；手动添加的备份没有来源设备，保持留空。
+    if (row.deviceId) {
+      devicesApi
+        .getDevice(row.deviceId)
+        .then((device) => {
+          if (token !== pushOpenToken.current) {
+            return;
+          }
+
+          if (isDeviceSelectable(device)) {
+            setSelectedDevices(new Map([[device.id, device]]));
+          } else {
+            setSourceDeviceHint(
+              `来源设备「${device.displayName}」当前不可下发（需启用且在线待机），未默认选中。`,
+            );
+          }
+        })
+        .catch(() => {
+          if (token === pushOpenToken.current) {
+            setSourceDeviceHint('备份来源设备不存在或已删除，未默认选中。');
+          }
+        });
+    }
+  };
+
+  const closePushForm = () => {
+    pushOpenToken.current += 1;
+    setPushTarget(null);
+    setPickerOpen(false);
+  };
+
+  const removeSelectedDevice = (deviceId: string) => {
+    setSelectedDevices((previous) => {
+      const next = new Map(previous);
+      next.delete(deviceId);
+      return next;
     });
   };
 
@@ -237,24 +293,48 @@ export function BackupsPage() {
       return;
     }
 
+    const targets = [...selectedDevices.values()];
+    if (targets.length === 0) {
+      message.warning('请选择至少一台目标设备');
+      return;
+    }
+
+    const unavailable = targets.find((device) => !isDeviceSelectable(device));
+    if (unavailable) {
+      message.warning(`设备「${unavailable.displayName}」当前不可下发（需启用且在线待机）`);
+      return;
+    }
+
+    if (
+      pushTarget.deviceId &&
+      targets.some((device) => device.id !== pushTarget.deviceId) &&
+      !values.confirmCrossDevice
+    ) {
+      message.warning('这是跨设备下发，请勾选「确认跨设备下发」');
+      return;
+    }
+
+    if (targets.length > 1 && values.currentHash?.trim()) {
+      message.warning('多设备下发不支持目标当前配置哈希，请改用单设备下发');
+      return;
+    }
+
     setSaving(true);
     try {
       const body: PushBackupRequest = {
         targetDeviceId: null,
+        targetDeviceIds: targets.map((device) => device.id),
+        broadcastToApp: false,
         targetChannel: values.targetChannel ?? null,
         targetFrameworkVersion: values.targetFrameworkVersion ?? null,
         restartAfterApply: false,
         force: values.force,
-        currentHash: values.currentHash?.trim() || null,
+        currentHash: targets.length === 1 ? values.currentHash?.trim() || null : null,
         confirmCrossDevice: values.confirmCrossDevice,
       };
       const result = await backupsApi.pushBackup(pushTarget.id, body);
-      if (result.success) {
-        message.success(result.message ?? '目标已回执并应用');
-      } else {
-        message.warning(result.message ?? '目标回执失败');
-      }
-      setPushTarget(null);
+      setPushResult({ result, devices: selectedDevices });
+      closePushForm();
       await refresh();
     } catch (error) {
       message.error(error instanceof Error ? error.message : '下发失败');
@@ -406,6 +486,44 @@ export function BackupsPage() {
           ) : null}
         </Space>
       ),
+    },
+  ];
+
+  const selectedList = [...selectedDevices.values()];
+  const needsCrossDeviceConfirm =
+    pushTarget?.deviceId != null
+    && selectedList.some((device) => device.id !== pushTarget.deviceId);
+
+  const targetResultColumns: TableColumnsType<PushTargetResult> = [
+    {
+      title: '设备',
+      dataIndex: 'deviceId',
+      key: 'deviceId',
+      ellipsis: true,
+      render: (deviceId: string) =>
+        pushResult?.devices.get(deviceId)?.displayName ?? deviceId,
+    },
+    {
+      title: '状态',
+      key: 'status',
+      width: 100,
+      render: (_: unknown, row: PushTargetResult) => {
+        if (!row.delivered) {
+          return <Tag color="red">未送达</Tag>;
+        }
+
+        if (!row.acked) {
+          return <Tag color="orange">未回执</Tag>;
+        }
+
+        return row.success ? <Tag color="green">成功</Tag> : <Tag color="red">失败</Tag>;
+      },
+    },
+    {
+      title: '说明',
+      dataIndex: 'message',
+      key: 'message',
+      render: (value: string | null) => value ?? '-',
     },
   ];
 
@@ -624,28 +742,109 @@ export function BackupsPage() {
         title={pushTarget ? `下发备份：${pushTarget.name}` : '下发备份'}
         confirmLoading={saving}
         onOk={() => void submitPush()}
-        onCancel={() => setPushTarget(null)}
+        onCancel={closePushForm}
+        width={responsiveWidth(isMobile, 640)}
       >
         <Form form={pushForm} layout="vertical">
+          <Form.Item
+            label="目标设备"
+            required
+            extra="只允许启用且在线待机的设备；设备较多时可筛选，勾选跨页保留。"
+          >
+            <Space direction="vertical" size={8} style={{ display: 'flex' }}>
+              <Flex wrap gap={4}>
+                {selectedList.length === 0 ? (
+                  <Typography.Text type="secondary">尚未选择目标设备</Typography.Text>
+                ) : (
+                  selectedList.map((device) => (
+                    <Tag
+                      key={device.id}
+                      closable
+                      color={isDeviceSelectable(device) ? 'blue' : 'default'}
+                      onClose={() => removeSelectedDevice(device.id)}
+                    >
+                      {device.displayName}
+                    </Tag>
+                  ))
+                )}
+              </Flex>
+              <Button onClick={() => setPickerOpen(true)}>选择在线设备</Button>
+              {sourceDeviceHint ? (
+                <Typography.Text type="warning">{sourceDeviceHint}</Typography.Text>
+              ) : null}
+            </Space>
+          </Form.Item>
           <Form.Item name="targetChannel" label="目标渠道">
             <Input placeholder={pushTarget?.channel ?? 'default'} />
           </Form.Item>
           <Form.Item name="targetFrameworkVersion" label="目标框架版本">
             <Input placeholder={pushTarget?.frameworkVersion ?? '1.0.0'} />
           </Form.Item>
-          <Form.Item name="currentHash" label="目标当前配置哈希（可选，提供时先落快照）">
-            <Input placeholder="64 位十六进制" />
+          <Form.Item
+            name="currentHash"
+            label="目标当前配置哈希（可选，提供时先落快照）"
+            extra={selectedList.length > 1 ? '多设备下发不支持快照：仅单选时可填。' : undefined}
+          >
+            <Input placeholder="64 位十六进制" disabled={selectedList.length > 1} />
           </Form.Item>
           <Form.Item name="force" label="放宽主版本校验（渠道不一致仍拒绝）" valuePropName="checked">
             <Switch />
           </Form.Item>
-          <Form.Item name="confirmCrossDevice" label="确认跨设备下发" valuePropName="checked">
-            <Switch />
-          </Form.Item>
+          {needsCrossDeviceConfirm ? (
+            <Form.Item name="confirmCrossDevice" label="确认跨设备下发" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+          ) : null}
           <Typography.Text type="secondary">
-            下发只是提示：目标客户端回拉下载并应用后回执，超时视为失败。
+            下发只是提示：目标客户端回拉下载并应用后逐台回执，超时视为失败。
           </Typography.Text>
         </Form>
+      </Modal>
+
+      <DevicePickerModal
+        open={pickerOpen && pushTarget !== null}
+        appKey={appKey}
+        selected={selectedDevices}
+        onConfirm={(next) => {
+          setSelectedDevices(next);
+          setPickerOpen(false);
+        }}
+        onCancel={() => setPickerOpen(false)}
+      />
+
+      <Modal
+        open={pushResult !== null}
+        title="下发结果"
+        onCancel={() => setPushResult(null)}
+        width={responsiveWidth(isMobile, 680)}
+        footer={
+          <Button type="primary" onClick={() => setPushResult(null)}>
+            知道了
+          </Button>
+        }
+      >
+        {pushResult ? (
+          <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+            <Alert
+              type={pushResult.result.success ? 'success' : 'warning'}
+              showIcon
+              message={
+                pushResult.result.success
+                  ? '全部目标已回执并应用'
+                  : pushResult.result.message ?? '部分目标未成功'
+              }
+            />
+            {pushResult.result.targets?.length ? (
+              <Table<PushTargetResult>
+                rowKey="deviceId"
+                size="small"
+                pagination={false}
+                dataSource={pushResult.result.targets}
+                columns={targetResultColumns}
+              />
+            ) : null}
+          </Space>
+        ) : null}
       </Modal>
     </Space>
   );

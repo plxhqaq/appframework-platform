@@ -11,6 +11,7 @@ export const PERMISSION_MODULE_LABELS: Record<string, string> = {
   identity: '身份与权限',
   versions: '版本与渠道',
   licensing: '授权',
+  devices: '设备',
   backups: '备份',
   documents: '文档',
   webhooks: 'Webhook 订阅',

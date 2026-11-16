@@ -11,6 +11,7 @@
     <ProjectReference Include="..\..\src\Platform.Infrastructure\Platform.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Apps\Platform.Modules.Apps.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Backups\Platform.Modules.Backups.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Modules.Devices\Platform.Modules.Devices.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Documents\Platform.Modules.Documents.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Identity\Platform.Modules.Identity.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Licensing\Platform.Modules.Licensing.csproj" />

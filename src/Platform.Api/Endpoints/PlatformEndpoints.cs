@@ -1,8 +1,13 @@
+using System.Reflection;
+using System.Runtime.InteropServices;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Hosting;
+using Platform.Api.Diagnostics;
 using Platform.Contracts;
+using Platform.Contracts.Dashboard;
 using Platform.Contracts.Permissions;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Http;
@@ -61,6 +66,55 @@ public static class PlatformEndpoints
             .AllowAnonymous();
 
         platform.MapGet(
+                "/dashboard",
+                async (
+                    HttpContext context,
+                    SystemMetricsSampler metrics,
+                    PlatformModuleRegistry registry,
+                    IEnumerable<IDeviceStatistics> deviceStatistics,
+                    IEnumerable<IStorageCapacity> storageCapacity,
+                    IHostEnvironment hostEnvironment,
+                    CancellationToken cancellationToken) =>
+                {
+                    var system = metrics.Current;
+                    var devices = await ResolveDeviceStatisticsAsync(deviceStatistics, cancellationToken);
+                    var availableStorage = await ResolveAvailableStorageAsync(storageCapacity, cancellationToken);
+
+                    return ApiResults.Ok(context, new PlatformDashboardDto(
+                        DateTimeOffset.UtcNow,
+                        system.StartedAt,
+                        (long)Math.Max(0, (DateTimeOffset.UtcNow - system.StartedAt).TotalSeconds),
+                        new SystemStatusDto(
+                            "ok",
+                            system.CpuUsagePercent,
+                            system.MemoryUsagePercent,
+                            system.WorkingSetBytes,
+                            system.ManagedMemoryBytes,
+                            system.TotalMemoryBytes,
+                            availableStorage,
+                            Environment.ProcessorCount),
+                        new DeviceStatisticsDto(
+                            devices.Total,
+                            devices.Online,
+                            devices.Idle,
+                            devices.Running,
+                            devices.Offline,
+                            devices.Disabled,
+                            devices.Connected),
+                        new PlatformInfoDto(
+                            Environment.MachineName,
+                            RuntimeInformation.OSDescription,
+                            RuntimeInformation.OSArchitecture.ToString(),
+                            RuntimeInformation.FrameworkDescription,
+                            hostEnvironment.EnvironmentName,
+                            ResolvePlatformVersion(),
+                            registry.Modules.Count)));
+                })
+            .WithName("platform.dashboard")
+            .WithSummary("总览仪表盘：系统状态、运行平台、资源占用、设备统计与平台信息")
+            .RequireAuthorization();
+
+        platform.MapGet(
                 "/whoami",
                 (HttpContext context, ICurrentPrincipal principal) => ApiResults.Ok(context, new WhoAmIResponse(
                     principal.IsAuthenticated,
@@ -77,5 +131,39 @@ public static class PlatformEndpoints
             .RequireAuthorization();
 
         return api;
+    }
+
+    private static async Task<DeviceStatisticsSnapshot> ResolveDeviceStatisticsAsync(
+        IEnumerable<IDeviceStatistics> sources,
+        CancellationToken cancellationToken)
+    {
+        var source = sources.FirstOrDefault();
+        return source is null
+            ? new DeviceStatisticsSnapshot(0, 0, 0, 0, 0, 0, 0)
+            : await source.GetAsync(cancellationToken);
+    }
+
+    private static async Task<long?> ResolveAvailableStorageAsync(
+        IEnumerable<IStorageCapacity> sources,
+        CancellationToken cancellationToken)
+    {
+        var source = sources.FirstOrDefault();
+        if (source is null)
+        {
+            return null;
+        }
+
+        var bytes = await source.GetAvailableFreeBytesAsync(cancellationToken);
+        return bytes == long.MaxValue ? null : bytes;
+    }
+
+    private static string ResolvePlatformVersion()
+    {
+        var assembly = typeof(PlatformEndpoints).Assembly;
+        var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                      ?? assembly.GetName().Version?.ToString()
+                      ?? "0.0.0";
+        var metadataIndex = version.IndexOf('+', StringComparison.Ordinal);
+        return metadataIndex > 0 ? version[..metadataIndex] : version;
     }
 }

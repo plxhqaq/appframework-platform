@@ -12,6 +12,12 @@ public static class BackupConventions
     /// <summary>默认渠道：空值按该渠道处理（历史数据无渠道信息时的等价语义）。</summary>
     public const string DefaultChannel = "default";
 
+    /// <summary>客户端按设备上传的默认命名空间键。</summary>
+    public const string DeviceBackupsNamespaceKey = "device-backups";
+
+    /// <summary>客户端按设备上传的默认命名空间名称。</summary>
+    public const string DeviceBackupsNamespaceName = "设备备份";
+
     /// <summary>命名空间默认保留版本数。</summary>
     public const int DefaultMaxVersions = 50;
 
@@ -97,13 +103,15 @@ public sealed record BackupDto(
     string? CreatedBy);
 
 /// <summary>下发备份：目标设备/渠道由调用方声明，服务端复核兼容矩阵。</summary>
-/// <param name="TargetDeviceId">目标设备；为空表示应用内全部在线连接。</param>
+/// <param name="TargetDeviceId">单个目标设备（兼容字段，与 <paramref name="TargetDeviceIds"/> 合并去重）。</param>
 /// <param name="TargetChannel">目标渠道；为空按默认渠道处理。</param>
 /// <param name="TargetFrameworkVersion">目标框架版本；用于主版本兼容判断。</param>
 /// <param name="RestartAfterApply">应用后是否要求重启。</param>
 /// <param name="Force">放宽主版本校验；渠道不一致仍然拒绝。</param>
-/// <param name="CurrentHash">目标当前配置哈希；提供时先落一条 pre-push 快照。</param>
-/// <param name="ConfirmCrossDevice">备份设备与目标设备不一致时，必须显式确认。</param>
+/// <param name="CurrentHash">目标当前配置哈希；仅单设备下发时允许，提供时先落一条 pre-push 快照。</param>
+/// <param name="ConfirmCrossDevice">备份来源设备与任一目标设备不一致时，必须显式确认。</param>
+/// <param name="TargetDeviceIds">目标设备集合（多选）。留空且未显式广播时拒绝，不再隐式下发全部在线连接。</param>
+/// <param name="BroadcastToApp">显式请求应用组广播（兼容能力，管理台不提供）；与目标设备互斥。</param>
 public sealed record PushBackupRequest(
     Guid? TargetDeviceId,
     string? TargetChannel,
@@ -111,14 +119,35 @@ public sealed record PushBackupRequest(
     bool RestartAfterApply,
     bool Force,
     string? CurrentHash,
-    bool ConfirmCrossDevice);
+    bool ConfirmCrossDevice,
+    IReadOnlyList<Guid>? TargetDeviceIds = null,
+    bool BroadcastToApp = false);
 
-/// <summary>下发结果：<paramref name="Acked"/> 表示目标是否回执，<paramref name="Success"/> 表示回执内容。</summary>
+/// <summary>单台设备的下发结果。</summary>
+/// <param name="DeviceId">目标设备。</param>
+/// <param name="Delivered">命令是否已送达设备连接。</param>
+/// <param name="Acked">设备是否回执。</param>
+/// <param name="Success">回执内容：设备是否应用成功。</param>
+/// <param name="Message">设备回执说明。</param>
+public sealed record PushTargetResult(
+    Guid DeviceId,
+    bool Delivered,
+    bool Acked,
+    bool Success,
+    string? Message);
+
+/// <summary>下发结果：多设备下发时 <paramref name="Success"/> 表示全部目标成功。</summary>
+/// <param name="Acked">全部目标是否都回执（应用组广播时为唯一回执）。</param>
+/// <param name="Success">全部目标是否都回执并应用成功。</param>
+/// <param name="Message">汇总说明（单设备时为设备回执原文）。</param>
+/// <param name="SnapshotBackupId">下发前落下的快照 id（仅单设备且提供当前哈希时）。</param>
+/// <param name="Targets">逐设备结果；应用组广播时为空。</param>
 public sealed record PushBackupResult(
     bool Acked,
     bool Success,
     string? Message,
-    Guid? SnapshotBackupId);
+    Guid? SnapshotBackupId,
+    IReadOnlyList<PushTargetResult>? Targets = null);
 
 /// <summary>兼容矩阵判定结果。</summary>
 /// <param name="Compatible">是否可下发。</param>

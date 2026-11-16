@@ -60,7 +60,7 @@ public sealed class PlatformModuleCatalogTests
 
     /// <summary>
     /// 权限码域与模块键并非总是同形：授权域用 <c>license</c>（语义比 licensing 更贴合授权实例，
-    /// 与现网 <c>license.issue</c> 口径一致），备份/文档域用单数。
+    /// 与现网 <c>license.issue</c> 口径一致），备份/文档/Webhook/设备域用单数。
     /// </summary>
     private static string PermissionDomainOf(string moduleKey) => moduleKey switch
     {
@@ -68,6 +68,7 @@ public sealed class PlatformModuleCatalogTests
         PlatformModuleKeys.Backups => "backup",
         PlatformModuleKeys.Documents => "document",
         PlatformModuleKeys.Webhooks => "webhook",
+        PlatformModuleKeys.Devices => "device",
         _ => moduleKey,
     };
 }

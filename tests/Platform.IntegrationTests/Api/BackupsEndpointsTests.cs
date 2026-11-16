@@ -148,11 +148,22 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
         var backup = await CreateBackupAsync(
             client, token, "push-backup", "push-source", """{"a":1}""", frameworkVersion: "1.0.0");
 
-        var noConnection = await client.SendAsync(IdentityTestHelpers.Authorized(
+        // 目标留空且未显式广播：直接拒绝，不再隐式下发到全部在线连接
+        var blankTarget = await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Post,
             $"/api/v1/admin/backups/{backup.Id}/push",
             token,
             new PushBackupRequest(null, null, "1.1.0", false, false, null, false)));
+        Assert.Equal(
+            (int)ApiErrorCode.ValidationFailed,
+            await IdentityTestHelpers.ReadErrorCodeAsync(blankTarget, HttpStatusCode.BadRequest));
+
+        var noConnection = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            $"/api/v1/admin/backups/{backup.Id}/push",
+            token,
+            new PushBackupRequest(
+                null, null, "1.1.0", false, false, null, false, BroadcastToApp: true)));
         Assert.Equal(
             (int)ApiErrorCode.BackupsPushRejected,
             await IdentityTestHelpers.ReadErrorCodeAsync(noConnection, HttpStatusCode.Conflict));
@@ -164,7 +175,8 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
                 HttpMethod.Post,
                 $"/api/v1/admin/backups/{backup.Id}/push",
                 token,
-                new PushBackupRequest(null, "beta", "1.1.0", false, true, null, false)));
+                new PushBackupRequest(
+                    null, "beta", "1.1.0", false, true, null, false, BroadcastToApp: true)));
             Assert.Equal(
                 (int)ApiErrorCode.BackupsChannelMismatch,
                 await IdentityTestHelpers.ReadErrorCodeAsync(channelMismatch, HttpStatusCode.Conflict));
@@ -173,7 +185,8 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
                 HttpMethod.Post,
                 $"/api/v1/admin/backups/{backup.Id}/push",
                 token,
-                new PushBackupRequest(null, null, "2.0.0", false, false, null, false)));
+                new PushBackupRequest(
+                    null, null, "2.0.0", false, false, null, false, BroadcastToApp: true)));
             Assert.Equal(
                 (int)ApiErrorCode.BackupsSchemaIncompatible,
                 await IdentityTestHelpers.ReadErrorCodeAsync(incompatible, HttpStatusCode.UnprocessableEntity));
@@ -190,18 +203,21 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
                     $"/api/v1/admin/backups/{backup.Id}/push",
                     token,
                     new PushBackupRequest(
-                        null, null, "1.1.0", false, false, new string('a', 64), false))));
+                        null, null, "1.1.0", false, false, new string('a', 64), false,
+                        BroadcastToApp: true))));
             await ackTask;
             Assert.True(pushed.Acked);
             Assert.True(pushed.Success);
             Assert.NotNull(pushed.SnapshotBackupId);
+            Assert.Null(pushed.Targets);
 
             // 没有任何回执：按配置的 1 秒超时返回 504
             var timeout = await client.SendAsync(IdentityTestHelpers.Authorized(
                 HttpMethod.Post,
                 $"/api/v1/admin/backups/{backup.Id}/push",
                 token,
-                new PushBackupRequest(null, null, "1.1.0", false, false, null, false)));
+                new PushBackupRequest(
+                    null, null, "1.1.0", false, false, null, false, BroadcastToApp: true)));
             Assert.Equal(
                 (int)ApiErrorCode.BackupsAckTimeout,
                 await IdentityTestHelpers.ReadErrorCodeAsync(timeout, HttpStatusCode.GatewayTimeout));

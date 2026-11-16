@@ -12,6 +12,7 @@
     <ProjectReference Include="..\..\src\Platform.Infrastructure\Platform.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Apps\Platform.Modules.Apps.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Backups\Platform.Modules.Backups.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Modules.Devices\Platform.Modules.Devices.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Webhooks\Platform.Modules.Webhooks.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Documents\Platform.Modules.Documents.csproj" />
     <ProjectReference Include="..\..\src\Platform.Modules.Identity\Platform.Modules.Identity.csproj" />
@@ -20,6 +21,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />

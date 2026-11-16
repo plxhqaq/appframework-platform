@@ -11,6 +11,7 @@ namespace Platform.Contracts;
 /// <item>500–599 文档</item>
 /// <item>600–699 应用接入</item>
 /// <item>700–799 Webhook</item>
+/// <item>800–899 设备</item>
 /// </list>
 /// </summary>
 /// <remarks>
@@ -141,6 +142,13 @@ public enum ApiErrorCode
     WebhooksEventUnknown = 702,
     WebhooksDeliveryNotFound = 703,
     WebhooksDeliveryNotRetryable = 704,
+
+    // ━━━ 800–899 设备 ━━━
+    DevicesNotFound = 800,
+    DevicesIdentityInvalid = 801,
+    DevicesDisabled = 802,
+    DevicesOffline = 803,
+    DevicesBusy = 804,
 }
 
 /// <summary>错误码分段边界。用于分组展示、CI 断言与客户端提示文案归类。</summary>
@@ -154,10 +162,11 @@ public static class ApiErrorSegments
     public const int Documents = 500;
     public const int Apps = 600;
     public const int Webhooks = 700;
+    public const int Devices = 800;
 
     /// <summary>全部段起点，升序。</summary>
     public static IReadOnlyList<int> Starts { get; } =
-        [Common, Identity, Versions, Licensing, Backups, Documents, Apps, Webhooks];
+        [Common, Identity, Versions, Licensing, Backups, Documents, Apps, Webhooks, Devices];
 
     /// <summary>返回错误码所属段的起点（未知段返回 <see cref="Common"/>）。</summary>
     public static int Of(ApiErrorCode code)
@@ -181,6 +190,7 @@ public static class ApiErrorSegments
         Documents => PlatformModuleKeys.Documents,
         Apps => PlatformModuleKeys.Apps,
         Webhooks => PlatformModuleKeys.Webhooks,
+        Devices => PlatformModuleKeys.Devices,
         _ => "common",
     };
 }

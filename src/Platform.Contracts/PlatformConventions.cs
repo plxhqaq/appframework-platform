@@ -10,10 +10,11 @@ public static class PlatformModuleKeys
     public const string Backups = "backups";
     public const string Documents = "documents";
     public const string Webhooks = "webhooks";
+    public const string Devices = "devices";
 
     /// <summary>全部模块键（与 <c>PlatformModuleCatalog</c> 顺序一致）。</summary>
     public static IReadOnlyList<string> All { get; } =
-        [Apps, Identity, Versions, Licensing, Backups, Documents, Webhooks];
+        [Apps, Identity, Devices, Versions, Licensing, Backups, Documents, Webhooks];
 }
 
 /// <summary>路由前缀约定。URI 主版本 + 入口分离（管理端 / 客户端），可见性由服务端强制。</summary>

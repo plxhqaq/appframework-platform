@@ -6,9 +6,11 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Auth;
+using Platform.Api.Diagnostics;
 using Platform.Api.Endpoints;
 using Platform.Api.Modules;
 using Platform.Contracts;
+using Platform.Contracts.Devices;
 using Platform.Contracts.Documents;
 using Platform.Contracts.Hubs;
 using Platform.Infrastructure.DependencyInjection;
@@ -22,6 +24,7 @@ using Platform.Kernel.Modules;
 using Platform.Kernel.Metrics;
 using Platform.Kernel.Middleware;
 using Platform.Modules.Identity.Services;
+using Platform.Modules.Devices.Hubs;
 using Platform.Workers.DependencyInjection;
 using Scalar.AspNetCore;
 using Serilog;
@@ -76,6 +79,11 @@ try
     // ── 实时推送 ──────────────────────────────────────────────────────
     // 推送只作提示（授权/版本/扫码审批），客户端收到后必须回拉接口校验。
     builder.Services.AddSignalR();
+
+    // ── 宿主诊断 ──────────────────────────────────────────────────────
+    // 后台采样进程 CPU/内存，仪表盘只读快照，不在请求线程里等采样窗口。
+    builder.Services.AddSingleton<SystemMetricsSampler>();
+    builder.Services.AddHostedService(static sp => sp.GetRequiredService<SystemMetricsSampler>());
 
     // ── 模块（集中清单是唯一装配点）──────────────────────────────────
     builder.Services.AddPlatformModules(PlatformModuleCatalog.Modules, builder.Configuration);
@@ -290,6 +298,7 @@ try
     app.MapPlatformMetrics();
     app.MapPlatformModules();
     app.MapHub<PlatformHub>(PlatformHubPaths.Root);
+    app.MapHub<DeviceHub>(DeviceHubPaths.Root);
 
     // OpenAPI 3.1 导出 + Scalar 在线调试
     app.MapOpenApi();

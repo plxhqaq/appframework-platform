@@ -17,10 +17,33 @@ public sealed class MigrationsTests
         Assert.Contains(
             applied,
             static name => name.EndsWith("AddReleasePackageIngestion", StringComparison.Ordinal));
+        Assert.Contains(
+            applied,
+            static name => name.EndsWith("AddDevices", StringComparison.Ordinal));
+        Assert.Contains(
+            applied,
+            static name => name.EndsWith("AddDocumentApplicableVersion", StringComparison.Ordinal));
 
         var exists = await db.Database
             .SqlQueryRaw<bool>("SELECT to_regclass('public.release_packages') IS NOT NULL AS \"Value\"")
             .SingleAsync();
         Assert.True(exists);
+
+        var devicesExists = await db.Database
+            .SqlQueryRaw<bool>("SELECT to_regclass('public.devices') IS NOT NULL AS \"Value\"")
+            .SingleAsync();
+        Assert.True(devicesExists);
+
+        var deviceKeyIndexExists = await db.Database
+            .SqlQueryRaw<bool>(
+                "SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'devices' AND indexname = 'ux_devices_app_device_key') AS \"Value\"")
+            .SingleAsync();
+        Assert.True(deviceKeyIndexExists);
+
+        var applicableVersionExists = await db.Database
+            .SqlQueryRaw<bool>(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'documents' AND column_name = 'applicable_version') AS \"Value\"")
+            .SingleAsync();
+        Assert.True(applicableVersionExists);
     }
 }

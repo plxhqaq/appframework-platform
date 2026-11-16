@@ -3,6 +3,7 @@ using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Modules.Apps.Persistence;
 using Platform.Modules.Backups.Persistence;
+using Platform.Modules.Devices.Persistence;
 using Platform.Modules.Documents.Persistence;
 using Platform.Modules.Identity.Persistence;
 using Platform.Modules.Licensing.Persistence;
@@ -33,6 +34,6 @@ internal static class TestDbContext
                 .Options,
             [new AppsModelContributor(), new IdentityModelContributor(), new VersionsModelContributor(),
              new LicensingModelContributor(), new BackupsModelContributor(), new DocumentsModelContributor(),
-             new WebhooksModelContributor()],
+             new WebhooksModelContributor(), new DevicesModelContributor()],
             clock);
 }

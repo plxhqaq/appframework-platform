@@ -80,7 +80,7 @@ bash deploy/deploy.sh up      # 首次生成 deploy/.env（数据库口令 + JWT
                               # 预检端口 → 构建 → 起库 → 迁移 → 起 api → 等 /ready → 起管理台 → 打印现场信息汇总
 ```
 
-脚本动作：`up` / `migrate` / `fix-pg-password` / `renew-cert` / `reset-admin-password` / `status` / `logs` / `health` / `down` / `info`。
+脚本动作：`up` / `migrate` / `fix-pg-password` / `renew-cert` / `reset-admin-password` / `status` / `logs` / `health` / `down` / `uninstall` / `info`。
 `up` 的顺序是「先探端口 → 起库并按 API 那条 TCP 路径验一次口令 → 再构建镜像 → 迁移 → 起 api → 等 `/ready`
 → 起管理台 → 等首页」：端口撞了（5432/8080 这类）和 `.env` 与数据卷口令对不上（28P01）这两类失败都跟镜像无关，
 现在都在**构建之前**报出来，不用等一分多钟构建完才在「设置容器网络」时看到 `address already in use`，
@@ -165,13 +165,13 @@ curl -s http://localhost:5080/metrics | head -5   # Prometheus 文本（Metrics:
 curl -s http://localhost:5080/api/v1/platform/modules
 ```
 
-返回七个模块（`apps` / `identity` / `versions` / `licensing` / `backups` / `documents` / `webhooks`），每个带：
+返回八个模块（`apps` / `identity` / `versions` / `licensing` / `devices` / `backups` / `documents` / `webhooks`），每个带：
 
 - `key`：模块键，也是路由段的来源（`/api/v1/{key}`）
 - `routes`：该模块挂载的路由前缀
 - `requiredPermissions`：该模块声明的权限码（新增模块时 CI 会校验它们都已登记）
 
-`apps` 永远排在首位 —— 其余六个模块的 `app_id` 隔离轴由它产生。
+`apps` 永远排在首位 —— 其余七个模块的 `app_id` 隔离轴由它产生。
 `version` 里的 `+<40 位>` 是构建提交号（Source Link 同一条链），排查线上版本时直接读它。
 
 ---
@@ -551,10 +551,12 @@ curl -s -X POST http://localhost:5080/api/v1/admin/backups \
 curl -s "http://localhost:5080/api/v1/admin/backups/$ID/download" \
   -H "Authorization: Bearer $TOKEN" -o backup.json
 
-# 下发：同渠道硬门禁；force 只放宽主版本；currentHash 非空会先落 pre-push 快照
+# 下发：必须显式指定目标设备（可多选）；留空不再广播全部在线连接
+# 同渠道硬门禁；force 只放宽主版本；currentHash 仅单设备时可用
 curl -s -X POST http://localhost:5080/api/v1/admin/backups/$ID/push \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"targetChannel":"default","targetFrameworkVersion":"3.2.0","force":false}'
+  -d '{"targetDeviceIds":["<DEVICE_ID>"],"targetChannel":"default",
+       "targetFrameworkVersion":"3.2.0","force":false}'
 
 # 文档集合 + 上传（multipart；visibility 缺省 internal）
 curl -s -X POST http://localhost:5080/api/v1/admin/documents/collections \
@@ -574,6 +576,31 @@ curl -s http://localhost:5080/api/v1/client/documents/manifest \
 备份错误码 `400–408`、文档错误码 `500–505`；软删除后由 `RetentionWorker` 在宽限期后
 “先删文件、再删行”。完整语义、兼容矩阵与配置项见 [`04-backups.md`](04-backups.md)、
 [`05-documents.md`](05-documents.md)。
+
+### 7.1 设备连接与按设备下发（S1–S4）
+
+设备用带 `app` 声明的令牌连 SignalR `/hubs/devices`（WebSocket 走 `?access_token=<JWT>`），
+首帧 `RegisterDevice`，随后按周期 `Heartbeat` / `ReportStationState`，收到 `ConfigPush` 后回
+`AcknowledgeConfigPush`。设备身份由平台按 `(primaryIdentifier, installGuid)` 计算稳定键，
+同一应用内重复注册复用同一条记录；顶号时旧连接收到 `SessionReplaced`。
+
+```bash
+# 管理端：看设备与在线状态（device.read）
+curl -s "http://localhost:5080/api/v1/admin/devices?onlineStatus=online&keyword=line3" \
+  -H "Authorization: Bearer $TOKEN"
+
+# 按设备下发：targetDeviceIds 可多选；留空返回 400，应用组广播需显式 broadcastToApp=true
+# 门禁：留空 400、停用 802/403、离线 803/409、运行中 804/409、跨设备未确认 407
+curl -s -X POST http://localhost:5080/api/v1/admin/backups/$ID/push \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"targetDeviceIds":["<DEVICE_ID>"],"targetChannel":"default",
+       "targetFrameworkVersion":"3.2.0","confirmCrossDevice":false}'
+```
+
+**设备通路走明文 HTTP**：现场设备连 API 的明文端口（部署默认 `--api-port 8080`；老端默认 8082
+就按现场实际配），不要连管理台的自签 https（8443/8444）——客户端不信任自签证书，会直接连不上。
+客户端备份上传/列表用 `/api/v1/client/backups`（`deviceId` 必填，默认 `device-backups` 命名空间）。
+完整语义、错误码与迁移说明见 [`11-devices.md`](11-devices.md)。
 
 ---
 
@@ -632,7 +659,7 @@ X-Platform-Signature: sha256=hex(Lower)(HMAC-SHA256(secret, "{timestamp}.{rawBod
 ```bash
 # 1) 打包本地 NuGet 源（SDK 与契约包都进 artifacts/packages，nuget.config 已映射 AppFramework.*）
 dotnet pack src/Platform.Contracts/Platform.Contracts.csproj -c Release -p:PackageId=AppFramework.Platform.Contracts -o artifacts/packages
-dotnet pack src/AppFramework.Platform.Client/AppFramework.Platform.Client.csproj -c Release -p:PackageId=AppFramework.Platform.Client -o artifacts/packages
+dotnet pack src/AppFramework.Platform.Client/AppFramework.Platform.Client.csproj -c Release -o artifacts/packages
 
 # 2) 起服务端（§1），然后跑示例
 export PLATFORM_URL=http://localhost:5080
@@ -701,6 +728,7 @@ curl -s http://localhost:5080/api/v1/platform/permissions
 | 500–599 | 文档 |
 | 600–699 | 应用接入 |
 | 700–799 | Webhook |
+| 800–899 | 设备 |
 
 HTTP 状态码由 `ApiErrorHttpStatus.Map` 唯一映射，**不要**在业务代码里手写 `StatusCode`。
 
@@ -729,13 +757,13 @@ HTTP 状态码由 `ApiErrorHttpStatus.Map` 唯一映射，**不要**在业务代
 dotnet pack src/Platform.Contracts/Platform.Contracts.csproj -c Release \
   -p:PackageId=AppFramework.Platform.Contracts -o artifacts/packages
 dotnet pack src/AppFramework.Platform.Client/AppFramework.Platform.Client.csproj -c Release \
-  -p:PackageId=AppFramework.Platform.Client -o artifacts/packages
+  -o artifacts/packages
 ```
 
 `AppFramework.Platform.Contracts` 内含 DTO、错误码、权限码目录、Hub 契约与分页类型；
 `AppFramework.Platform.Client` 是薄 SDK（令牌 + 自动续期 + 下载 + `LicenseVerifier`）。
 两者版本号都由 `Directory.Build.props` 的 `PlatformContractsVersion` / `PlatformClientVersion` 单点控制，
-当前 `0.2.0-preview.1`。客户端仓库应**精确 pin 版本**（不用 `*` 或范围），破坏性变更必须主版本 +1。
+当前 `0.2.0-preview.2`。客户端仓库应**精确 pin 版本**（不用 `*` 或范围），破坏性变更必须主版本 +1。
 在线文档（OpenAPI / Scalar）与包的完整清单见 [`07-openapi.md`](07-openapi.md)。
 
 ---
@@ -749,6 +777,7 @@ bash deploy/deploy.sh status    # compose ps
 bash deploy/deploy.sh logs      # 最近 api 日志（可带服务名：logs web / logs postgres）
 bash deploy/deploy.sh migrate   # 只跑迁移（compose run --rm api --migrate）
 bash deploy/deploy.sh down      # 停栈（不删卷）
+bash deploy/deploy.sh uninstall # 开发期推倒重来：删容器/网络/卷（含 pgdata 整库与 blobs）、镜像、.env、自签证书（--yes 免确认）
 bash deploy/deploy.sh info      # 只读重打现场信息汇总（脱敏）；--show-secrets 打全文
 bash deploy/deploy.sh fix-pg-password   # 只 ALTER ROLE 把 pgdata 卷里的角色口令对到 .env，数据不动
 bash deploy/deploy.sh renew-cert [--force]  # 自签证书到期前重签（--force 点名换一张）
@@ -761,7 +790,10 @@ bash deploy/deploy.sh reset-admin-password  # 把 admin 的口令对回 .env 里
   `.env` 被删过或重新生成过，而 `pgdata` 卷还在——`initdb` 只在空卷上跑一次，之后改 `.env` 不会跟着改
   库里的角色口令。现在 `up` 会在**构建之前**用 API 那条 TCP 路径先验一次并把这件事说清楚；
   修法是 `bash deploy/deploy.sh fix-pg-password`（只改角色口令，不动数据、不改 `.env`，
-  走容器内 unix socket 所以不需要旧口令）。这个库真不要了才用 `down -v`（连卷删，附件卷也一起没）。
+  走容器内 unix socket 所以不需要旧口令）。这个库真不要了、想连部署产物一起清掉，用
+  `bash deploy/uninstall.sh`（同 `deploy.sh uninstall`：卷、镜像、`.env`、自签证书一并清，
+  下一把 `up` 是全新现场；外部库模式默认不 DROP 别人的库，只打印该执行的 SQL，
+  确需连库一起清时显式加 `--drop-external-db`）。
 
 - 登录报「用户名或口令错误」而 `info` 里明明印着引导口令：种子的口令只在 admin 账号**不存在**时写入，
   所以 `.env` 重新生成过而数据卷还留着（或已经按提示改过密）就会这样，而且它不会自己好。
@@ -819,7 +851,9 @@ pnpm dev            # http://localhost:5173，/api 自动代理到 http://localh
 > 跨源要 CORS + `SameSite=None` + 真的 https，登录会拿不到刷新令牌（表现为过一阵子被踢回登录页）。
 
 用种子管理员 `admin` / `Admin@12345` 登录；首次登录会跳转强制改密，改密后全部会话被吊销，需要重新登录。
-登录后总览页展示当前主体与平台模块。左侧菜单按权限裁剪，直接敲无权地址会被路由守卫拦住：
+登录后总览页是仪表盘：系统状态、运行平台、运行时间、CPU/内存占用（含最近采样趋势）、
+已连接设备、平台信息与当前主体，数据来自 `GET /api/v1/platform/dashboard`（10 秒轮询）。
+左侧菜单按权限裁剪，直接敲无权地址会被路由守卫拦住：
 「密钥登录」（`/single-key`，`identity.singlekey.issue`）与「扫码登录」（`/qr-approval`，`identity.qr.approve`）
 是两个独立页面，内置 `engineer` 角色只有这两个码也能正常干活，有效期最长可设 2 小时；
 手机扫二维码直达 `/qr-login/{requestId}`，窄屏下审批列表是卡片 + 整宽按钮。
@@ -827,6 +861,11 @@ pnpm dev            # http://localhost:5173，/api 自动代理到 http://localh
 （`identity.user.read`、`identity.role.read`、`identity.session.read`）。
 「版本与渠道」页（`versions.channel.*` / `versions.release.*` / `versions.artifact.upload`）
 支持新建/编辑渠道、选文件后浏览器端算 SHA-256 并直传、创建并发布、查看产物清单与归档；
+「设备」页（`device.read` / `device.manage` / `device.restart`）按关键字/在线/分支筛选，详情里看机器码、
+心跳、报警与工位，可改名/启停与重启在线设备；
+「配置备份」页的下发表单用「选择在线设备」打开设备表格（关键字/分支筛选、多选、跨页保留，
+默认勾选备份来源设备；留空会被拒绝，跨设备仍需勾选确认），下发后按设备展示逐台回执，
+「文档」页支持填写/修改「适用版本」并在列表与详情中展示；
 「授权」页（`license.product.*` / `license.issue` / `license.revoke` / `license.offlinecode.issue` /
 `license.signingkey.manage`）按标签页提供授权产品、授权主体（签发/续期/吊销）、离线码台账
 （复制/删除）与签名密钥（当前指纹、轮换同步、退役密钥）；
@@ -869,8 +908,9 @@ pnpm build
 | B2–B3 | `/identity/login`、`/identity/refresh`、`/identity/logout`、`/identity/password/change`、`/admin/auth/*`（含 `/context`）、`/admin/identity/users*`、`/admin/identity/roles*`、`/admin/identity/sessions*`、`/identity/singlekey/redeem`、`/identity/qr/sessions*`、`/admin/identity/singlekeys`、`/admin/identity/qr/sessions*` |
 | B4 | `/admin/versions/channels*`、`/admin/versions/releases*`、`/admin/versions/uploads*`、`/client/versions/check`、`/client/versions/{channel}/{version}/manifest`、`/client/versions/download/{sha256}` |
 | B5 | `/admin/licensing/products*`、`/admin/licensing/entitlements*`、`/admin/licensing/offline-codes*`、`/admin/licensing/signing-keys*`、`/client/licensing/status`、`/client/licensing/offline/verify`、`/client/licensing/keys` |
-| B6 | `/admin/backups*`（含 `/{id}/download`、`/{id}/push`）、`/client/backups/{id}*`、`/admin/documents*`、`/client/documents/manifest`、`/client/documents/{id}*` |
+| B6 | `/admin/backups*`（含 `/{id}/download`、`/{id}/push`）、`/client/backups*`（含按设备上传/列表）、`/admin/documents*`、`/client/documents/manifest`、`/client/documents/{id}*` |
 | B7 | `/admin/webhooks`（含 `/{id}`、`/{id}/secret/rotate`、`/{id}/test`、`/deliveries`、`/deliveries/{id}/redeliver`）、`/webhooks/info`、`/admin/audit-logs`、`/metrics`、`/openapi/v1.json`、`/scalar/v1` |
+| S1–S4 | `/hubs/devices`（设备注册/心跳/工位/回执）、`/admin/devices*`（含 `/{id}`、`/{id}/restart`） |
 
 约定不变：路由 `/api/v1/{module}/...`，管理端与客户端入口分离（`/admin/*` 与 `/client/*`），服务端强制可见性。
 每个模块还有一个 `/{module}/info` 自述端点（匿名，返回版本、权限码与路由前缀）。

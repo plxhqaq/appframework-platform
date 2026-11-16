@@ -42,7 +42,7 @@ internal static class BackupEndpoints
             .MapGroup(PlatformRoutes.ClientModule(PlatformModuleKeys.Backups))
             .WithTags(PlatformModuleKeys.Backups);
 
-        MapClientEndpoints(client);
+        MapClientEndpoints(client, createRequestLimit);
     }
 
     private static void MapNamespaceEndpoints(RouteGroupBuilder admin)
@@ -169,7 +169,13 @@ internal static class BackupEndpoints
                     return ApiResults.Ok(
                         context,
                         await backups.ListAsync(
-                            RequireAppKey(principal), query, namespaceKey, kind, keyword, cancellationToken));
+                            RequireAppKey(principal),
+                            query,
+                            namespaceKey,
+                            kind,
+                            keyword,
+                            deviceId: null,
+                            cancellationToken: cancellationToken));
                 })
             .WithName("backups.list")
             .WithSummary("备份列表")
@@ -295,7 +301,7 @@ internal static class BackupEndpoints
                     }
                 })
             .WithName("backups.push")
-            .WithSummary("下发备份到在线客户端并等待回执")
+            .WithSummary("下发备份到指定在线设备（多选）并逐台等待回执；应用组广播需显式声明")
             .RequirePermission(PermissionCatalog.BackupPush);
 
         admin.MapDelete(
@@ -338,8 +344,121 @@ internal static class BackupEndpoints
             .RequirePermission(PermissionCatalog.BackupDelete);
     }
 
-    private static void MapClientEndpoints(RouteGroupBuilder client)
+    private static void MapClientEndpoints(RouteGroupBuilder client, long createRequestLimit)
     {
+        client.MapGet(
+                "",
+                async (
+                    HttpContext context,
+                    ICurrentPrincipal principal,
+                    IBackupService backups,
+                    IAuditWriter audit,
+                    int page = 1,
+                    int pageSize = PageQuery.DefaultPageSize,
+                    Guid? deviceId = null,
+                    string? kind = null,
+                    string? namespaceKey = null,
+                    CancellationToken cancellationToken = default) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    var query = new PageQuery { Page = page, PageSize = pageSize };
+                    var result = await backups.ListAsync(
+                        appKey,
+                        query,
+                        namespaceKey ?? BackupConventions.DeviceBackupsNamespaceKey,
+                        kind,
+                        keyword: null,
+                        deviceId,
+                        cancellationToken);
+                    await WriteAuditAsync(
+                        context, audit, principal,
+                        action: "backups.client.list",
+                        targetType: "backup",
+                        targetId: null,
+                        result: AuditResults.Success,
+                        message: $"deviceId={deviceId};page={page};pageSize={pageSize}");
+                    return ApiResults.Ok(context, result);
+                })
+            .WithName("backups.client.list")
+            .WithSummary("客户端按设备列出备份（默认 device-backups 命名空间）")
+            .RequirePermission(PermissionCatalog.BackupRead);
+
+        client.MapPost(
+                "",
+                async (
+                    HttpContext context,
+                    CreateBackupRequest request,
+                    ICurrentPrincipal principal,
+                    IBackupService backups,
+                    IBackupNamespaceService namespaces,
+                    IEnumerable<IDeviceDirectory> directories,
+                    IIdempotencyStore idempotency,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    return await IdempotentExecution.ExecuteAsync(
+                        context,
+                        idempotency,
+                        "backups.client.upload",
+                        async ct =>
+                        {
+                            try
+                            {
+                                var device = await ResolveDeviceAsync(
+                                    appKey, request.DeviceId, directories, ct);
+                                var effective = request with
+                                {
+                                    NamespaceKey = string.IsNullOrWhiteSpace(request.NamespaceKey)
+                                        ? BackupConventions.DeviceBackupsNamespaceKey
+                                        : request.NamespaceKey,
+                                    DeviceName = string.IsNullOrWhiteSpace(request.DeviceName)
+                                        ? device.DisplayName
+                                        : request.DeviceName,
+                                };
+
+                                if (string.Equals(
+                                        effective.NamespaceKey,
+                                        BackupConventions.DeviceBackupsNamespaceKey,
+                                        StringComparison.Ordinal))
+                                {
+                                    await namespaces.EnsureAsync(
+                                        appKey,
+                                        BackupConventions.DeviceBackupsNamespaceKey,
+                                        BackupConventions.DeviceBackupsNamespaceName,
+                                        ct);
+                                }
+
+                                var created = await backups.CreateAsync(
+                                    appKey, effective, principal.UserName, ct);
+                                await WriteAuditAsync(
+                                    context, audit, principal,
+                                    action: "backups.client.upload",
+                                    targetType: "backup",
+                                    targetId: created.Id.ToString(),
+                                    result: AuditResults.Success,
+                                    message: $"{created.NamespaceKey}/{created.Name}/{created.SizeBytes}B/device={device.DeviceId}");
+                                return ApiResult.Ok(created);
+                            }
+                            catch (BusinessException exception)
+                            {
+                                await WriteAuditAsync(
+                                    context, audit, principal,
+                                    action: "backups.client.upload",
+                                    targetType: "backup",
+                                    targetId: null,
+                                    result: AuditResults.Failure,
+                                    message: exception.Message);
+                                throw;
+                            }
+                        },
+                        IdempotencyTtl);
+                })
+            .WithName("backups.client.upload")
+            .WithSummary("客户端按设备上传备份（≤64KB 内联，超过转存；支持 Idempotency-Key）")
+            .WithMetadata(new RequestSizeLimitAttribute(createRequestLimit))
+            .RequirePermission(PermissionCatalog.BackupCreate);
+
         client.MapGet(
                 "/{id:guid}",
                 async (
@@ -372,6 +491,40 @@ internal static class BackupEndpoints
             .WithName("backups.client.download")
             .WithSummary("客户端下载备份（内联 JSON 或流式文件）")
             .RequirePermission(PermissionCatalog.BackupRead);
+    }
+
+    private static async Task<DeviceDirectoryEntry> ResolveDeviceAsync(
+        string appKey,
+        Guid? deviceId,
+        IEnumerable<IDeviceDirectory> directories,
+        CancellationToken cancellationToken)
+    {
+        if (deviceId is not { } id)
+        {
+            throw BusinessException.Invalid("客户端上传备份必须提供 deviceId。");
+        }
+
+        var directory = directories.FirstOrDefault()
+                        ?? throw new BusinessException(
+                            ApiErrorCode.ServiceUnavailable,
+                            "设备域未启用，无法按设备上传备份。");
+
+        var device = await directory.FindAsync(appKey, id, cancellationToken);
+        if (device is not null)
+        {
+            return device;
+        }
+
+        if (await directory.ExistsAsync(id, cancellationToken))
+        {
+            throw new BusinessException(
+                ApiErrorCode.Forbidden,
+                "设备不属于当前应用，无法上传备份。");
+        }
+
+        throw BusinessException.NotFound(
+            ApiErrorCode.DevicesNotFound,
+            $"设备 {id} 不存在，请先连接后再上传备份。");
     }
 
     private static async Task<IResult> StreamAsync(

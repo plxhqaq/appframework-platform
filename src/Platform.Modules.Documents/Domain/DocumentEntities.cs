@@ -62,6 +62,9 @@ public sealed class Document : IAuditableEntity
     /// <summary>可见性：client / internal。客户端接口一律按此服务端过滤。</summary>
     public string Visibility { get; set; } = "internal";
 
+    /// <summary>适用版本（如客户端框架版本），可空；仅元数据，不参与可见性判定。</summary>
+    public string? ApplicableVersion { get; set; }
+
     /// <summary>最新修订号。</summary>
     public int Revision { get; set; }
 

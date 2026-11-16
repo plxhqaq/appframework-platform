@@ -1,7 +1,7 @@
 # AppFramework Platform
 
 AppFramework 通用服务提供平台：模块化单体（.NET 10 + PostgreSQL）+ React 管理台。
-七个模块（`apps` / `identity` / `versions` / `licensing` / `backups` / `documents` / `webhooks`）共用一套
+八个模块（`apps` / `identity` / `versions` / `licensing` / `devices` / `backups` / `documents` / `webhooks`）共用一套
 统一返回、权限码、审计与幂等基础设施，任一模块都可以按清单摘除。
 
 ## 目录
@@ -13,7 +13,7 @@ src/
   Platform.Kernel/         内核（模块契约、统一返回、权限、认证、中间件）
   Platform.Infrastructure/ 基础设施（EF Core、Blob、审计、幂等、迁移）
   Platform.Workers/        后台任务（幂等/审计/保留清理、Blob 孤儿扫描、增量包摄取）
-  Platform.Modules.*/      七个业务模块
+  Platform.Modules.*/      八个业务模块
   Platform.Api/            宿主（端点装配、认证、限流、OpenAPI、托管静态资源）
 tests/
   Platform.UnitTests/      纯逻辑单元测试
@@ -26,7 +26,7 @@ web/                       React 18 + Ant Design 5 + Vite 管理台
 design/                    设计令牌单一源（tokens.json）
 deploy/                    Dockerfile（API + 管理台）/ compose（API、可选嵌入库、可选管理台）/
                            deploy.sh / nginx 站点模板 / systemd 定时器 / 环境变量样例
-docs/integration/          接入与运维文档（00 quickstart ~ 09 演练）
+docs/integration/          接入与运维文档（00 quickstart ~ 11 设备与按设备下发）
 tools/                     设计令牌生成与校验脚本
 artifacts/packages/        本地 NuGet 输出（nuget.config 里 AppFramework.* 的源）
 ```
@@ -59,11 +59,12 @@ cd web && pnpm install && pnpm dev
 ## 数据库迁移
 
 ```bash
-# 新增迁移（必须从 Platform.Api 启动，才能装配全部模块的模型贡献者）
+# 新增迁移（必须从 Platform.Api 启动，才能装配全部模块的模型贡献者；统一 Release）
 dotnet tool restore
 dotnet ef migrations add <Name> \
   --project src/Platform.Infrastructure \
-  --startup-project src/Platform.Api
+  --startup-project src/Platform.Api \
+  --configuration Release
 
 # 执行迁移：开发用 AutoMigrate，生产显式执行
 dotnet run --project src/Platform.Api -- --migrate     # 跑完即退，不启 Web 服务
@@ -93,7 +94,7 @@ bash deploy/deploy.sh info      # 只读重打上面那份汇总（凭据脱敏�
 bash deploy/deploy.sh renew-cert  # 自签证书剩余有效期低于阈值才重签，签完只 reload nginx（不重启容器）
 ```
 
-动作：`up` / `migrate` / `fix-pg-password` / `renew-cert` / `reset-admin-password` / `status` / `logs` / `health` / `down`（不删卷）/ `info`。
+动作：`up` / `migrate` / `fix-pg-password` / `renew-cert` / `reset-admin-password` / `status` / `logs` / `health` / `down`（不删卷）/ `uninstall`（开发期推倒重来）/ `info`。
 `logs` 可带服务名（`logs web` 只看管理台）。
 `SKIP_BUILD=1` 复用镜像。已存在的 `.env` 不会被覆盖，只补写留空的密钥。
 顺序是「探端口 → 起库并验一次库口令 → 构建 → 迁移 → 起 api → 等 `/ready` → 起管理台 → 等首页」：端口冲突与
@@ -112,6 +113,21 @@ bash deploy/deploy.sh reset-admin-password
 
 它跑一个一次性容器（`docker compose run --rm --no-deps api --reset-admin-password`），口令只走
 `Seed__AdminPassword` 环境变量，不进命令行参数（argv 会留在 `ps` 与 `docker inspect` 里）。
+
+开发期要把环境推倒重来（彻底清空数据库与部署产物，再全新部署一次）：
+
+```bash
+bash deploy/uninstall.sh          # 交互确认；脚本/CI 里加 --yes
+bash deploy/deploy.sh up
+```
+
+`uninstall` 与 `down` 的分界是「环境状态留不留」：`down` 只停容器，卷、`.env`、证书、镜像都留着；
+`uninstall` 删除本栈的容器/网络/卷（嵌入库 `pgdata` 整库、附件 `blobs`）、本栈镜像、`deploy/.env`、
+自签证书与重签定时器，下一把 `up` 重新生成口令/密钥/证书。`--keep-images` / `--keep-env` / `--keep-certs`
+分别保留镜像、`.env`、证书；`--purge-blobs` 才会连 `--blobs-dir` 指向的宿主机附件目录一起删
+（默认只删具名卷，不会擅自清空数据盘上的目录）。外部库模式默认不 DROP 别人的库，只打印该在那套 PG 上
+执行的 `DROP DATABASE` 语句；开发机确实要连库一起清时显式加 `--drop-external-db`（只 DROP/重建 `.env`
+里那一个库）。
 
 现场要改的参数一律走选项或 `.env`，**不用改 compose 文件**（那几份 yml 与仓库保持一致，
 升级时直接覆盖文件才不出冲突）。选项都会写回 `deploy/.env`，下次重跑 `up` 沿用，不必重复带：

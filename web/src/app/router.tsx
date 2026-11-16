@@ -5,6 +5,7 @@ import { AppsPage } from '../features/apps/AppsPage';
 import { AuditPage } from '../features/audit/AuditPage';
 import { BackupsPage } from '../features/backups/BackupsPage';
 import { ChangePasswordPage } from '../features/auth/ChangePasswordPage';
+import { DevicesPage } from '../features/devices/DevicesPage';
 import { DocumentsPage } from '../features/documents/DocumentsPage';
 import { LoginPage } from '../features/auth/LoginPage';
 import { OverviewPage } from '../features/dashboard/OverviewPage';
@@ -79,6 +80,7 @@ const router = createBrowserRouter([
       { path: 'identity', element: <Guarded path="/identity"><IdentityPage /></Guarded> },
       { path: 'versions', element: <Guarded path="/versions"><VersionsPage /></Guarded> },
       { path: 'updaters', element: <Guarded path="/updaters"><UpdatersPage /></Guarded> },
+      { path: 'devices', element: <Guarded path="/devices"><DevicesPage /></Guarded> },
       { path: 'backups', element: <Guarded path="/backups"><BackupsPage /></Guarded> },
       { path: 'documents', element: <Guarded path="/documents"><DocumentsPage /></Guarded> },
       { path: 'licensing', element: <Guarded path="/licensing"><LicensingPage /></Guarded> },

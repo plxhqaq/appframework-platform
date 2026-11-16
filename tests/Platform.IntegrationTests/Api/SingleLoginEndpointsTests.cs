@@ -421,6 +421,7 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         var upgraded = await IdentityTestHelpers.GetRoleAsync(client, admin, SingleLoginConventions.EngineerRole);
         Assert.Contains(PermissionCatalog.IdentitySingleKeyIssue, upgraded.Permissions);
         Assert.Contains(PermissionCatalog.IdentityQrApprove, upgraded.Permissions);
+        Assert.Contains(PermissionCatalog.DeviceRead, upgraded.Permissions);
         Assert.Contains("custom.manual", upgraded.Permissions);
         Assert.Equal("现场工程师", upgraded.DisplayName);
     }

@@ -64,8 +64,14 @@ export const documentsApi = {
   getDocument: (id: string, signal?: AbortSignal) =>
     request<DocumentDetail>(`/api/v1/admin/documents/${id}`, { signal }),
 
-  /** 新文档上传：multipart/form-data，字段 collectionKey/title/visibility + file。 */
-  uploadDocument: (collectionKey: string, file: File, title?: string, visibility?: string) => {
+  /** 新文档上传：multipart/form-data，字段 collectionKey/title/visibility/applicableVersion + file。 */
+  uploadDocument: (
+    collectionKey: string,
+    file: File,
+    title?: string,
+    visibility?: string,
+    applicableVersion?: string,
+  ) => {
     const form = new FormData();
     form.append('collectionKey', collectionKey);
     if (title) {
@@ -73,6 +79,9 @@ export const documentsApi = {
     }
     if (visibility) {
       form.append('visibility', visibility);
+    }
+    if (applicableVersion) {
+      form.append('applicableVersion', applicableVersion);
     }
     form.append('file', file);
     return request<DocumentDetail>('/api/v1/admin/documents', {

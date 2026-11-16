@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    模块：通用设备域（注册/心跳/工位/在线状态/管理）。
+    只依赖 Kernel + Infrastructure：整目录移出即可摘除，其它模块不受影响。
+  -->
+  <PropertyGroup>
+    <RootNamespace>Platform.Modules.Devices</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Platform.Kernel\Platform.Kernel.csproj" />
+    <ProjectReference Include="..\Platform.Infrastructure\Platform.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

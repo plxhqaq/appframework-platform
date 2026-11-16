@@ -26,7 +26,7 @@ public sealed class ApiErrorCodeTests
         foreach (var code in AllCodes)
         {
             var value = (int)code;
-            Assert.True(value >= 0 && value <= 799, $"{code} = {value} 超出 0..799 段位预算。");
+            Assert.True(value >= 0 && value <= 899, $"{code} = {value} 超出 0..899 段位预算。");
         }
     }
 
@@ -40,6 +40,7 @@ public sealed class ApiErrorCodeTests
         Assert.Equal(ApiErrorSegments.Documents, ApiErrorSegments.Of(ApiErrorCode.DocumentsVisibilityDenied));
         Assert.Equal(ApiErrorSegments.Apps, ApiErrorSegments.Of(ApiErrorCode.AppsApiKeyRevoked));
         Assert.Equal(ApiErrorSegments.Webhooks, ApiErrorSegments.Of(ApiErrorCode.WebhooksUrlInvalid));
+        Assert.Equal(ApiErrorSegments.Devices, ApiErrorSegments.Of(ApiErrorCode.DevicesNotFound));
         Assert.Equal(ApiErrorSegments.Common, ApiErrorSegments.Of(ApiErrorCode.ValidationFailed));
     }
 
@@ -53,6 +54,7 @@ public sealed class ApiErrorCodeTests
         Assert.Equal(PlatformModuleKeys.Documents, ApiErrorSegments.ModuleKeyOf(ApiErrorCode.DocumentsNotFound));
         Assert.Equal(PlatformModuleKeys.Apps, ApiErrorSegments.ModuleKeyOf(ApiErrorCode.AppsNotFound));
         Assert.Equal(PlatformModuleKeys.Webhooks, ApiErrorSegments.ModuleKeyOf(ApiErrorCode.WebhooksSubscriptionNotFound));
+        Assert.Equal(PlatformModuleKeys.Devices, ApiErrorSegments.ModuleKeyOf(ApiErrorCode.DevicesNotFound));
         Assert.Equal("common", ApiErrorSegments.ModuleKeyOf(ApiErrorCode.Unknown));
     }
 

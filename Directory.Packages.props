@@ -28,6 +28,7 @@
     <!-- ===== ASP.NET Core / 认证 ===== -->
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.12" />
     <PackageVersion Include="Scalar.AspNetCore" Version="2.17.10" />
   </ItemGroup>
 

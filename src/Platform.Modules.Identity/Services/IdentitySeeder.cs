@@ -124,6 +124,9 @@ public sealed class IdentitySeeder : IHostedService
                 PermissionCatalog.DocumentManage,
                 PermissionCatalog.WebhookRead,
                 PermissionCatalog.WebhookManage,
+                PermissionCatalog.DeviceRead,
+                PermissionCatalog.DeviceManage,
+                PermissionCatalog.DeviceRestart,
             ],
             cancellationToken);
 
@@ -144,6 +147,7 @@ public sealed class IdentitySeeder : IHostedService
                 PermissionCatalog.DocumentCollectionRead,
                 PermissionCatalog.DocumentRead,
                 PermissionCatalog.WebhookRead,
+                PermissionCatalog.DeviceRead,
             ],
             cancellationToken);
 
@@ -168,6 +172,7 @@ public sealed class IdentitySeeder : IHostedService
                 PermissionCatalog.BackupCreate,
                 PermissionCatalog.BackupPush,
                 PermissionCatalog.BackupDelete,
+                PermissionCatalog.DeviceRead,
                 PermissionCatalog.DocumentCollectionRead,
                 PermissionCatalog.DocumentRead,
                 PermissionCatalog.DocumentManage,
@@ -280,7 +285,13 @@ public sealed class IdentitySeeder : IHostedService
     /// </summary>
     private static void UpgradeEngineerRole(Role engineer)
     {
-        var missing = new[] { PermissionCatalog.IdentitySingleKeyIssue, PermissionCatalog.IdentityQrApprove }
+        var missing = new[]
+            {
+                PermissionCatalog.IdentitySingleKeyIssue,
+                PermissionCatalog.IdentityQrApprove,
+                // 下发必须先选设备：留空不再广播，缺 device.read 会让备份下发整页不可用。
+                PermissionCatalog.DeviceRead,
+            }
             .Except(engineer.Permissions, StringComparer.Ordinal)
             .ToArray();
 

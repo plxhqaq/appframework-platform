@@ -218,6 +218,7 @@ internal static class DocumentEndpoints
                                         form["collectionKey"],
                                         form["title"],
                                         form["visibility"],
+                                        form["applicableVersion"],
                                         file.FileName,
                                         file.ContentType,
                                         file.Length,
@@ -344,7 +345,7 @@ internal static class DocumentEndpoints
                     }
                 })
             .WithName("documents.update")
-            .WithSummary("更新标题/可见性")
+            .WithSummary("更新标题/可见性/适用版本")
             .RequirePermission(PermissionCatalog.DocumentManage);
 
         admin.MapDelete(

@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Platform.Contracts;
+using Platform.Contracts.Devices;
 
 namespace Platform.Api.Auth;
 
@@ -44,6 +45,18 @@ public static class AuthenticationSetup
                 bearer.MapInboundClaims = false;
                 bearer.Events = new JwtBearerEvents
                 {
+                    // 浏览器/设备的 WebSocket 不能自定义 Authorization 头，SignalR 走 access_token 查询参数
+                    OnMessageReceived = context =>
+                    {
+                        var accessToken = context.Request.Query["access_token"];
+                        if (!string.IsNullOrEmpty(accessToken)
+                            && context.HttpContext.Request.Path.StartsWithSegments(DeviceHubPaths.Root))
+                        {
+                            context.Token = accessToken;
+                        }
+
+                        return Task.CompletedTask;
+                    },
                     OnChallenge = async context =>
                     {
                         context.HandleResponse();

@@ -1,6 +1,7 @@
 using Platform.Kernel.Modules;
 using Platform.Modules.Apps;
 using Platform.Modules.Backups;
+using Platform.Modules.Devices;
 using Platform.Modules.Documents;
 using Platform.Modules.Identity;
 using Platform.Modules.Licensing;
@@ -25,6 +26,7 @@ public static class PlatformModuleCatalog
         // apps 必须最先：其余模块的 app_id 隔离轴由它产生
         new AppsModule(),
         new IdentityModule(),
+        new DevicesModule(),
         new VersionsModule(),
         new LicensingModule(),
         new BackupsModule(),
