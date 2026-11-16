@@ -6,13 +6,13 @@ public static class SingleLoginConventions
     /// <summary>密钥位数（十进制，含前导 0）。</summary>
     public const int KeyLength = 6;
 
-    /// <summary>临时令牌使用的内置角色名。</summary>
+    /// <summary>现场工程师内置角色名（真人账号用它签发密钥 / 审批扫码）。</summary>
     public const string EngineerRole = "engineer";
 
-    /// <summary>临时令牌主体名（写入 <c>name</c> 声明）。</summary>
+    /// <summary>历史临时令牌主体名；当前临时令牌写入签发人 / 审批人的真实用户名，仅为兼容旧契约保留。</summary>
     public const string TemporaryUserName = "temp-user";
 
-    /// <summary>临时令牌显示名。</summary>
+    /// <summary>历史临时令牌显示名；当前临时令牌使用真实用户的显示名。</summary>
     public const string TemporaryDisplayName = "临时用户";
 
     /// <summary>默认令牌有效期（分钟）。</summary>

@@ -41,22 +41,18 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         Assert.True(issued.ExpiresAt > DateTimeOffset.UtcNow);
 
         var redeemed = await RedeemAsync(client, issued.Key);
-        Assert.Equal(SingleLoginConventions.TemporaryUserName, redeemed.User.UserName);
-        Assert.Equal(new[] { SingleLoginConventions.EngineerRole }, redeemed.User.Roles);
+        // 临时令牌绑定签发人（admin）：用户名、角色与权限都来自该用户当前会话。
+        Assert.Equal(IdentityTestHelpers.AdminUserName, redeemed.User.UserName);
+        Assert.Contains(IdentityConventions.PlatformAdminRole, redeemed.User.Roles);
+        Assert.Contains(PermissionCatalog.Wildcard, redeemed.User.Permissions);
         Assert.True(redeemed.ExpiresAt > DateTimeOffset.UtcNow);
-
-        // 临时身份继承内置工程师角色：能备份下发，但不能维护用户/角色，也不能再签发密钥。
-        Assert.Contains(PermissionCatalog.BackupPush, redeemed.User.Permissions);
-        Assert.DoesNotContain(PermissionCatalog.IdentityUserManage, redeemed.User.Permissions);
-        Assert.DoesNotContain(PermissionCatalog.IdentitySingleKeyIssue, redeemed.User.Permissions);
-        Assert.DoesNotContain(PermissionCatalog.Wildcard, redeemed.User.Permissions);
 
         var whoami = await IdentityTestHelpers.ReadDataAsync<WhoAmIResponse>(
             await client.SendAsync(IdentityTestHelpers.Authorized(
                 HttpMethod.Get, "/api/v1/platform/whoami", redeemed.AccessToken)));
         Assert.True(whoami.IsTemporary);
         Assert.False(whoami.IsService);
-        Assert.Equal(SingleLoginConventions.TemporaryUserName, whoami.UserName);
+        Assert.Equal(IdentityTestHelpers.AdminUserName, whoami.UserName);
 
         var replay = await client.PostAsJsonAsync(RedeemPath, new RedeemSingleLoginKeyRequest(issued.Key));
         Assert.Equal(
@@ -101,7 +97,7 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
 
         // 指纹不匹配只计次数、不消费：正确指纹仍可兑换。
         var redeemed = await RedeemAsync(client, issued.Key, "device-a");
-        Assert.Equal(SingleLoginConventions.TemporaryUserName, redeemed.User.UserName);
+        Assert.Equal(IdentityTestHelpers.AdminUserName, redeemed.User.UserName);
 
         var exhaustedKey = await IssueKeyAsync(client, admin, fingerprint: "device-a");
         for (var attempt = 0; attempt < 5; attempt++)
@@ -184,13 +180,14 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         var status = await GetQrStatusAsync(client, created.RequestId);
         Assert.Equal(QrLoginStatuses.Approved, status.Status);
         Assert.NotNull(status.Session);
-        Assert.Equal(SingleLoginConventions.TemporaryUserName, status.Session!.User.UserName);
+        // 临时令牌绑定审批人（admin）：用户名、角色与权限都来自该用户当前会话。
+        Assert.Equal(IdentityTestHelpers.AdminUserName, status.Session!.User.UserName);
 
         var whoami = await IdentityTestHelpers.ReadDataAsync<WhoAmIResponse>(
             await client.SendAsync(IdentityTestHelpers.Authorized(
                 HttpMethod.Get, "/api/v1/platform/whoami", status.Session.AccessToken)));
         Assert.True(whoami.IsTemporary);
-        Assert.Contains(SingleLoginConventions.EngineerRole, whoami.Roles);
+        Assert.Contains(IdentityConventions.PlatformAdminRole, whoami.Roles);
 
         var secondApprove = await ApproveRawAsync(client, admin, created.RequestId);
         Assert.Equal(
@@ -282,6 +279,12 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         var issued = await IssueKeyAsync(client, engineer, durationMinutes: 120);
         Assert.Equal(120, issued.DurationMinutes);
 
+        // 密钥兑换得到签发人（现场工程师）的真实身份与权限，而不是内置临时账号。
+        var redeemed = await RedeemAsync(client, issued.Key);
+        Assert.Equal("field-engineer", redeemed.User.UserName);
+        Assert.Contains(SingleLoginConventions.EngineerRole, redeemed.User.Roles);
+        Assert.Contains(PermissionCatalog.IdentitySingleKeyIssue, redeemed.User.Permissions);
+
         var created = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
             await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest("qr-device", "产线-PC-07")));
 
@@ -295,6 +298,10 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
 
         var approved = await ApproveAsync(client, engineer, created.RequestId);
         Assert.Equal(QrLoginStatuses.Approved, approved.Status);
+
+        var approvedSession = await GetQrStatusAsync(client, created.RequestId);
+        Assert.NotNull(approvedSession.Session);
+        Assert.Equal("field-engineer", approvedSession.Session!.User.UserName);
 
         var listed = await IdentityTestHelpers.ReadDataAsync<PageResult<QrSessionSummaryDto>>(
             await client.SendAsync(IdentityTestHelpers.Authorized(
@@ -313,8 +320,8 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         var issued = await IssueKeyAsync(client, admin);
         var redeemed = await RedeemAsync(client, issued.Key);
 
-        // 正常签发的临时令牌已经被摘掉入口权限，这里再单独造一个"权限齐全但仍是临时身份"的令牌，
-        // 验证挡它的是身份种类而不是权限集合——管理员把角色改开了也续不了期。
+        // 临时令牌会继承真实用户的权限（管理员甚至带 `*`），这里再造一个"权限齐全但仍是临时身份"的令牌，
+        // 验证挡它的是身份种类而不是权限集合——把角色改开了也续不了期。
         var granted = await IdentityTestHelpers.ReadDataAsync<DevTokenResponse>(
             await client.PostAsJsonAsync(
                 "/api/v1/dev/token",

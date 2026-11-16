@@ -167,8 +167,9 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
             throw new BusinessException(ApiErrorCode.IdentitySingleKeyExpired, ExpiredKeyMessage);
         }
 
+        // 临时会话绑定密钥签发人：客户端登录后拿到的就是该用户在当前应用下的角色与权限。
         var session = await _temporary.IssueAsync(
-            Guid.CreateVersion7(),
+            record.CreatedBy,
             lifetime,
             Normalize(request.MachineCode),
             cancellationToken);

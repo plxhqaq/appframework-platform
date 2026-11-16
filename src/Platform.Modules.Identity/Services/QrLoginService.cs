@@ -208,8 +208,9 @@ public sealed class QrLoginService : IQrLoginService
         var session = await LoadPendingAsync(requestId, now, cancellationToken);
 
         var lifetime = TimeSpan.FromMinutes(ClampDuration(request.DurationMinutes));
+        // 临时会话绑定审批人：客户端登录后拿到的就是该用户在当前应用下的角色与权限。
         var temporary = await _temporary.IssueAsync(
-            Guid.CreateVersion7(),
+            approvedBy,
             lifetime,
             machineCode: null,
             cancellationToken);

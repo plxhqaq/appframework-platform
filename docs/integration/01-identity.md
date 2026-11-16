@@ -111,8 +111,8 @@ curl -s -X POST http://localhost:5080/api/v1/identity/password/change \
 
 | 声明 | 短名 | 多条 | 来源 |
 |---|---|---|---|
-| 主体 id | `sub` | 否 | 用户 id / `apikey:{id}` / 临时主体随机 v7 guid |
-| 名称 | `name` | 否 | 用户名、`temp-user` 或 `应用名 (密钥名)` |
+| 主体 id | `sub` | 否 | 用户 id / `apikey:{id}` |
+| 名称 | `name` | 否 | 用户名或 `应用名 (密钥名)` |
 | 角色 | `role` | 是 | 角色名（M2M 固定 `service`） |
 | 权限码 | `perms` | 是 | 角色权限并集，`*` 表示通配 |
 | 应用键 | `app` | 是 | 可访问应用；首个为当前应用 |
@@ -154,9 +154,8 @@ curl -s -X POST http://localhost:5080/api/v1/identity/singlekey/redeem \
 
 - **原子单次**：消费靠一条带条件的 UPDATE（`used_at IS NULL AND expires_at > now AND attempt_count < maxAttempts AND 指纹匹配`），受影响行数为 1 才算赢，多副本并发只有一个成功（`SingleLoginKeyService.cs:136`）。尝试上限 `SingleLogin:MaxAttempts`（默认 5）；指纹不匹配同样累计一次尝试，累计到上限后密钥作废。
 - 临时令牌有效期 = **密钥剩余时间**（`record.ExpiresAt - now`），不是重新计 30 分钟；已过期返回 `106`。响应 `TemporarySessionResponse{accessToken, expiresAt, user}`，**没有刷新令牌**，过期即失去访问。错误码 `105`/`107`/`108` 见第 7 节。
-- 临时主体：`sub` 为随机 v7 guid（不落用户表）、`name` = `temp-user`、`displayName` = `临时用户`、`role` = `engineer`、`is_temporary` = `true`、`app` = 全部启用应用、`machine` = 请求里的 `machineCode`（只写入声明，不与密钥记录比对）。
-- 权限取自内置 `engineer` 角色（`IdentitySeeder.cs`），但**摘掉 `identity.singlekey.issue` 与 `identity.qr.approve`**：剩下 `apps.read`、`versions.*` 的读与下载、`license.product.read`/`license.read`、`backup.*`、`device.read`、`document.*`，不含任何其它 `identity.*` 管理码。`device.read` 是备份下发的前置条件：下发改成必须选设备后，没有设备读取权限的账号无法完成下发。客户端专属权限不再由平台内置，临时会话只并入第一个启用应用通过权限清单声明的码。
-- 这个内置角色同时给**真人现场工程师账号**用，那份是带签发/审批两个入口码的（否则工程师登录后两个页面都用不了）。两者的边界靠身份种类而不是权限集合：四个管理端点都挂了 `RequireNonTemporaryPrincipal()`，临时令牌即便被管理员手工改开的角色喂饱了权限，也仍然返回 `102`（403），无法自我续期。
+- 临时主体绑定密钥签发人：`sub`/`name`/`role`/`perms` 全部来自该用户当前会话（与口令登录共用 `UserSessionFactory`），`displayName` 为用户的显示名，`is_temporary` = `true`，`app` = 该用户可进入的首个应用，`machine` = 请求里的 `machineCode`（只写入声明，不与密钥记录比对）。签发人账号被禁用/删除时兑换返回对应的身份错误。
+- 客户端因此拿到签发人的真实角色与权限（管理员签发就是 `*`）。边界靠身份种类而不是权限集合：四个管理端点都挂了 `RequireNonTemporaryPrincipal()`，临时令牌即便权限齐全也返回 `102`（403），无法自我续期。
 
 ---
 
@@ -184,7 +183,7 @@ curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sess
 - 创建响应 `QrSessionCreatedDto{requestId, expiresAt, payload}`：`expiresAt` 取 `QrLogin:ExpireMinutes`（默认 10 分钟）；`payload` 是**管理台审批页的 https 链接** = `QrLogin:ApprovalUrlBase` + `/qr-login/` + 请求 id 的 **32 位无连字符（`N`）形式**，手机相机扫开即直达审批页（未登录会先跳登录再回来）。轮询 URL 用的是带连字符的标准 GUID。
 - `QrLogin:ApprovalUrlBase` 必须显式配置成**手机浏览器能打开**的基址（部署脚本的 `QR_APPROVAL_URL_BASE`，留空时按证书 CN 或本机内网 IP + 浏览器访问端口推导后写回 `.env`）。不能靠请求推导：nginx 转发的 `Host` 不带端口，推出来的地址手机扫开连不上；配置留空才退回按当前请求的 `scheme://host` 兜底，那只够本机开发用。
 - 轮询响应 `QrSessionStatusDto{requestId, status, createdAt, expiresAt, approvedAt, session}`：仅当 `status=approved` 且已签发的令牌尚未过期时 `session` 非空（`TemporarySessionResponse`，同上一节）。令牌过期后 `status` 仍是 `approved`，但 `session` 为 `null`——只能重新扫码。
-- 审批 `durationMinutes` 为空取 `QrLogin:DefaultDurationMinutes`（30），上限 `QrLogin:MaxDurationMinutes`（120，即 2 小时）。临时令牌在**审批瞬间**签发并落库，同一请求 id 之后每次轮询领取到的是同一枚。
+- 审批 `durationMinutes` 为空取 `QrLogin:DefaultDurationMinutes`（30），上限 `QrLogin:MaxDurationMinutes`（120，即 2 小时）。临时令牌在**审批瞬间**按审批人的真实身份签发并落库，同一请求 id 之后每次轮询领取到的是同一枚。
 - 管理端按 id 取单个会话 `GET /api/v1/admin/identity/qr/sessions/{id}`（权限同上）：手机扫码直达审批页时用它，不必先翻列表。
 - 管理端列表 `status` 只接受 `pending`/`approved`/`rejected`/`expired`（其它值返回 `2`，400），`expired` 筛的是「仍为 pending 但已超时」的行；响应 `QrSessionSummaryDto` 含 `clientName`/`deviceFingerprint`/`createdByIp`/`approvedAt`/`approvedByName`。
 - 并发审批由带 `status = 'pending' AND expires_at > now` 条件的状态迁移语句裁决（`QrLoginService.cs:200`）：两个审批人同时点击只有一个生效。会话落 `qr_login_sessions` 表，服务重启后待审批会话仍在。
@@ -303,7 +302,7 @@ var session = await client.WaitForQrLoginApprovalAsync(qr.RequestId, TimeSpan.Fr
 
 - **口令节流**：`LoginThrottle:MaxFailuresBeforeLockout`（10）在 `TrackingWindowMinutes`（15）窗口内累计，触发即锁 `LockoutMinutes`（15）分钟并返回 `116`（429），提示语带剩余分钟数。账号与 IP 两个维度**同时**计数且落库（`login_throttles`），多副本有效；登录成功只清账号维度，IP 维度保留；锁定期间即使口令正确也被拒。
 - **刷新令牌一次性**：每次刷新换发新令牌，旧令牌再被使用即按泄露处理并吊销整族（`114`）。不要把刷新令牌写日志、崩溃转储或明文落盘；`afr_` 前缀只为脱敏识别，不承载秘密。
-- **临时主体不能签发凭据**：`temp-user` 的权限集来自 `engineer` 角色但摘掉了 `identity.singlekey.issue`/`identity.qr.approve`，也不含其它 `identity.*`、`platform.admin`、`audit.read`，且**没有刷新令牌**。挡它的还有端点侧的身份种类判定，所以把角色权限改开也没法自我续期。
+- **临时主体不能签发凭据**：临时令牌继承真实用户（密钥签发人 / 扫码审批人）的角色与权限，甚至可能是 `*`，但**没有刷新令牌**；四个管理端点以身份种类拦截，仍返回 `102`（403），改角色也续不了期。
 - **应用上下文不匹配**：令牌没有当前应用 → 应用级模块返回 `4`（403）；登录/切换时指定无权访问的应用 → `118`（403）。切换成功后服务端把应用键写回当前刷新令牌记录，Cookie 静默续期仍停在同一应用；刷新令牌缺失或不属于该用户时只换发访问令牌，不报错。
 - **`MapInboundClaims`** 一旦被宿主打开，`sub`/`perms` 全部读不到（第 3 节）。
 - **`Idempotency-Key` 是可选的主动权**：未携带就是普通请求；同键默认保留 24 小时并回放首次响应，并发在途返回 `6`（409），业务失败会释放占位允许同键重试，长度上限 256 字符。

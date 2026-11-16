@@ -226,8 +226,9 @@ curl -s -X POST http://localhost:5080/api/v1/identity/singlekey/redeem \
   -d '{"key":"123456","deviceFingerprint":"line-1-pc","machineCode":"PC-001"}'
 ```
 
-成功后返回 `accessToken` / `expiresAt` / `user`：主体是内置 `engineer` 角色的 `temp-user`，
-`whoami` 里 `isTemporary=true`，权限集不含任何 `identity.*` 管理码（真人工程师账号才有签发/审批入口）。
+成功后返回 `accessToken` / `expiresAt` / `user`：主体是签发密钥的用户本人，
+`user` 里的用户名、角色与权限与该用户口令登录一致；`whoami` 里 `isTemporary=true`，
+管理端点仍按身份种类拒绝（临时令牌无法自我续期）。
 
 消费语义是**原子单次**的（条件 `ExecuteUpdateAsync`：未使用、未过期、尝试数未满、指纹匹配），
 同一密钥并发兑换只有一个成功。失败码：`105` 无效、`106` 已过期、`107` 已使用/尝试超限、`108` 设备不符。

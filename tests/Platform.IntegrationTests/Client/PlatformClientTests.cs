@@ -140,14 +140,16 @@ public sealed class PlatformClientTests : IClassFixture<PlatformApiFactory>, IDi
                     new IssueSingleLoginKeyRequest(30, "sdk-line-1"))));
 
             var session = await sdk.RedeemSingleKeyAsync(issued.Key, "sdk-line-1");
-            Assert.Equal(SingleLoginConventions.TemporaryUserName, session.User.UserName);
+            // 临时令牌绑定签发人：管理员签发的密钥得到管理员自己的用户名与权限集。
+            Assert.Equal(IdentityTestHelpers.AdminUserName, session.User.UserName);
+            Assert.Contains(PermissionCatalog.Wildcard, session.User.Permissions);
 
             var principal = await sdk.GetWhoAmIAsync();
             Assert.True(principal.IsTemporary);
 
-            // 临时主体是显式权限集（非 `*`）：管理码必须判否，客户端据此隐藏入口
+            // 临时身份由端点拒绝管理操作，而不是靠权限集裁剪。
             Assert.True(sdk.HasPermission(PermissionCatalog.LicenseRead));
-            Assert.False(sdk.HasPermission(PermissionCatalog.IdentityUserRead));
+            Assert.True(sdk.HasPermission(PermissionCatalog.IdentityUserRead));
         }
     }
 
@@ -176,7 +178,8 @@ public sealed class PlatformClientTests : IClassFixture<PlatformApiFactory>, IDi
 
             var session = await sdk.WaitForQrLoginApprovalAsync(
                 created.RequestId, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(50));
-            Assert.Equal(SingleLoginConventions.TemporaryUserName, session.User.UserName);
+            // 临时令牌绑定审批人：管理员批准后得到管理员自己的用户名。
+            Assert.Equal(IdentityTestHelpers.AdminUserName, session.User.UserName);
             var principal = await sdk.GetWhoAmIAsync();
             Assert.True(principal.IsTemporary);
         }
