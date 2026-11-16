@@ -49,7 +49,6 @@ public sealed partial class PermissionCatalogTests
     public void 权限必须归属已知模块()
     {
         var known = PlatformModuleKeys.All
-            .Append("client")
             .Append("platform")
             .ToHashSet(StringComparer.Ordinal);
 
@@ -93,48 +92,9 @@ public sealed partial class PermissionCatalogTests
     }
 
     [Fact]
-    public void 客户端权限映射必须覆盖全部PermissionType成员()
+    public void 平台目录不包含任何客户端专属权限()
     {
-        var expected = ClientPermissionCatalog.ExpectedPermissionTypeNames.ToHashSet(StringComparer.Ordinal);
-        var mapped = ClientPermissionCatalog.TypeToCode.Keys.ToHashSet(StringComparer.Ordinal);
-
-        Assert.Equal(expected.Count, ClientPermissionCatalog.ExpectedPermissionTypeNames.Distinct(StringComparer.Ordinal).Count());
-        Assert.Empty(expected.Except(mapped));
-        Assert.Empty(mapped.Except(expected));
-    }
-
-    [Fact]
-    public void 客户端映射的目标权限码必须在目录中登记()
-    {
-        foreach (var (typeName, code) in ClientPermissionCatalog.TypeToCode)
-        {
-            Assert.True(PermissionCatalog.IsKnown(code), $"{typeName} 映射到未登记权限码 {code}。");
-        }
-    }
-
-    [Fact]
-    public void 反向索引与正向映射一致()
-    {
-        var totalFromReverse = ClientPermissionCatalog.CodeToTypes.Sum(static kv => kv.Value.Count);
-        Assert.Equal(ClientPermissionCatalog.TypeToCode.Count, totalFromReverse);
-
-        foreach (var (typeName, code) in ClientPermissionCatalog.TypeToCode)
-        {
-            Assert.Contains(typeName, ClientPermissionCatalog.CodeToTypes[code]);
-        }
-    }
-
-    [Fact]
-    public void 客户端权限判定识别通配符与具体码()
-    {
-        IReadOnlySet<string> wildcard = new HashSet<string>([PermissionCatalog.Wildcard], StringComparer.Ordinal);
-        IReadOnlySet<string> one = new HashSet<string>([ClientPermissionCatalog.PageDocuments], StringComparer.Ordinal);
-        IReadOnlySet<string> none = new HashSet<string>(StringComparer.Ordinal);
-
-        Assert.True(ClientPermissionCatalog.Allows(wildcard, "SaveButton"));
-        Assert.True(ClientPermissionCatalog.Allows(one, "ViewDocuments"));
-        Assert.False(ClientPermissionCatalog.Allows(one, "ViewAbout"));
-        Assert.False(ClientPermissionCatalog.Allows(none, "ViewDocuments"));
-        Assert.False(ClientPermissionCatalog.Allows(one, "NotARealPermission"));
+        Assert.DoesNotContain(PermissionCatalog.All, static p => p.ModuleKey == "client");
+        Assert.All(PermissionCatalog.All, static p => Assert.False(p.Code.StartsWith("client.", StringComparison.Ordinal)));
     }
 }

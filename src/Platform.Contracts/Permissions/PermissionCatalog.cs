@@ -2,7 +2,8 @@ namespace Platform.Contracts.Permissions;
 
 /// <summary>
 /// 权限码目录：平台侧（管理端 + 服务端到服务端）稳定权限码的**唯一事实源**。
-/// 角色表 <c>roles.permissions</c> 存的就是这里的字符串；客户端侧权限码见 <see cref="ClientPermissionCatalog"/>。
+/// 角色表 <c>roles.permissions</c> 存的就是这里的字符串；客户端应用自己的权限由各应用通过
+/// 权限清单注册（见 <c>/api/v1/apps/{appKey}/permissions</c>），平台内核不感知任何具体客户端。
 /// </summary>
 /// <remarks>
 /// 命名规则：<c>{域}.{资源}.{动作}</c>，全部小写点分。域与模块键一致，唯一例外是授权域用
@@ -17,6 +18,7 @@ public static class PermissionCatalog
     public const string AppsRead = "apps.read";
     public const string AppsManage = "apps.manage";
     public const string AppsApiKeyManage = "apps.apikey.manage";
+    public const string AppsPermissionsManage = "apps.permissions.manage";
 
     // ━━━ 身份（identity）━━━
     public const string IdentityUserRead = "identity.user.read";
@@ -81,6 +83,7 @@ public static class PermissionCatalog
         new(AppsRead, PlatformModuleKeys.Apps, "perm.apps.read", 100),
         new(AppsManage, PlatformModuleKeys.Apps, "perm.apps.manage", 110, PlatformAdminOnly: true),
         new(AppsApiKeyManage, PlatformModuleKeys.Apps, "perm.apps.apikey.manage", 120, PlatformAdminOnly: true),
+        new(AppsPermissionsManage, PlatformModuleKeys.Apps, "perm.apps.permissions.manage", 130),
 
         new(IdentityUserRead, PlatformModuleKeys.Identity, "perm.identity.user.read", 200),
         new(IdentityUserManage, PlatformModuleKeys.Identity, "perm.identity.user.manage", 210),
@@ -132,11 +135,10 @@ public static class PermissionCatalog
         new(PlatformAdmin, "platform", "perm.platform.admin", 910, PlatformAdminOnly: true),
     ];
 
-    /// <summary>全部已知权限码（平台侧 + 客户端侧）。角色权限校验与后台权限树都以此为准。</summary>
-    public static IReadOnlyList<PermissionDescriptor> All { get; } =
-        [.. PlatformPermissions, .. ClientPermissionCatalog.Permissions];
+    /// <summary>全部已知平台权限（含客户端应用权限的完整目录由运行时按应用清单合并）。</summary>
+    public static IReadOnlyList<PermissionDescriptor> All { get; } = PlatformPermissions;
 
-    /// <summary>全部已知权限码集合（不含通配符）。</summary>
+    /// <summary>全部已知平台权限码集合（不含通配符，也不含应用声明的权限）。</summary>
     public static IReadOnlySet<string> Codes { get; } =
         All.Select(static p => p.Code).ToHashSet(StringComparer.Ordinal);
 

@@ -1,23 +1,11 @@
 import type { PermissionDescriptor } from './api/types';
 
-/**
- * 权限码模块键 → 中文名。
- *
- * 权限目录由 `/api/v1/platform/permissions` 下发，服务端只给模块键；
- * 新增模块时在这里补一行，未知模块回退显示模块键本身。
- */
-export const PERMISSION_MODULE_LABELS: Record<string, string> = {
-  apps: '应用接入',
-  identity: '身份与权限',
-  versions: '版本与渠道',
-  licensing: '授权',
-  devices: '设备',
-  backups: '备份',
-  documents: '文档',
-  webhooks: 'Webhook 订阅',
-  platform: '平台',
-  client: '客户端',
-};
+import i18n from '../i18n';
+
+/** 平台权限模块键的当前语言显示名；未知模块回退显示模块键本身。 */
+export function permissionModuleLabel(moduleKey: string): string {
+  return i18n.t(`modules.${moduleKey}`, { ns: 'permissions', defaultValue: moduleKey });
+}
 
 export interface PermissionGroup {
   moduleKey: string;
@@ -38,7 +26,8 @@ export function groupPermissionsByModule(permissions: PermissionDescriptor[]): P
     .sort(([, left], [, right]) => minSort(left) - minSort(right))
     .map(([moduleKey, items]) => ({
       moduleKey,
-      label: PERMISSION_MODULE_LABELS[moduleKey] ?? moduleKey,
+      label:
+        items.find((item) => item.moduleLabel)?.moduleLabel ?? permissionModuleLabel(moduleKey),
       items: [...items].sort((left, right) => left.sort - right.sort),
     }));
 }

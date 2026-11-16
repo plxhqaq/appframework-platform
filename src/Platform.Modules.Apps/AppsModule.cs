@@ -41,6 +41,9 @@ public sealed class AppsModule : IPlatformModule
         services.AddScoped<IApiKeyService, ApiKeyService>();
         services.AddScoped<IM2MTokenService, M2MTokenService>();
         services.AddScoped<IAppDirectory, AppDirectory>();
+        services.AddScoped<AppPermissionService>();
+        services.AddScoped<IAppPermissionService>(static sp => sp.GetRequiredService<AppPermissionService>());
+        services.AddScoped<IAppPermissionDirectory>(static sp => sp.GetRequiredService<AppPermissionService>());
         services.TryAddEnumerable(
             ServiceDescriptor.Scoped<IPlatformModelContributor, AppsModelContributor>());
     }

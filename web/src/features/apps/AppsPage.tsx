@@ -1,3 +1,6 @@
+import { formatDateTime } from '../../shared/format';
+import { tr } from '../../i18n/translate';
+import { PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Space, Table, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -8,6 +11,7 @@ import { PERMISSIONS } from '../../shared/permissions';
 import { useAuthStore } from '../../stores/auth';
 import { ApiKeysDrawer } from './ApiKeysDrawer';
 import { AppFormModal } from './AppFormModal';
+import { AppPermissionsDrawer } from './AppPermissionsDrawer';
 
 /**
  * 应用接入页。
@@ -22,6 +26,7 @@ export function AppsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AppDetail | null>(null);
   const [keysApp, setKeysApp] = useState<AppDetail | null>(null);
+  const [permissionsApp, setPermissionsApp] = useState<AppDetail | null>(null);
 
   const apps = useQuery({
     queryKey: ['apps', 'list'],
@@ -42,52 +47,62 @@ export function AppsPage() {
     setKeysApp({ ...app, settingsJson: null });
   };
 
+  const openPermissions = (app: AppSummary) => {
+    setPermissionsApp({ ...app, settingsJson: null });
+  };
+
   const columns: TableColumnsType<AppSummary> = [
     {
-      title: '应用键',
+      title: tr("应用键"),
       dataIndex: 'key',
       key: 'key',
-      width: 160,
-      render: (key: string) => <Typography.Text code>{key}</Typography.Text>,
+      width: 200,
+      render: (key: string) => (
+        <Typography.Text code style={{ whiteSpace: 'nowrap' }}>
+          {key}
+        </Typography.Text>
+      ),
     },
-    { title: '名称', dataIndex: 'name', key: 'name', width: 200 },
+    { title: tr("名称"), dataIndex: 'name', key: 'name', width: 200 },
     {
-      title: '说明',
+      title: tr("说明"),
       dataIndex: 'description',
       key: 'description',
       render: (value: string | null) => value ?? <Typography.Text type="secondary">-</Typography.Text>,
     },
     {
-      title: '状态',
+      title: tr("状态"),
       dataIndex: 'isEnabled',
       key: 'isEnabled',
       width: 90,
-      render: (enabled: boolean) => (enabled ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>),
+      render: (enabled: boolean) => (enabled ? <Tag color="green">{tr("启用")}</Tag> : <Tag>{tr("停用")}</Tag>),
     },
     {
-      title: '创建时间',
+      title: tr("创建时间"),
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 180,
       responsive: ['md'],
-      render: (value: string) => new Date(value).toLocaleString(),
+      render: (value: string) => formatDateTime(value),
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
-      width: 160,
+      width: 200,
       fixed: 'right',
       render: (_: unknown, app: AppSummary) => (
         <Space size="small">
           {canManage ? (
             <Button type="link" size="small" onClick={() => openEdit(app)}>
-              编辑
-            </Button>
+              {tr("编辑")}</Button>
+          ) : null}
+          {canManage ? (
+            <Button type="link" size="small" onClick={() => openPermissions(app)}>
+              {tr("权限")}</Button>
           ) : null}
           {canManageKeys ? (
             <Button type="link" size="small" onClick={() => openKeys(app)}>
-              密钥
-            </Button>
+              {tr("密钥")}</Button>
           ) : null}
         </Space>
       ),
@@ -96,13 +111,12 @@ export function AppsPage() {
 
   return (
     <Card
-      title="应用接入"
+      title={tr("应用接入")}
       size="small"
       extra={
         canManage ? (
-          <Button type="primary" onClick={openCreate}>
-            新建应用
-          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+            {tr("新建应用")}</Button>
         ) : null
       }
     >
@@ -114,8 +128,7 @@ export function AppsPage() {
           message={(apps.error as Error).message}
           action={
             <Button size="small" onClick={() => void apps.refetch()}>
-              重试
-            </Button>
+              {tr("重试")}</Button>
           }
         />
       ) : null}
@@ -128,11 +141,16 @@ export function AppsPage() {
         dataSource={apps.data ?? []}
         columns={columns}
         pagination={false}
-        locale={{ emptyText: '尚未注册应用' }}
+        locale={{ emptyText: tr("尚未注册应用") }}
       />
 
       <AppFormModal open={formOpen} app={editing} onClose={() => setFormOpen(false)} />
       <ApiKeysDrawer open={keysApp !== null} app={keysApp} onClose={() => setKeysApp(null)} />
+      <AppPermissionsDrawer
+        open={permissionsApp !== null}
+        app={permissionsApp}
+        onClose={() => setPermissionsApp(null)}
+      />
     </Card>
   );
 }

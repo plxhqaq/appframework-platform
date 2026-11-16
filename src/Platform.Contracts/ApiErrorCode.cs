@@ -135,6 +135,8 @@ public enum ApiErrorCode
     AppsQuotaExceeded = 607,
     AppsApiKeyScopeUnknown = 608,
     AppsApiKeyNotFound = 609,
+    AppsPermissionManifestInvalid = 610,
+    AppsPermissionManifestLocked = 612,
 
     // ━━━ 700–799 Webhook ━━━
     WebhooksSubscriptionNotFound = 700,

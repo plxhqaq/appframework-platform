@@ -32,12 +32,17 @@ public sealed class UserSessionFactory : IUserSessionFactory
 {
     private readonly PlatformDbContext _db;
     private readonly IAppDirectory _apps;
+    private readonly IAppPermissionDirectory _appPermissions;
 
     /// <summary>构造。</summary>
-    public UserSessionFactory(PlatformDbContext db, IAppDirectory apps)
+    public UserSessionFactory(
+        PlatformDbContext db,
+        IAppDirectory apps,
+        IAppPermissionDirectory appPermissions)
     {
         _db = db;
         _apps = apps;
+        _appPermissions = appPermissions;
     }
 
     /// <inheritdoc />
@@ -106,13 +111,23 @@ public sealed class UserSessionFactory : IUserSessionFactory
         }
         else
         {
+            // 平台权限始终有效；应用声明的权限只在该应用上下文里并入令牌。
+            var allowed = PermissionCatalog.Codes.ToHashSet(StringComparer.Ordinal);
+            if (!string.IsNullOrWhiteSpace(appKey))
+            {
+                allowed.UnionWith(await _appPermissions.ListCodesAsync(appKey, cancellationToken));
+            }
+
             permissions = effectiveRoles
                 .SelectMany(static role => role.Permissions)
-                .Where(PermissionCatalog.IsKnown)
+                .Where(allowed.Contains)
                 .Distinct(StringComparer.Ordinal)
                 .Order(StringComparer.Ordinal)
                 .ToList();
         }
+
+        var permissionsLocked = !string.IsNullOrWhiteSpace(appKey)
+            && await _appPermissions.IsLockedAsync(appKey, cancellationToken);
 
         var session = new UserSessionDto(
             user.Id,
@@ -122,7 +137,8 @@ public sealed class UserSessionFactory : IUserSessionFactory
             permissions,
             sessionAppKeys,
             user.MustChangePassword,
-            appKey);
+            appKey,
+            permissionsLocked);
 
         return new UserSessionContext(session, appKey);
     }

@@ -134,6 +134,151 @@ internal static class AppsEndpoints
             .WithSummary("应用的 API Key 列表（不含明文）")
             .RequirePermission(PermissionCatalog.AppsApiKeyManage);
 
+        var manifests = api
+            .MapGroup(PlatformRoutes.Module(PlatformModuleKeys.Apps))
+            .WithTags(PlatformModuleKeys.Apps);
+
+        manifests.MapGet(
+                "/{appKey}/permissions",
+                async (
+                    HttpContext context,
+                    string appKey,
+                    IAppPermissionService permissions,
+                    CancellationToken cancellationToken) =>
+                    ApiResults.Ok(context, await permissions.GetAsync(appKey, cancellationToken)))
+            .WithName("apps.permissions.list")
+            .WithSummary("应用自定义权限清单")
+            .AllowAnonymous();
+
+        manifests.MapPut(
+                "/{appKey}/permissions",
+                async (
+                    HttpContext context,
+                    string appKey,
+                    ReplaceAppPermissionsRequest request,
+                    IAppPermissionService permissions,
+                    IAuditWriter audit,
+                    ICurrentPrincipal principal,
+                    CancellationToken cancellationToken) =>
+                {
+                    // 应用可以自助上报自己的清单；管理端则凭 apps.manage 维护任意应用。
+                    var isOwnService = principal.IsService
+                        && string.Equals(principal.AppKey, appKey.Trim(), StringComparison.OrdinalIgnoreCase);
+                    if (!isOwnService && !principal.HasPermission(PermissionCatalog.AppsManage))
+                    {
+                        throw new BusinessException(
+                            ApiErrorCode.AppsApiKeyScopeDenied,
+                            "只能维护本应用的权限清单。");
+                    }
+
+                    try
+                    {
+                        var replaced = await permissions.ReplaceAsync(appKey, request, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "apps.permissions.replace",
+                            targetType: "app_permissions",
+                            targetId: appKey,
+                            result: AuditResults.Success,
+                            message: null);
+                        return ApiResults.Ok(context, replaced);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "apps.permissions.replace",
+                            targetType: "app_permissions",
+                            targetId: appKey,
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("apps.permissions.replace")
+            .WithSummary("替换应用自定义权限清单（客户端可自助上报，成功后自动锁定）")
+            .RequireAuthorization();
+
+        admin.MapPost(
+                "/{id:guid}/permissions/unlock",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    IAppRegistryService apps,
+                    IAppPermissionService permissions,
+                    IAuditWriter audit,
+                    ICurrentPrincipal principal,
+                    CancellationToken cancellationToken) =>
+                {
+                    var app = await apps.GetAsync(id, cancellationToken);
+                    try
+                    {
+                        var manifest = await permissions.UnlockAsync(app.Key, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "apps.permissions.unlock",
+                            targetType: "app_permissions",
+                            targetId: app.Key,
+                            result: AuditResults.Success,
+                            message: null);
+                        return ApiResults.Ok(context, manifest);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "apps.permissions.unlock",
+                            targetType: "app_permissions",
+                            targetId: app.Key,
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("apps.permissions.unlock")
+            .WithSummary("人工解锁应用权限清单，允许再次上传")
+            .RequirePermission(PermissionCatalog.AppsPermissionsManage);
+
+        admin.MapPost(
+                "/{id:guid}/permissions/lock",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    IAppRegistryService apps,
+                    IAppPermissionService permissions,
+                    IAuditWriter audit,
+                    ICurrentPrincipal principal,
+                    CancellationToken cancellationToken) =>
+                {
+                    var app = await apps.GetAsync(id, cancellationToken);
+                    try
+                    {
+                        var manifest = await permissions.LockAsync(app.Key, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "apps.permissions.lock",
+                            targetType: "app_permissions",
+                            targetId: app.Key,
+                            result: AuditResults.Success,
+                            message: null);
+                        return ApiResults.Ok(context, manifest);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "apps.permissions.lock",
+                            targetType: "app_permissions",
+                            targetId: app.Key,
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("apps.permissions.lock")
+            .WithSummary("人工锁定应用权限清单，立即拒绝后续上传")
+            .RequirePermission(PermissionCatalog.AppsPermissionsManage);
+
         admin.MapPost(
                 "/{id:guid}/keys",
                 async (

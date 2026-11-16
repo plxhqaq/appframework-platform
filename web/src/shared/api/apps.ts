@@ -2,10 +2,12 @@ import { request } from './client';
 import type {
   ApiKeySummary,
   AppDetail,
+  AppPermissionManifest,
   AppSummary,
   CreateApiKeyRequest,
   CreateAppRequest,
   CreatedApiKey,
+  ReplaceAppPermissionsRequest,
   UpdateAppRequest,
 } from './types';
 
@@ -44,4 +46,16 @@ export const appsApi = {
 
   revokeKey: (id: string, keyId: string) =>
     request<ApiKeySummary>(`/api/v1/admin/apps/${id}/keys/${keyId}/revoke`, { method: 'POST' }),
+
+  getPermissions: (appKey: string, signal?: AbortSignal) =>
+    request<AppPermissionManifest>(`/api/v1/apps/${appKey}/permissions`, { anonymous: true, signal }),
+
+  replacePermissions: (appKey: string, body: ReplaceAppPermissionsRequest) =>
+    request<AppPermissionManifest>(`/api/v1/apps/${appKey}/permissions`, { method: 'PUT', body }),
+
+  unlockPermissions: (id: string) =>
+    request<AppPermissionManifest>(`/api/v1/admin/apps/${id}/permissions/unlock`, { method: 'POST' }),
+
+  lockPermissions: (id: string) =>
+    request<AppPermissionManifest>(`/api/v1/admin/apps/${id}/permissions/lock`, { method: 'POST' }),
 };

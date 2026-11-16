@@ -83,6 +83,7 @@ public sealed record LoginRequest(
 
 /// <summary>登录后的主体信息（令牌声明与响应共用同一份口径）。</summary>
 /// <param name="AppKey">本次令牌固定的应用上下文；平台上下文为 null。</param>
+/// <param name="PermissionsLocked">当前应用权限清单是否已锁定；平台上下文为 false。</param>
 public sealed record UserSessionDto(
     Guid UserId,
     string UserName,
@@ -91,7 +92,8 @@ public sealed record UserSessionDto(
     IReadOnlyList<string> Permissions,
     IReadOnlyList<string> AppKeys,
     bool MustChangePassword,
-    string? AppKey = null);
+    string? AppKey = null,
+    bool PermissionsLocked = false);
 
 /// <summary>桌面端登录响应：刷新令牌放在 body（客户端自行安全存储）。</summary>
 public sealed record LoginResponse(

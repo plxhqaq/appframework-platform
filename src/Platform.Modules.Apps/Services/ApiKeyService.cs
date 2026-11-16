@@ -48,13 +48,19 @@ public sealed class ApiKeyService : IApiKeyService
     private readonly PlatformDbContext _db;
     private readonly IClock _clock;
     private readonly ICurrentPrincipal _principal;
+    private readonly IAppPermissionDirectory _appPermissions;
 
     /// <summary>构造。</summary>
-    public ApiKeyService(PlatformDbContext db, IClock clock, ICurrentPrincipal principal)
+    public ApiKeyService(
+        PlatformDbContext db,
+        IClock clock,
+        ICurrentPrincipal principal,
+        IAppPermissionDirectory appPermissions)
     {
         _db = db;
         _clock = clock;
         _principal = principal;
+        _appPermissions = appPermissions;
     }
 
     /// <inheritdoc />
@@ -81,9 +87,10 @@ public sealed class ApiKeyService : IApiKeyService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        await EnsureAppExistsAsync(appId, cancellationToken);
+        var app = await RequireAppAsync(appId, cancellationToken);
 
-        var scopes = NormalizeScopes(request.Scopes);
+        var appCodes = await _appPermissions.ListCodesAsync(app.Key, cancellationToken);
+        var scopes = NormalizeScopes(request.Scopes, appCodes);
         EnsureScopesGrantable(scopes);
         var now = _clock.UtcNow;
         if (request.ExpiresAt is { } expires && expires <= now)
@@ -203,6 +210,12 @@ public sealed class ApiKeyService : IApiKeyService
         }
     }
 
+    private async Task<App> RequireAppAsync(Guid appId, CancellationToken cancellationToken) =>
+        await _db.Set<App>()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == appId, cancellationToken)
+        ?? throw BusinessException.NotFound(ApiErrorCode.AppsNotFound, $"应用 {appId} 不存在。");
+
     /// <summary>只减不增的同源约束：调用方不能签发自己都没持有的权限。</summary>
     private void EnsureScopesGrantable(List<string> scopes)
     {
@@ -220,7 +233,9 @@ public sealed class ApiKeyService : IApiKeyService
         }
     }
 
-    private static List<string> NormalizeScopes(IReadOnlyList<string>? scopes)
+    private static List<string> NormalizeScopes(
+        IReadOnlyList<string>? scopes,
+        IReadOnlySet<string> appCodes)
     {
         if (scopes is null || scopes.Count == 0)
         {
@@ -243,7 +258,7 @@ public sealed class ApiKeyService : IApiKeyService
                     "API Key 不得授予通配符权限。");
             }
 
-            if (!PermissionCatalog.IsKnown(scope))
+            if (!PermissionCatalog.IsKnown(scope) && !appCodes.Contains(scope))
             {
                 throw new BusinessException(
                     ApiErrorCode.AppsApiKeyScopeUnknown,

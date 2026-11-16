@@ -37,12 +37,17 @@ public sealed partial class RoleAdminService : IRoleAdminService
 {
     private readonly PlatformDbContext _db;
     private readonly IAppDirectory _apps;
+    private readonly IAppPermissionDirectory _appPermissions;
 
     /// <summary>构造。</summary>
-    public RoleAdminService(PlatformDbContext db, IAppDirectory apps)
+    public RoleAdminService(
+        PlatformDbContext db,
+        IAppDirectory apps,
+        IAppPermissionDirectory appPermissions)
     {
         _db = db;
         _apps = apps;
+        _appPermissions = appPermissions;
     }
 
     [GeneratedRegex(IdentityConventions.RoleNamePattern, RegexOptions.CultureInvariant)]
@@ -82,7 +87,8 @@ public sealed partial class RoleAdminService : IRoleAdminService
         }
 
         var appKey = await ResolveAppKeyAsync(scope, request.AppKey, cancellationToken);
-        var permissions = NormalizePermissions(request.Permissions, name);
+        var permissions = await NormalizePermissionsAsync(
+            request.Permissions, name, scope, appKey, cancellationToken);
 
         if (await _db.Set<Role>().AnyAsync(x => x.Name == name, cancellationToken))
         {
@@ -153,7 +159,8 @@ public sealed partial class RoleAdminService : IRoleAdminService
 
         if (request.Permissions is not null)
         {
-            var permissions = NormalizePermissions(request.Permissions, role.Name);
+            var permissions = await NormalizePermissionsAsync(
+                request.Permissions, role.Name, role.Scope, role.AppKey, cancellationToken);
             if (isPlatformAdmin && !permissions.Contains(PermissionCatalog.Wildcard, StringComparer.Ordinal))
             {
                 throw new BusinessException(
@@ -244,12 +251,25 @@ public sealed partial class RoleAdminService : IRoleAdminService
         return trimmed;
     }
 
-    private static List<string> NormalizePermissions(IReadOnlyList<string>? permissions, string roleName)
+    private async Task<List<string>> NormalizePermissionsAsync(
+        IReadOnlyList<string>? permissions,
+        string roleName,
+        string scope,
+        string? appKey,
+        CancellationToken cancellationToken)
     {
         if (permissions is null || permissions.Count == 0)
         {
             return [];
         }
+
+        // 平台权限恒可用；应用级角色只接受绑定应用声明的权限，平台级角色兼容历史上已授予的应用权限。
+        var known = PermissionCatalog.Codes.ToHashSet(StringComparer.Ordinal);
+        var appCodes = string.Equals(scope, IdentityConventions.ScopeApp, StringComparison.Ordinal)
+                       && !string.IsNullOrWhiteSpace(appKey)
+            ? await _appPermissions.ListCodesAsync(appKey, cancellationToken)
+            : await _appPermissions.ListAllCodesAsync(cancellationToken);
+        known.UnionWith(appCodes);
 
         var result = new List<string>();
         var containsWildcard = false;
@@ -267,7 +287,7 @@ public sealed partial class RoleAdminService : IRoleAdminService
                 continue;
             }
 
-            if (!PermissionCatalog.IsKnown(code))
+            if (!known.Contains(code))
             {
                 throw new BusinessException(
                     ApiErrorCode.IdentityPermissionUnknown,

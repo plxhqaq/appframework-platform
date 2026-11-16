@@ -250,7 +250,7 @@ public sealed class AppsServiceTests
         new(db, new AppStateCache(clock, TimeSpan.FromMinutes(1)));
 
     private static ApiKeyService CreateKeys(PlatformDbContext db, IClock clock, params string[] permissions) =>
-        new(db, clock, new TestCurrentPrincipal(permissions));
+        new(db, clock, new TestCurrentPrincipal(permissions), new AppPermissionService(db));
 
     private sealed class TestCurrentPrincipal : ICurrentPrincipal
     {

@@ -94,7 +94,7 @@ public sealed class IdentitySeeder : IHostedService
             [PermissionCatalog.Wildcard],
             cancellationToken);
 
-        await EnsureRoleAsync(
+        var appAdmin = await EnsureRoleAsync(
             db,
             IdentityConventions.AppAdminRole,
             "应用管理员",
@@ -102,6 +102,7 @@ public sealed class IdentitySeeder : IHostedService
                 PermissionCatalog.AppsRead,
                 PermissionCatalog.AppsManage,
                 PermissionCatalog.AppsApiKeyManage,
+                PermissionCatalog.AppsPermissionsManage,
                 PermissionCatalog.IdentityUserRead,
                 PermissionCatalog.IdentityRoleRead,
                 PermissionCatalog.VersionsChannelRead,
@@ -151,15 +152,15 @@ public sealed class IdentitySeeder : IHostedService
             ],
             cancellationToken);
 
-        // 现场工程师角色：给真人账号用，覆盖业务操作、客户端功能，以及签发密钥/审批扫码这两个入口。
-        // 临时令牌复用同一角色取权限，但会被 TemporarySessionFactory 摘掉这两个入口权限，
-        // 加上端点侧的临时会话拦截，临时身份没法给自己续期。
+        // 现场工程师角色：给真人账号用，覆盖业务操作与签发密钥/审批扫码入口。
+        // 客户端应用自己的权限由各应用清单声明，通过应用级角色授予，平台种子不硬编码。
         var engineer = await EnsureRoleAsync(
             db,
             SingleLoginConventions.EngineerRole,
             EngineerDisplayName,
             [
                 PermissionCatalog.AppsRead,
+                PermissionCatalog.AppsPermissionsManage,
                 PermissionCatalog.IdentitySingleKeyIssue,
                 PermissionCatalog.IdentityQrApprove,
                 PermissionCatalog.VersionsChannelRead,
@@ -177,10 +178,10 @@ public sealed class IdentitySeeder : IHostedService
                 PermissionCatalog.DocumentRead,
                 PermissionCatalog.DocumentManage,
                 PermissionCatalog.DocumentDelete,
-                .. ClientPermissionCatalog.Permissions.Select(static p => p.Code),
             ],
             cancellationToken);
 
+        UpgradeAppAdminRole(appAdmin);
         UpgradeEngineerRole(engineer);
 
         await EnsureAdminAsync(db, hasher, platformAdmin, options, clock, cancellationToken);
@@ -283,10 +284,23 @@ public sealed class IdentitySeeder : IHostedService
     /// 老库里的工程师角色只覆盖业务权限，签不了密钥也审批不了扫码，真人账号登录后两个页面都是空的。
     /// 这里只**补齐**缺的入口权限，不整体覆盖集合——管理员手工调过的其余部分要留着。
     /// </summary>
+    /// <summary>
+    /// 老库内置角色已经存在时 <see cref="EnsureRoleAsync"/> 不会覆盖权限；
+    /// 新增的敏感入口权限只在种子期补齐，管理员手工调整过的其余集合保持不变。
+    /// </summary>
+    private static void UpgradeAppAdminRole(Role appAdmin)
+    {
+        if (!appAdmin.Permissions.Contains(PermissionCatalog.AppsPermissionsManage, StringComparer.Ordinal))
+        {
+            appAdmin.Permissions = [.. appAdmin.Permissions, PermissionCatalog.AppsPermissionsManage];
+        }
+    }
+
     private static void UpgradeEngineerRole(Role engineer)
     {
         var missing = new[]
             {
+                PermissionCatalog.AppsPermissionsManage,
                 PermissionCatalog.IdentitySingleKeyIssue,
                 PermissionCatalog.IdentityQrApprove,
                 // 下发必须先选设备：留空不再广播，缺 device.read 会让备份下发整页不可用。

@@ -198,6 +198,10 @@ namespace Platform.Infrastructure.Migrations
                         .HasColumnType("character varying(256)")
                         .HasColumnName("name");
 
+                    b.Property<bool>("PermissionsLocked")
+                        .HasColumnType("boolean")
+                        .HasColumnName("permissions_locked");
+
                     b.Property<string>("SettingsJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("settings_json");
@@ -279,6 +283,126 @@ namespace Platform.Infrastructure.Migrations
                         .HasDatabaseName("ux_app_api_keys_prefix");
 
                     b.ToTable("app_api_keys", (string)null);
+                });
+
+            modelBuilder.Entity("Platform.Modules.Apps.Domain.AppPermissionDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AppId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("app_id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("display_name");
+
+                    b.Property<string>("GroupKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("group_key");
+
+                    b.Property<string>("GroupLabel")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("group_label");
+
+                    b.Property<int>("Sort")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppId")
+                        .HasDatabaseName("ix_app_permissions_app");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ux_app_permissions_code");
+
+                    b.ToTable("app_permissions", (string)null);
+                });
+
+            modelBuilder.Entity("Platform.Modules.Apps.Domain.AppPermissionPreset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AppId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("app_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("key");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("label");
+
+                    b.PrimitiveCollection<List<string>>("Permissions")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("permissions");
+
+                    b.Property<int>("Sort")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppId")
+                        .HasDatabaseName("ix_app_permission_presets_app");
+
+                    b.HasIndex("AppId", "Key")
+                        .IsUnique()
+                        .HasDatabaseName("ux_app_permission_presets_app_key");
+
+                    b.ToTable("app_permission_presets", (string)null);
                 });
 
             modelBuilder.Entity("Platform.Modules.Backups.Domain.Backup", b =>
@@ -2172,6 +2296,28 @@ namespace Platform.Infrastructure.Migrations
                     b.Navigation("App");
                 });
 
+            modelBuilder.Entity("Platform.Modules.Apps.Domain.AppPermissionDefinition", b =>
+                {
+                    b.HasOne("Platform.Modules.Apps.Domain.App", "App")
+                        .WithMany("Permissions")
+                        .HasForeignKey("AppId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("App");
+                });
+
+            modelBuilder.Entity("Platform.Modules.Apps.Domain.AppPermissionPreset", b =>
+                {
+                    b.HasOne("Platform.Modules.Apps.Domain.App", "App")
+                        .WithMany("Presets")
+                        .HasForeignKey("AppId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("App");
+                });
+
             modelBuilder.Entity("Platform.Modules.Backups.Domain.Backup", b =>
                 {
                     b.HasOne("Platform.Modules.Backups.Domain.BackupNamespace", "Namespace")
@@ -2315,6 +2461,10 @@ namespace Platform.Infrastructure.Migrations
             modelBuilder.Entity("Platform.Modules.Apps.Domain.App", b =>
                 {
                     b.Navigation("ApiKeys");
+
+                    b.Navigation("Permissions");
+
+                    b.Navigation("Presets");
                 });
 
             modelBuilder.Entity("Platform.Modules.Backups.Domain.BackupNamespace", b =>

@@ -8,6 +8,7 @@ export const PERMISSIONS = {
   appsRead: 'apps.read',
   appsManage: 'apps.manage',
   appsApiKeyManage: 'apps.apikey.manage',
+  appsPermissionsManage: 'apps.permissions.manage',
   identityUserRead: 'identity.user.read',
   identityUserManage: 'identity.user.manage',
   identityUserPasswordReset: 'identity.user.password.reset',

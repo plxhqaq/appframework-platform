@@ -43,6 +43,10 @@ export interface PlatformDashboard {
   serverTime: string;
   startedAt: string;
   uptimeSeconds: number;
+  /** 服务器操作系统开机时间。 */
+  bootTime: string;
+  /** 服务器自开机以来的秒数。 */
+  systemUptimeSeconds: number;
   system: SystemStatus;
   devices: DeviceStatistics;
   platform: PlatformInfo;
@@ -58,6 +62,12 @@ export interface SystemStatus {
   totalMemoryBytes: number;
   availableStorageBytes?: number | null;
   processorCount: number;
+  /** 整机 CPU 占用率；采样未就绪或平台不支持时为 null。 */
+  serverCpuUsagePercent: number | null;
+  /** 整机物理内存占用率；无法探测时为 null。 */
+  serverMemoryUsagePercent: number | null;
+  serverTotalMemoryBytes: number | null;
+  serverAvailableMemoryBytes: number | null;
 }
 
 /** 设备统计；connected 为实时连接数。 */
@@ -102,6 +112,8 @@ export interface UserSession {
   /** 当前令牌固定的应用上下文；平台上下文为 null。 */
   appKey?: string | null;
   mustChangePassword: boolean;
+  /** 当前应用权限清单是否已锁定；已锁定时客户端无需再上传清单。 */
+  permissionsLocked?: boolean;
 }
 
 /** 管理端登录/刷新响应：刷新令牌只在 httpOnly Cookie，响应体不含它。 */
@@ -217,6 +229,42 @@ export interface PermissionDescriptor {
   displayNameKey: string;
   sort: number;
   platformAdminOnly: boolean;
+  /** 权限说明；平台权限与已登记清单的应用权限都会下发。 */
+  description?: string | null;
+  /** 分组显示名；应用权限取清单里声明的分组名，缺省用应用名。 */
+  moduleLabel?: string | null;
+}
+
+/** 应用声明的自定义权限。 */
+export interface AppPermission {
+  code: string;
+  displayName: string;
+  description?: string | null;
+  group?: string | null;
+  groupLabel?: string | null;
+  sort: number;
+}
+
+/** 应用声明的常用权限组合（如作业员、工程师）。 */
+export interface AppPermissionPreset {
+  key: string;
+  label: string;
+  description?: string | null;
+  permissions: string[];
+  sort: number;
+}
+
+/** 应用权限清单：权限定义 + 常用组合 + 锁定状态。 */
+export interface AppPermissionManifest {
+  permissions: AppPermission[];
+  presets: AppPermissionPreset[];
+  locked: boolean;
+}
+
+/** 整表替换应用权限清单；首次成功后自动锁定，之后须先人工解锁。 */
+export interface ReplaceAppPermissionsRequest {
+  permissions?: AppPermission[] | null;
+  presets?: AppPermissionPreset[] | null;
 }
 
 /** 签发单次密钥。 */

@@ -14,6 +14,18 @@ public static class AppConventions
 
     /// <summary>API Key 明文最大长度（prefix + 分隔符 + secret）。</summary>
     public const int ApiKeyMaxLength = 128;
+
+    /// <summary>应用自定义权限码正则：小写点分，至少两段，不得与平台权限码冲突。</summary>
+    public const string AppPermissionCodePattern = "^[a-z][a-z0-9-]*(\\.[a-z0-9-]+)+$";
+
+    /// <summary>单个应用可声明的权限上限，防止清单被当成任意数据存储。</summary>
+    public const int MaxAppPermissions = 500;
+
+    /// <summary>单个应用可声明的常用权限组合上限。</summary>
+    public const int MaxAppPermissionPresets = 20;
+
+    /// <summary>常用权限组合键正则（应用内唯一）。</summary>
+    public const string AppPermissionPresetKeyPattern = "^[a-z][a-z0-9-]{0,63}$";
 }
 
 /// <summary>应用概要。</summary>
@@ -84,9 +96,54 @@ public sealed record CreatedApiKeyDto(
 public sealed record M2MTokenRequest(IReadOnlyList<string>? Scopes = null);
 
 /// <summary>M2M 令牌响应。</summary>
+/// <param name="PermissionsLocked">应用权限清单是否已锁定；已锁定则无需再上传。</param>
 public sealed record M2MTokenResponse(
     string AccessToken,
     string TokenType,
     DateTimeOffset ExpiresAt,
     string AppKey,
-    IReadOnlyList<string> Scopes);
+    IReadOnlyList<string> Scopes,
+    bool PermissionsLocked = false);
+
+/// <summary>应用自定义权限：由客户端应用自行声明，平台只校验格式与冲突。</summary>
+/// <param name="Code">权限码，小写点分且不得占用平台权限码。</param>
+/// <param name="DisplayName">显示名（管理台权限树与客户端共用）。</param>
+/// <param name="Description">权限说明。</param>
+/// <param name="Group">分组键，缺省为 <c>app</c>。</param>
+/// <param name="GroupLabel">分组显示名，缺省用应用名。</param>
+/// <param name="Sort">管理台权限树排序。</param>
+public sealed record AppPermissionDto(
+    string Code,
+    string DisplayName,
+    string? Description = null,
+    string? Group = null,
+    string? GroupLabel = null,
+    int Sort = 0);
+
+/// <summary>应用权限清单（权限 + 常用组合），供管理台渲染与快速选择。</summary>
+/// <param name="Permissions">权限定义。</param>
+/// <param name="Presets">常用权限组合。</param>
+/// <param name="Locked">是否已锁定；锁定后必须人工解锁才能再次上传。</param>
+public sealed record AppPermissionManifestDto(
+    IReadOnlyList<AppPermissionDto> Permissions,
+    IReadOnlyList<AppPermissionPresetDto> Presets,
+    bool Locked = false);
+
+/// <summary>应用自定义的常用权限组合（例如作业员、工程师）。</summary>
+/// <param name="Key">应用内唯一的组合键。</param>
+/// <param name="Label">显示名。</param>
+/// <param name="Description">组合说明。</param>
+/// <param name="Permissions">组合包含的权限码，必须全部在清单中声明。</param>
+/// <param name="Sort">管理台排序。</param>
+public sealed record AppPermissionPresetDto(
+    string Key,
+    string Label,
+    string? Description = null,
+    IReadOnlyList<string>? Permissions = null,
+    int Sort = 0);
+
+/// <summary>替换应用权限清单请求；整表替换，空清单表示清空。</summary>
+/// <remarks>首次上传成功后清单自动锁定；之后必须先在管理台解锁才能再次替换。</remarks>
+public sealed record ReplaceAppPermissionsRequest(
+    IReadOnlyList<AppPermissionDto>? Permissions = null,
+    IReadOnlyList<AppPermissionPresetDto>? Presets = null);

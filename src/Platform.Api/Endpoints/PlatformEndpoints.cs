@@ -60,9 +60,22 @@ public static class PlatformEndpoints
 
         platform.MapGet(
                 "/permissions",
-                (HttpContext context) => ApiResults.Ok(context, PermissionCatalog.All))
+                async (
+                    HttpContext context,
+                    IAppPermissionDirectory appPermissions,
+                    string? appKey,
+                    CancellationToken cancellationToken) =>
+                {
+                    if (string.IsNullOrWhiteSpace(appKey))
+                    {
+                        return ApiResults.Ok(context, PermissionCatalog.All);
+                    }
+
+                    var app = await appPermissions.ListAsync(appKey.Trim().ToLowerInvariant(), cancellationToken);
+                    return ApiResults.Ok(context, PermissionCatalog.All.Concat(app).ToArray());
+                })
             .WithName("platform.permissions")
-            .WithSummary("权限码目录（后台权限树与客户端权限映射的唯一来源）")
+            .WithSummary("权限码目录；带 appKey 时合并该应用声明的权限")
             .AllowAnonymous();
 
         platform.MapGet(

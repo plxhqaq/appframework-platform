@@ -77,6 +77,7 @@ public sealed class M2MTokenService : IM2MTokenService
             "Bearer",
             issued.ExpiresAt,
             authenticated.App.Key,
-            effective);
+            effective,
+            authenticated.App.PermissionsLocked);
     }
 }

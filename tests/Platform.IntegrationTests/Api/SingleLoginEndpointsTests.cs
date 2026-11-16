@@ -47,7 +47,6 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
 
         // 临时身份继承内置工程师角色：能备份下发，但不能维护用户/角色，也不能再签发密钥。
         Assert.Contains(PermissionCatalog.BackupPush, redeemed.User.Permissions);
-        Assert.Contains(ClientPermissionCatalog.StationOperate, redeemed.User.Permissions);
         Assert.DoesNotContain(PermissionCatalog.IdentityUserManage, redeemed.User.Permissions);
         Assert.DoesNotContain(PermissionCatalog.IdentitySingleKeyIssue, redeemed.User.Permissions);
         Assert.DoesNotContain(PermissionCatalog.Wildcard, redeemed.User.Permissions);

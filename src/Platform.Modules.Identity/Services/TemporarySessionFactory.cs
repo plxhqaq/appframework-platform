@@ -35,13 +35,19 @@ public sealed class TemporarySessionFactory : ITemporarySessionFactory
     private readonly PlatformDbContext _db;
     private readonly IAppDirectory _apps;
     private readonly IAccessTokenIssuer _issuer;
+    private readonly IAppPermissionDirectory _appPermissions;
 
     /// <summary>构造。</summary>
-    public TemporarySessionFactory(PlatformDbContext db, IAppDirectory apps, IAccessTokenIssuer issuer)
+    public TemporarySessionFactory(
+        PlatformDbContext db,
+        IAppDirectory apps,
+        IAccessTokenIssuer issuer,
+        IAppPermissionDirectory appPermissions)
     {
         _db = db;
         _apps = apps;
         _issuer = issuer;
+        _appPermissions = appPermissions;
     }
 
     /// <inheritdoc />
@@ -79,15 +85,25 @@ public sealed class TemporarySessionFactory : ITemporarySessionFactory
                        ApiErrorCode.IdentityPermissionDenied,
                        "内置工程师角色缺失，无法签发临时会话。请检查身份种子。");
 
+        var appKeys = await _apps.ListEnabledKeysAsync(cancellationToken);
+
+        // 临时令牌固定进入第一个启用应用；把该应用声明的权限并入，临时身份才能使用客户端功能。
+        var allowed = PermissionCatalog.Codes.ToHashSet(StringComparer.Ordinal);
+        if (appKeys.Count > 0)
+        {
+            allowed.UnionWith(await _appPermissions.ListCodesAsync(appKeys[0], cancellationToken));
+        }
+
         var permissions = role.Permissions
-            .Where(PermissionCatalog.IsKnown)
+            .Where(allowed.Contains)
             // 工程师角色本身带签发/审批入口（真人账号要用），临时会话必须摘掉，否则就能给自己续期。
             .Where(static code => code is not (PermissionCatalog.IdentitySingleKeyIssue or PermissionCatalog.IdentityQrApprove))
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToList();
 
-        var appKeys = await _apps.ListEnabledKeysAsync(cancellationToken);
+        var permissionsLocked = appKeys.Count > 0
+            && await _appPermissions.IsLockedAsync(appKeys[0], cancellationToken);
 
         return new UserSessionDto(
             subjectId,
@@ -96,6 +112,7 @@ public sealed class TemporarySessionFactory : ITemporarySessionFactory
             [role.Name],
             permissions,
             appKeys,
-            MustChangePassword: false);
+            MustChangePassword: false,
+            PermissionsLocked: permissionsLocked);
     }
 }

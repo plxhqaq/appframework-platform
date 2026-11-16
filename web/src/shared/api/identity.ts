@@ -146,6 +146,11 @@ export const identityApi = {
       method: 'POST',
     }),
 
-  permissions: (signal?: AbortSignal) =>
-    request<PermissionDescriptor[]>('/api/v1/platform/permissions', { anonymous: true, signal }),
+  permissions: (signal?: AbortSignal, appKey?: string | null) =>
+    request<PermissionDescriptor[]>(
+      appKey
+        ? `/api/v1/platform/permissions?appKey=${encodeURIComponent(appKey)}`
+        : '/api/v1/platform/permissions',
+      { anonymous: true, signal },
+    ),
 };

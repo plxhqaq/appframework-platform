@@ -128,6 +128,8 @@ public static class ApiErrorHttpStatus
         ApiErrorCode.AppsQuotaExceeded => StatusCodes.Status429TooManyRequests,
         ApiErrorCode.AppsApiKeyScopeUnknown => StatusCodes.Status400BadRequest,
         ApiErrorCode.AppsApiKeyNotFound => StatusCodes.Status404NotFound,
+        ApiErrorCode.AppsPermissionManifestInvalid => StatusCodes.Status400BadRequest,
+        ApiErrorCode.AppsPermissionManifestLocked => StatusCodes.Status409Conflict,
 
         // ━━━ Webhook ━━━
         ApiErrorCode.WebhooksSubscriptionNotFound => StatusCodes.Status404NotFound,
