@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import { useMutation } from '@tanstack/react-query';
 import { App, Form, Input, Modal, Switch, Typography } from 'antd';
 import { useEffect } from 'react';
@@ -36,7 +37,7 @@ export function ResetPasswordModal({ open, user, onClose }: ResetPasswordModalPr
         requireChange: values.requireChange,
       }),
     onSuccess: (result) => {
-      message.success(`口令已重置，已吊销 ${result.revokedSessions} 个会话`);
+      message.success(tr("口令已重置，已吊销 {{arg0}} 个会话", { arg0: result.revokedSessions }));
       onClose();
     },
     onError: (error: Error) => message.error(error.message),
@@ -58,9 +59,9 @@ export function ResetPasswordModal({ open, user, onClose }: ResetPasswordModalPr
   return (
     <Modal
       open={open}
-      title={user ? `重置口令 · ${user.userName}` : '重置口令'}
-      okText="重置"
-      cancelText="取消"
+      title={user ? tr("重置口令 · {{arg0}}", { arg0: user.userName }) : tr("重置口令")}
+      okText={tr("重置")}
+      cancelText={tr("取消")}
       confirmLoading={mutation.isPending}
       onCancel={onClose}
       onOk={() => void handleOk()}
@@ -70,8 +71,7 @@ export function ResetPasswordModal({ open, user, onClose }: ResetPasswordModalPr
       }}
     >
       <Typography.Paragraph type="secondary">
-        新口令只显示在管理员输入框里；提交后该用户全部已登录设备都会被强制下线。
-      </Typography.Paragraph>
+        {tr("新口令只显示在管理员输入框里；提交后该用户全部已登录设备都会被强制下线。")}</Typography.Paragraph>
 
       <Form<ResetPasswordValues>
         form={form}
@@ -81,11 +81,11 @@ export function ResetPasswordModal({ open, user, onClose }: ResetPasswordModalPr
       >
         <Form.Item
           name="newPassword"
-          label="新口令"
-          tooltip="8–128 位，且同时包含字母与数字"
+          label={tr("新口令")}
+          tooltip={tr("8–128 位，且同时包含字母与数字")}
           rules={[
-            { required: true, message: '请输入新口令' },
-            { pattern: PASSWORD_PATTERN, message: '8–128 位，且同时包含字母与数字' },
+            { required: true, message: tr("请输入新口令") },
+            { pattern: PASSWORD_PATTERN, message: tr("8–128 位，且同时包含字母与数字") },
           ]}
         >
           <Input.Password autoComplete="new-password" />
@@ -93,9 +93,9 @@ export function ResetPasswordModal({ open, user, onClose }: ResetPasswordModalPr
 
         <Form.Item
           name="requireChange"
-          label="下次登录强制改密"
+          label={tr("下次登录强制改密")}
           valuePropName="checked"
-          tooltip="建议保持开启：管理员设定临时口令后，用户应立即换成自己的口令。"
+          tooltip={tr("建议保持开启：管理员设定临时口令后，用户应立即换成自己的口令。")}
         >
           <Switch />
         </Form.Item>

@@ -1,5 +1,6 @@
 import { Spin } from 'antd';
 import { useEffect, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createBrowserRouter, Navigate, RouterProvider, useLocation } from 'react-router-dom';
 import { AppsPage } from '../features/apps/AppsPage';
 import { AuditPage } from '../features/audit/AuditPage';
@@ -52,10 +53,11 @@ function Guarded({ path, children }: { path: string; children: ReactNode }) {
 }
 
 function GuardedQrDetail() {
+  const { t } = useTranslation('auth');
   const permissions = useAuthStore((state) => state.session?.permissions);
   if (!hasAnyPermissionCode(permissions, [PERMISSIONS.identityQrApprove])) {
     return (
-      <AccessDenied description="审批扫码登录需要 identity.qr.approve 权限。现场工程师账号默认就有；临时登录（密钥/扫码换来的会话）不能审批别人的扫码。" />
+      <AccessDenied description={t('denied.qrDescription')} />
     );
   }
   return <QrSessionDetailPage />;

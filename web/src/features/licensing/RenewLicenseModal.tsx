@@ -1,3 +1,5 @@
+import { formatDate } from '../../shared/format';
+import { tr } from '../../i18n/translate';
 import { useMutation } from '@tanstack/react-query';
 import { App, DatePicker, Descriptions, Form, Input, InputNumber, Modal, Radio } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -27,7 +29,7 @@ export function RenewLicenseModal({ open, entitlement, onClose, onSaved }: Renew
   const mutation = useMutation({
     mutationFn: (values: RenewFormValues) => {
       if (!entitlement) {
-        throw new Error('未选择授权');
+        throw new Error(tr("未选择授权"));
       }
 
       const body: RenewLicenseRequest = {
@@ -42,7 +44,7 @@ export function RenewLicenseModal({ open, entitlement, onClose, onSaved }: Renew
       return licensingApi.renewLicense(entitlement.id, body);
     },
     onSuccess: () => {
-      message.success('授权已续期');
+      message.success(tr("授权已续期"));
       onSaved();
       onClose();
     },
@@ -65,9 +67,9 @@ export function RenewLicenseModal({ open, entitlement, onClose, onSaved }: Renew
   return (
     <Modal
       open={open}
-      title="续期授权"
-      okText="续期"
-      cancelText="取消"
+      title={tr("续期授权")}
+      okText={tr("续期")}
+      cancelText={tr("取消")}
       confirmLoading={mutation.isPending}
       onCancel={onClose}
       onOk={() => void handleOk()}
@@ -78,10 +80,10 @@ export function RenewLicenseModal({ open, entitlement, onClose, onSaved }: Renew
     >
       {entitlement ? (
         <Descriptions size="small" column={1} style={{ marginBottom: 16 }}>
-          <Descriptions.Item label="产品">{entitlement.productKey}</Descriptions.Item>
-          <Descriptions.Item label="机器码">{entitlement.machineCode}</Descriptions.Item>
-          <Descriptions.Item label="当前到期">
-            {new Date(entitlement.notAfter).toLocaleDateString()}
+          <Descriptions.Item label={tr("产品")}>{entitlement.productKey}</Descriptions.Item>
+          <Descriptions.Item label={tr("机器码")}>{entitlement.machineCode}</Descriptions.Item>
+          <Descriptions.Item label={tr("当前到期")}>
+            {formatDate(entitlement.notAfter)}
           </Descriptions.Item>
         </Descriptions>
       ) : null}
@@ -92,13 +94,13 @@ export function RenewLicenseModal({ open, entitlement, onClose, onSaved }: Renew
         requiredMark={false}
         initialValues={{ mode: 'days', addDays: 365 }}
       >
-        <Form.Item name="mode" label="续期方式">
+        <Form.Item name="mode" label={tr("续期方式")}>
           <Radio.Group
             optionType="button"
             buttonStyle="solid"
             options={[
-              { value: 'days', label: '追加天数' },
-              { value: 'date', label: '指定新到期日' },
+              { value: 'days', label: tr("追加天数") },
+              { value: 'date', label: tr("指定新到期日") },
             ]}
           />
         </Form.Item>
@@ -108,16 +110,16 @@ export function RenewLicenseModal({ open, entitlement, onClose, onSaved }: Renew
             getFieldValue('mode') === 'days' ? (
               <Form.Item
                 name="addDays"
-                label="追加天数"
-                rules={[{ required: true, message: '请输入追加天数' }]}
+                label={tr("追加天数")}
+                rules={[{ required: true, message: tr("请输入追加天数") }]}
               >
                 <InputNumber min={1} max={3650} style={{ width: '100%' }} />
               </Form.Item>
             ) : (
               <Form.Item
                 name="notAfter"
-                label="新到期日"
-                rules={[{ required: true, message: '请选择新到期日' }]}
+                label={tr("新到期日")}
+                rules={[{ required: true, message: tr("请选择新到期日") }]}
               >
                 <DatePicker
                   style={{ width: '100%' }}
@@ -128,12 +130,12 @@ export function RenewLicenseModal({ open, entitlement, onClose, onSaved }: Renew
           }
         </Form.Item>
 
-        <Form.Item name="graceDays" label="宽限天数" tooltip="留空沿用原值。">
-          <InputNumber min={0} max={30} style={{ width: '100%' }} placeholder="保持不变" />
+        <Form.Item name="graceDays" label={tr("宽限天数")} tooltip={tr("留空沿用原值。")}>
+          <InputNumber min={0} max={30} style={{ width: '100%' }} placeholder={tr("保持不变")} />
         </Form.Item>
 
-        <Form.Item name="notes" label="备注" rules={[{ max: 512 }]}>
-          <Input.TextArea rows={2} placeholder="可选" />
+        <Form.Item name="notes" label={tr("备注")} rules={[{ max: 512 }]}>
+          <Input.TextArea rows={2} placeholder={tr("可选")} />
         </Form.Item>
       </Form>
     </Modal>

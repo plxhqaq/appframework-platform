@@ -1,4 +1,10 @@
-import { ReloadOutlined } from '@ant-design/icons';
+import { tr } from '../../i18n/translate';
+import {
+  ArrowRightOutlined,
+  CheckOutlined,
+  CloseOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -41,11 +47,11 @@ const DEFAULT_PAGE_SIZE = 20;
 const PENDING_REFETCH_MS = 5000;
 
 const STATUS_OPTIONS = [
-  { value: 'pending', label: '待审批' },
-  { value: 'approved', label: '已批准' },
-  { value: 'rejected', label: '已拒绝' },
-  { value: 'expired', label: '已过期' },
-  { value: '', label: '全部' },
+  { value: 'pending', get label() { return tr("待审批"); } },
+  { value: 'approved', get label() { return tr("已批准"); } },
+  { value: 'rejected', get label() { return tr("已拒绝"); } },
+  { value: 'expired', get label() { return tr("已过期"); } },
+  { value: '', get label() { return tr("全部"); } },
 ];
 
 /** 到期时间：待审批的挂上倒计时，其余只报时刻。 */
@@ -55,7 +61,9 @@ function expiryText(session: QrSessionSummary, now: number): string {
     return at;
   }
   const left = remainingSeconds(session.expiresAt, now);
-  return left === null ? `${at}（已过期）` : `${at}（剩余 ${formatCountdown(left)}）`;
+  return left === null
+    ? tr('{{time}}（已过期）', { time: at })
+    : tr('{{time}}（剩余 {{left}}）', { time: at, left: formatCountdown(left) });
 }
 
 function fingerprintNode(value?: string | null) {
@@ -64,7 +72,7 @@ function fingerprintNode(value?: string | null) {
       {value}
     </Typography.Text>
   ) : (
-    <Typography.Text type="secondary">无</Typography.Text>
+    <Typography.Text type="secondary">{tr("无")}</Typography.Text>
   );
 }
 
@@ -111,7 +119,7 @@ export function QrApprovalPage() {
     onSuccess: async (_result, target) => {
       await invalidate();
       setApproving(null);
-      message.success(`已批准 ${target.clientName ?? '该客户端'}，客户端可领取临时令牌`);
+      message.success(tr("已批准 {{arg0}}，客户端可领取临时令牌", { arg0: target.clientName ?? tr("该客户端") }));
     },
     onError: (error: Error) => message.error(error.message),
   });
@@ -120,7 +128,7 @@ export function QrApprovalPage() {
     mutationFn: (requestId: string) => identityApi.rejectQrSession(requestId),
     onSuccess: async () => {
       await invalidate();
-      message.success('已拒绝');
+      message.success(tr("已拒绝"));
     },
     onError: (error: Error) => message.error(error.message),
   });
@@ -132,18 +140,18 @@ export function QrApprovalPage() {
 
   const columns: TableColumnsType<QrSessionSummary> = [
     {
-      title: '客户端',
+      title: tr("客户端"),
       key: 'client',
       width: 240,
       render: (_: unknown, session: QrSessionSummary) => (
         <Space direction="vertical" size={0}>
-          <Typography.Text strong>{session.clientName ?? '未知客户端'}</Typography.Text>
+          <Typography.Text strong>{session.clientName ?? tr("未知客户端")}</Typography.Text>
           {fingerprintNode(session.deviceFingerprint)}
         </Space>
       ),
     },
     {
-      title: '来源 IP',
+      title: tr("来源 IP"),
       dataIndex: 'createdByIp',
       key: 'createdByIp',
       width: 140,
@@ -151,20 +159,20 @@ export function QrApprovalPage() {
       render: (value: string | null) => value ?? <Typography.Text type="secondary">-</Typography.Text>,
     },
     {
-      title: '发起时间',
+      title: tr("发起时间"),
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 180,
       render: (value: string) => formatDateTime(value),
     },
     {
-      title: '到期时间',
+      title: tr("到期时间"),
       key: 'expiresAt',
       width: 260,
       render: (_: unknown, session: QrSessionSummary) => expiryText(session, now),
     },
     {
-      title: '状态',
+      title: tr("状态"),
       dataIndex: 'status',
       key: 'status',
       width: 100,
@@ -174,7 +182,7 @@ export function QrApprovalPage() {
       },
     },
     {
-      title: '审批人',
+      title: tr("审批人"),
       dataIndex: 'approvedByName',
       key: 'approvedByName',
       width: 140,
@@ -182,7 +190,7 @@ export function QrApprovalPage() {
       render: (value: string | null) => value ?? <Typography.Text type="secondary">-</Typography.Text>,
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
       width: 210,
       fixed: 'right',
@@ -191,19 +199,17 @@ export function QrApprovalPage() {
           {session.status === 'pending' ? (
             <>
               <Button type="link" size="small" onClick={() => openApprove(session)}>
-                批准
-              </Button>
+                {tr("批准")}</Button>
               <Popconfirm
-                title="拒绝该扫码登录？"
-                description="客户端将收到拒绝状态，无法获得临时令牌。"
-                okText="拒绝"
+                title={tr("拒绝该扫码登录？")}
+                description={tr("客户端将收到拒绝状态，无法获得临时令牌。")}
+                okText={tr("拒绝")}
                 okButtonProps={{ danger: true }}
-                cancelText="取消"
+                cancelText={tr("取消")}
                 onConfirm={() => rejectMutation.mutateAsync(session.requestId).catch(() => undefined)}
               >
                 <Button type="link" size="small" danger>
-                  拒绝
-                </Button>
+                  {tr("拒绝")}</Button>
               </Popconfirm>
             </>
           ) : null}
@@ -212,8 +218,7 @@ export function QrApprovalPage() {
             size="small"
             onClick={() => navigate(`/qr-login/${session.requestId}`)}
           >
-            详情
-          </Button>
+            {tr("详情")}</Button>
         </Space>
       ),
     },
@@ -227,7 +232,7 @@ export function QrApprovalPage() {
       pageSize={sessions.data?.pageSize ?? pageSize}
       total={sessions.data?.total ?? 0}
       showSizeChanger={!isMobile}
-      showTotal={isMobile ? undefined : (total) => `共 ${total} 个扫码会话`}
+      showTotal={isMobile ? undefined : (total) => tr("共 {{arg0}} 个扫码会话", { arg0: total })}
       onChange={(nextPage, nextPageSize) => {
         setPage(nextPageSize === pageSize ? nextPage : 1);
         setPageSize(nextPageSize);
@@ -238,8 +243,8 @@ export function QrApprovalPage() {
   return (
     <div className="field-page field-page--wide">
       <PageHeading
-        title="扫码登录"
-        description="客户端出示二维码 → 手机相机扫开审批页 → 核对设备与来源后批准。"
+        title={tr("扫码登录")}
+        description={tr("客户端出示二维码 → 手机相机扫开审批页 → 核对设备与来源后批准。")}
         extra={
           status === 'pending' ? (
             <Badge
@@ -263,19 +268,17 @@ export function QrApprovalPage() {
                 setStatus(value);
                 setPage(1);
               }}
-              aria-label="按状态筛选"
+              aria-label={tr("按状态筛选")}
             />
             <Button
               icon={<ReloadOutlined />}
               loading={sessions.isFetching}
               onClick={() => void sessions.refetch()}
             >
-              刷新
-            </Button>
+              {tr("刷新")}</Button>
             {status === 'pending' ? (
               <Typography.Text type="secondary">
-                每 {PENDING_REFETCH_MS / 1000} 秒自动刷新
-              </Typography.Text>
+                {tr("每")}{PENDING_REFETCH_MS / 1000} {tr("秒自动刷新")}</Typography.Text>
             ) : null}
           </Space>
 
@@ -286,8 +289,7 @@ export function QrApprovalPage() {
               message={(sessions.error as Error).message}
               action={
                 <Button size="small" onClick={() => void sessions.refetch()}>
-                  重试
-                </Button>
+                  {tr("重试")}</Button>
               }
             />
           ) : null}
@@ -302,8 +304,8 @@ export function QrApprovalPage() {
             <Empty
               description={
                 status === 'pending'
-                  ? '当前没有待审批的扫码请求。让现场在客户端点「扫码登录」，这里几秒内就会出现。'
-                  : '没有匹配的扫码会话'
+                  ? tr("当前没有待审批的扫码请求。让现场在客户端点「扫码登录」，这里几秒内就会出现。")
+                  : tr("没有匹配的扫码会话")
               }
             />
           ) : null}
@@ -317,7 +319,7 @@ export function QrApprovalPage() {
                     key={session.requestId}
                     size="small"
                     className="qr-card"
-                    title={session.clientName ?? '未知客户端'}
+                    title={session.clientName ?? tr("未知客户端")}
                     extra={<Tag color={meta.color}>{meta.label}</Tag>}
                   >
                     <Space direction="vertical" size="small" style={{ width: '100%' }}>
@@ -327,22 +329,22 @@ export function QrApprovalPage() {
                         items={[
                           {
                             key: 'device',
-                            label: '设备指纹',
+                            label: tr("设备指纹"),
                             children: fingerprintNode(session.deviceFingerprint),
                           },
                           {
                             key: 'ip',
-                            label: '来源 IP',
-                            children: session.createdByIp ?? '未知',
+                            label: tr("来源 IP"),
+                            children: session.createdByIp ?? tr("未知"),
                           },
                           {
                             key: 'createdAt',
-                            label: '发起时间',
+                            label: tr("发起时间"),
                             children: formatDateTime(session.createdAt),
                           },
                           {
                             key: 'expiresAt',
-                            label: '到期时间',
+                            label: tr("到期时间"),
                             children: expiryText(session, now),
                           },
                           ...(session.status === 'pending'
@@ -350,7 +352,7 @@ export function QrApprovalPage() {
                             : [
                                 {
                                   key: 'approvedBy',
-                                  label: '审批人',
+                                  label: tr("审批人"),
                                   children: session.approvedByName ?? '-',
                                 },
                               ]),
@@ -359,28 +361,41 @@ export function QrApprovalPage() {
 
                       {session.status === 'pending' ? (
                         <div className="qr-card__actions">
-                          <Button type="primary" size="large" block onClick={() => openApprove(session)}>
-                            批准
-                          </Button>
+                          <Button
+                            type="primary"
+                            size="large"
+                            block
+                            icon={<CheckOutlined />}
+                            onClick={() => openApprove(session)}
+                          >
+                            {tr("批准")}</Button>
                           <Popconfirm
-                            title="拒绝该扫码登录？"
-                            description="客户端将收到拒绝状态，无法获得临时令牌。"
-                            okText="拒绝"
+                            title={tr("拒绝该扫码登录？")}
+                            description={tr("客户端将收到拒绝状态，无法获得临时令牌。")}
+                            okText={tr("拒绝")}
                             okButtonProps={{ danger: true }}
-                            cancelText="取消"
+                            cancelText={tr("取消")}
                             onConfirm={() =>
                               rejectMutation.mutateAsync(session.requestId).catch(() => undefined)
                             }
                           >
-                            <Button danger size="large" block loading={rejectMutation.isPending}>
-                              拒绝
-                            </Button>
+                            <Button
+                              danger
+                              size="large"
+                              block
+                              icon={<CloseOutlined />}
+                              loading={rejectMutation.isPending}
+                            >
+                              {tr("拒绝")}</Button>
                           </Popconfirm>
                         </div>
                       ) : (
-                        <Button block onClick={() => navigate(`/qr-login/${session.requestId}`)}>
-                          查看详情
-                        </Button>
+                        <Button
+                          block
+                          icon={<ArrowRightOutlined />}
+                          onClick={() => navigate(`/qr-login/${session.requestId}`)}
+                        >
+                          {tr("查看详情")}</Button>
                       )}
                     </Space>
                   </Card>
@@ -406,9 +421,9 @@ export function QrApprovalPage() {
 
       <Modal
         open={approving !== null}
-        title="批准扫码登录"
-        okText={`批准（${formatDuration(duration ?? DEFAULT_DURATION_MINUTES)}）`}
-        cancelText="取消"
+        title={tr("批准扫码登录")}
+        okText={tr("批准（{{arg0}}）", { arg0: formatDuration(duration ?? DEFAULT_DURATION_MINUTES) })}
+        cancelText={tr("取消")}
         centered={isMobile}
         width={isMobile ? '92vw' : 520}
         confirmLoading={approveMutation.isPending}
@@ -423,30 +438,30 @@ export function QrApprovalPage() {
           <Alert
             type="warning"
             showIcon
-            message="先核对是不是本人"
-            description="批准后客户端立刻能拿到临时令牌，请确认设备指纹与来源 IP 与现场一致。"
+            message={tr("先核对是不是本人")}
+            description={tr("批准后客户端立刻能拿到临时令牌，请确认设备指纹与来源 IP 与现场一致。")}
           />
           {approving ? (
             <Descriptions
               size="small"
               column={1}
               items={[
-                { key: 'client', label: '客户端', children: approving.clientName ?? '未知客户端' },
+                { key: 'client', label: tr("客户端"), children: approving.clientName ?? tr("未知客户端") },
                 {
                   key: 'device',
-                  label: '设备指纹',
+                  label: tr("设备指纹"),
                   children: fingerprintNode(approving.deviceFingerprint),
                 },
-                { key: 'ip', label: '来源 IP', children: approving.createdByIp ?? '未知' },
+                { key: 'ip', label: tr("来源 IP"), children: approving.createdByIp ?? tr("未知") },
                 {
                   key: 'createdAt',
-                  label: '发起时间',
+                  label: tr("发起时间"),
                   children: formatDateTime(approving.createdAt),
                 },
               ]}
             />
           ) : null}
-          <DurationPicker value={duration} onChange={setDuration} label="临时令牌有效期" />
+          <DurationPicker value={duration} onChange={setDuration} label={tr("临时令牌有效期")} />
         </Space>
       </Modal>
     </div>

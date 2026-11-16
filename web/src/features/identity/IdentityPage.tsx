@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import { Alert, Card, Tabs } from 'antd';
 import { PERMISSIONS } from '../../shared/permissions';
 import { useAuthStore } from '../../stores/auth';
@@ -17,21 +18,21 @@ export function IdentityPage() {
   const canReadSessions = useAuthStore((state) => state.hasPermission(PERMISSIONS.identitySessionRead));
 
   const items = [
-    canReadUsers ? { key: 'users', label: '用户', children: <UsersPanel /> } : null,
-    canReadRoles ? { key: 'roles', label: '角色', children: <RolesPanel /> } : null,
-    canReadSessions ? { key: 'sessions', label: '会话', children: <SessionsPanel /> } : null,
+    canReadUsers ? { key: 'users', label: tr("用户"), children: <UsersPanel /> } : null,
+    canReadRoles ? { key: 'roles', label: tr("角色"), children: <RolesPanel /> } : null,
+    canReadSessions ? { key: 'sessions', label: tr("会话"), children: <SessionsPanel /> } : null,
   ].filter((item) => item !== null);
 
   return (
-    <Card title="身份与权限" size="small">
+    <Card title={tr("身份与权限")} size="small">
       {items.length > 0 ? (
         <Tabs items={items} />
       ) : (
         <Alert
           type="warning"
           showIcon
-          message="当前账号没有身份管理相关权限"
-          description="需要 identity.user.read、identity.role.read 或 identity.session.read 之一。"
+          message={tr("当前账号没有身份管理相关权限")}
+          description={tr("需要 identity.user.read、identity.role.read 或 identity.session.read 之一。")}
         />
       )}
     </Card>

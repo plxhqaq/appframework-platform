@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import { useMutation } from '@tanstack/react-query';
 import { Alert, App, Form, Input, Modal } from 'antd';
 import { licensingApi } from '../../shared/api/licensing';
@@ -22,12 +23,12 @@ export function RevokeLicenseModal({ open, entitlement, onClose, onSaved }: Revo
   const mutation = useMutation({
     mutationFn: (values: RevokeFormValues) => {
       if (!entitlement) {
-        throw new Error('未选择授权');
+        throw new Error(tr("未选择授权"));
       }
       return licensingApi.revokeLicense(entitlement.id, { reason: values.reason?.trim() || null });
     },
     onSuccess: () => {
-      message.success('授权已吊销');
+      message.success(tr("授权已吊销"));
       onSaved();
       onClose();
     },
@@ -50,10 +51,10 @@ export function RevokeLicenseModal({ open, entitlement, onClose, onSaved }: Revo
   return (
     <Modal
       open={open}
-      title="吊销授权"
-      okText="确认吊销"
+      title={tr("吊销授权")}
+      okText={tr("确认吊销")}
       okButtonProps={{ danger: true }}
-      cancelText="取消"
+      cancelText={tr("取消")}
       confirmLoading={mutation.isPending}
       onCancel={onClose}
       onOk={() => void handleOk()}
@@ -66,17 +67,20 @@ export function RevokeLicenseModal({ open, entitlement, onClose, onSaved }: Revo
         type="warning"
         showIcon
         style={{ marginBottom: 16 }}
-        message="吊销后不可恢复"
+        message={tr("吊销后不可恢复")}
         description={
           entitlement
-            ? `${entitlement.productKey} · ${entitlement.machineCode} 将立即失去授权；需要恢复时只能重新签发。`
+            ? tr('{{productKey}} · {{machineCode}} 将立即失去授权；需要恢复时只能重新签发。', {
+                productKey: entitlement.productKey,
+                machineCode: entitlement.machineCode,
+              })
             : undefined
         }
       />
 
       <Form<RevokeFormValues> form={form} layout="vertical" requiredMark={false}>
-        <Form.Item name="reason" label="原因" rules={[{ max: 256 }]}>
-          <Input.TextArea rows={2} placeholder="例如 客户退订 / 换机" />
+        <Form.Item name="reason" label={tr("原因")} rules={[{ max: 256 }]}>
+          <Input.TextArea rows={2} placeholder={tr("例如 客户退订 / 换机")} />
         </Form.Item>
       </Form>
     </Modal>

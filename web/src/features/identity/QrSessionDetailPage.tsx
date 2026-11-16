@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import { ArrowLeftOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -71,7 +72,7 @@ export function QrSessionDetailPage() {
       identityApi.approveQrSession(requestId, { durationMinutes: duration ?? undefined }),
     onSuccess: async (result) => {
       await settle(result);
-      message.success('已批准，客户端可领取临时令牌');
+      message.success(tr("已批准，客户端可领取临时令牌"));
     },
     onError: (error: Error) => message.error(error.message),
   });
@@ -80,21 +81,20 @@ export function QrSessionDetailPage() {
     mutationFn: () => identityApi.rejectQrSession(requestId),
     onSuccess: async (result) => {
       await settle(result);
-      message.success('已拒绝');
+      message.success(tr("已拒绝"));
     },
     onError: (error: Error) => message.error(error.message),
   });
 
   const backToList = (
     <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/qr-approval')}>
-      返回扫码列表
-    </Button>
+      {tr("返回扫码列表")}</Button>
   );
 
   if (sessionQuery.isPending) {
     return (
       <div className="field-page">
-        <PageHeading title="扫码登录审批" />
+        <PageHeading title={tr("扫码登录审批")} />
         <Card size="small">
           <Skeleton active paragraph={{ rows: 5 }} />
         </Card>
@@ -109,18 +109,17 @@ export function QrSessionDetailPage() {
       <div className="field-page">
         <Result
           status={notFound ? '404' : 'warning'}
-          title={notFound ? '这个扫码请求不存在' : '取不到扫码请求'}
+          title={notFound ? tr("这个扫码请求不存在") : tr("取不到扫码请求")}
           subTitle={
             notFound
-              ? '二维码可能已被清理，或者链接被截断了。让现场在客户端重新点「扫码登录」生成一张新的。'
+              ? tr("二维码可能已被清理，或者链接被截断了。让现场在客户端重新点「扫码登录」生成一张新的。")
               : error.message
           }
           extra={
             <Space wrap>
               {notFound ? null : (
                 <Button type="primary" onClick={() => void sessionQuery.refetch()}>
-                  重试
-                </Button>
+                  {tr("重试")}</Button>
               )}
               {backToList}
             </Space>
@@ -136,8 +135,8 @@ export function QrSessionDetailPage() {
   return (
     <div className="field-page">
       <PageHeading
-        title="扫码登录审批"
-        description="核对设备与来源，确认是本人再批准。"
+        title={tr("扫码登录审批")}
+        description={tr("核对设备与来源，确认是本人再批准。")}
         extra={actionable ? <Tag color={meta.color}>{meta.label}</Tag> : null}
       />
 
@@ -145,28 +144,31 @@ export function QrSessionDetailPage() {
         <Alert
           type="success"
           showIcon
-          message="已批准"
-          description={`${session.approvedByName ?? '管理员'} 于 ${formatDateTime(session.approvedAt)} 批准，客户端已可领取临时令牌。`}
+          message={tr("已批准")}
+          description={tr('{{name}} 于 {{time}} 批准，客户端已可领取临时令牌。', {
+            name: session.approvedByName ?? tr('管理员'),
+            time: formatDateTime(session.approvedAt),
+          })}
         />
       ) : null}
       {session.status === 'rejected' ? (
         <Alert
           type="error"
           showIcon
-          message="已拒绝"
-          description="客户端拿不到临时令牌。需要放行的话，让现场重新发起一次扫码。"
+          message={tr("已拒绝")}
+          description={tr("客户端拿不到临时令牌。需要放行的话，让现场重新发起一次扫码。")}
         />
       ) : null}
       {session.status === 'expired' || stale ? (
         <Alert
           type="warning"
           showIcon
-          message="这一单已过期"
-          description="二维码有效期只有 10 分钟。让现场在客户端重新点「扫码登录」生成一张新的。"
+          message={tr("这一单已过期")}
+          description={tr("二维码有效期只有 10 分钟。让现场在客户端重新点「扫码登录」生成一张新的。")}
         />
       ) : null}
 
-      <Card size="small" title={session.clientName ?? '未知客户端'}>
+      <Card size="small" title={session.clientName ?? tr("未知客户端")}>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Descriptions
             size="small"
@@ -174,40 +176,40 @@ export function QrSessionDetailPage() {
             items={[
               {
                 key: 'device',
-                label: '设备指纹',
+                label: tr("设备指纹"),
                 children: session.deviceFingerprint ? (
                   <Typography.Text code copyable={{ text: session.deviceFingerprint }} className="qr-mono">
                     {session.deviceFingerprint}
                   </Typography.Text>
                 ) : (
-                  <Typography.Text type="secondary">无</Typography.Text>
+                  <Typography.Text type="secondary">{tr("无")}</Typography.Text>
                 ),
               },
-              { key: 'ip', label: '来源 IP', children: session.createdByIp ?? '未知' },
+              { key: 'ip', label: tr("来源 IP"), children: session.createdByIp ?? tr("未知") },
               {
                 key: 'createdAt',
-                label: '发起时间',
+                label: tr("发起时间"),
                 children: formatDateTime(session.createdAt),
               },
               {
                 key: 'expiresAt',
-                label: '到期时间',
+                label: tr("到期时间"),
                 children: (
                   <Space size="small" wrap>
                     <span>{formatDateTime(session.expiresAt)}</span>
                     {session.status === 'pending' && left !== null ? (
-                      <Tag color="processing">剩余 {formatCountdown(left)}</Tag>
+                      <Tag color="processing">{tr("剩余")}{formatCountdown(left)}</Tag>
                     ) : null}
                   </Space>
                 ),
               },
-              { key: 'requestId', label: '请求 ID', children: <Typography.Text code className="qr-mono">{session.requestId}</Typography.Text> },
+              { key: 'requestId', label: tr("请求 ID"), children: <Typography.Text code className="qr-mono">{session.requestId}</Typography.Text> },
             ]}
           />
 
           {actionable ? (
             <>
-              <DurationPicker value={duration} onChange={setDuration} label="临时令牌有效期" />
+              <DurationPicker value={duration} onChange={setDuration} label={tr("临时令牌有效期")} />
               <div className="qr-card__actions">
                 <Button
                   type="primary"
@@ -217,19 +219,18 @@ export function QrSessionDetailPage() {
                   loading={approveMutation.isPending}
                   onClick={() => approveMutation.mutate()}
                 >
-                  批准（{formatDuration(duration ?? DEFAULT_DURATION_MINUTES)}）
+                  {tr("批准（")}{formatDuration(duration ?? DEFAULT_DURATION_MINUTES)}）
                 </Button>
                 <Popconfirm
-                  title="拒绝该扫码登录？"
-                  description="客户端将收到拒绝状态，无法获得临时令牌。"
-                  okText="拒绝"
+                  title={tr("拒绝该扫码登录？")}
+                  description={tr("客户端将收到拒绝状态，无法获得临时令牌。")}
+                  okText={tr("拒绝")}
                   okButtonProps={{ danger: true }}
-                  cancelText="取消"
+                  cancelText={tr("取消")}
                   onConfirm={() => rejectMutation.mutateAsync().catch(() => undefined)}
                 >
                   <Button danger size="large" block icon={<CloseOutlined />} loading={rejectMutation.isPending}>
-                    拒绝
-                  </Button>
+                    {tr("拒绝")}</Button>
                 </Popconfirm>
               </div>
             </>

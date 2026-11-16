@@ -1,10 +1,10 @@
 import {
-  BgColorsOutlined,
-  LockOutlined,
+  EditOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
   MenuOutlined,
   MenuUnfoldOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import {
   Button,
@@ -19,12 +19,14 @@ import {
   Typography,
 } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { resolveNavLayout, SIDER_COLLAPSED_WIDTH, SIDER_WIDTH } from '../shared/responsive';
 import { useResponsive } from '../shared/useResponsive';
 import { THEME_FAMILIES, THEME_MODES, isThemeMode, type ThemeFamily } from '../styles/antd-theme';
 import { useAuthStore } from '../stores/auth';
 import { AppContextSelect } from './AppContextSelect';
+import { LocaleSwitch } from './LocaleSwitch';
 import { selectedNavKey, visibleNavItems } from './navigation';
 import { useTheme } from './theme-context';
 
@@ -33,6 +35,7 @@ const { Header, Sider, Content } = Layout;
 /** 主题控件：收在气泡里，顶栏在 768/1024 都不会因为多一个控件二次换行。 */
 function ThemeControls({ stacked }: { stacked: boolean }) {
   const { family, mode, setFamily, setMode } = useTheme();
+  const { t } = useTranslation('common');
 
   return (
     <Space direction={stacked ? 'vertical' : 'horizontal'} size="small" wrap={!stacked}>
@@ -41,7 +44,7 @@ function ThemeControls({ stacked }: { stacked: boolean }) {
         value={family}
         onChange={setFamily}
         style={{ width: stacked ? 200 : 132 }}
-        options={THEME_FAMILIES.map((item) => ({ value: item.key, label: item.label }))}
+        options={THEME_FAMILIES.map((item) => ({ value: item.key, label: t(`theme.families.${item.key}`) }))}
       />
       <Segmented
         size="small"
@@ -53,7 +56,7 @@ function ThemeControls({ stacked }: { stacked: boolean }) {
             setMode(next);
           }
         }}
-        options={THEME_MODES.map((item) => ({ value: item.key, label: item.label }))}
+        options={THEME_MODES.map((item) => ({ value: item.key, label: t(`theme.modes.${item.key}`) }))}
       />
     </Space>
   );
@@ -67,6 +70,7 @@ function ThemeControls({ stacked }: { stacked: boolean }) {
  * 应用上下文切换统一放在 Header，页面不再各自维护「当前应用」卡片。
  */
 export function AppShell() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const { isMobile, isTablet, isDesktop } = useResponsive();
@@ -104,19 +108,19 @@ export function AppShell() {
       mode="inline"
       selectedKeys={[selectedKey]}
       onClick={({ key }) => navigate(key)}
-      items={navItems.map((item) => ({ key: item.key, icon: item.icon, label: item.label }))}
+      items={navItems.map((item) => ({ key: item.key, icon: item.icon, label: t(`nav:${item.labelKey}`) }))}
     />
   );
 
   const brand = (
     <div className="app-shell__brand">
       <Typography.Text strong>AppFramework</Typography.Text>
-      <Typography.Text type="secondary">平台管理台</Typography.Text>
+      <Typography.Text type="secondary">{t('nav:brand')}</Typography.Text>
     </div>
   );
 
   const collapsedBrand = (
-    <div className="app-shell__brand app-shell__brand--collapsed" aria-label="AppFramework 平台管理台">
+    <div className="app-shell__brand app-shell__brand--collapsed" aria-label={t('nav:brandCompact')}>
       <Typography.Text strong>AF</Typography.Text>
     </div>
   );
@@ -131,10 +135,10 @@ export function AppShell() {
     <Popover
       trigger="click"
       placement="bottomRight"
-      title="主题"
+      title={t('common:theme.title')}
       content={<ThemeControls stacked />}
     >
-      <Button icon={<BgColorsOutlined />} aria-label="主题设置" />
+      <Button icon={<SettingOutlined />} aria-label={t('common:theme.settings')} />
     </Popover>
   );
 
@@ -160,7 +164,7 @@ export function AppShell() {
         className="app-shell__nav-drawer"
         open={isMobile && navOpen}
         onClose={() => setNavOpen(false)}
-        title="平台管理台"
+        title={t('nav:brand')}
         styles={{ body: { padding: 0 } }}
       >
         {menu}
@@ -172,15 +176,17 @@ export function AppShell() {
             {navLayout === 'drawer' ? (
               <Button
                 type="text"
+                className="app-shell__nav-toggle"
                 icon={<MenuOutlined />}
-                aria-label="打开导航"
+                aria-label={t('nav:openNav')}
                 onClick={() => setNavOpen(true)}
               />
             ) : (
               <Button
                 type="text"
+                className="app-shell__nav-toggle"
                 icon={navCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                aria-label={navCollapsed ? '展开导航' : '收起导航'}
+                aria-label={navCollapsed ? t('nav:expandNav') : t('nav:collapseNav')}
                 onClick={() => setNavCollapsed((current) => !current)}
               />
             )}
@@ -189,22 +195,23 @@ export function AppShell() {
           </Space>
 
           <Space size="small" align="center">
+            <LocaleSwitch />
             {themeButton}
-            {session?.mustChangePassword ? <Tag color="warning">待改密</Tag> : null}
+            {session?.mustChangePassword ? <Tag color="warning">{t('nav:pendingPassword')}</Tag> : null}
             {isDesktop ? (
               <Typography.Text>
-                {session?.displayName ?? session?.userName ?? '未登录'}
+                {session?.displayName ?? session?.userName ?? t('nav:notSignedIn')}
               </Typography.Text>
             ) : null}
             <Button
-              icon={<LockOutlined />}
-              aria-label="修改口令"
+              icon={<EditOutlined />}
+              aria-label={t('nav:changePassword')}
               onClick={() => navigate('/password')}
             >
-              {isDesktop ? '修改口令' : null}
+              {isDesktop ? t('nav:changePassword') : null}
             </Button>
-            <Button icon={<LogoutOutlined />} aria-label="退出" onClick={() => void handleSignOut()}>
-              {isDesktop ? '退出' : null}
+            <Button icon={<LogoutOutlined />} aria-label={t('nav:signOut')} onClick={() => void handleSignOut()}>
+              {isDesktop ? t('nav:signOut') : null}
             </Button>
           </Space>
         </Header>

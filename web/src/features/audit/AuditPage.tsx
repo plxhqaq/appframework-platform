@@ -1,4 +1,6 @@
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { formatDateTime } from '../../shared/format';
+import { tr } from '../../i18n/translate';
+import { ReloadOutlined, SearchOutlined, UndoOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, DatePicker, Flex, Input, Select, Space, Table, Tag, Typography } from 'antd';
 import type { Dayjs } from 'dayjs';
@@ -8,6 +10,7 @@ import type { AuditListQuery } from '../../shared/api/audit';
 import type { AuditLog } from '../../shared/api/types';
 import { PERMISSIONS } from '../../shared/permissions';
 import { responsivePagination } from '../../shared/responsive';
+import { renderTableExpandIcon } from '../../shared/ui/TableExpandIcon';
 import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
 
@@ -78,8 +81,8 @@ export function AuditPage() {
       <Alert
         type="warning"
         showIcon
-        message="缺少 audit.read 权限"
-        description="审计日志只在服务端强制权限后可见，请联系平台管理员分配角色。"
+        message={tr("缺少 audit.read 权限")}
+        description={tr("审计日志只在服务端强制权限后可见，请联系平台管理员分配角色。")}
       />
     );
   }
@@ -90,39 +93,39 @@ export function AuditPage() {
         <Flex wrap gap={8} align="center">
           <Input
             allowClear
-            placeholder="应用键（留空=全部）"
+            placeholder={tr("应用键（留空=全部）")}
             style={{ width: 160, maxWidth: '100%' }}
             value={draft.appKey}
             onChange={(e) => setDraft((current) => ({ ...current, appKey: e.target.value }))}
           />
           <Input
             allowClear
-            placeholder="动作，如 identity.login"
+            placeholder={tr("动作，如 identity.login")}
             style={{ width: 200, maxWidth: '100%' }}
             value={draft.action}
             onChange={(e) => setDraft((current) => ({ ...current, action: e.target.value }))}
           />
           <Input
             allowClear
-            placeholder="操作者"
+            placeholder={tr("操作者")}
             style={{ width: 150, maxWidth: '100%' }}
             value={draft.actor}
             onChange={(e) => setDraft((current) => ({ ...current, actor: e.target.value }))}
           />
           <Select
             allowClear
-            placeholder="结果"
+            placeholder={tr("结果")}
             style={{ width: 120, maxWidth: '100%' }}
             value={draft.result}
             onChange={(value) => setDraft((current) => ({ ...current, result: value }))}
             options={[
-              { value: 'success', label: '成功' },
-              { value: 'failure', label: '失败' },
+              { value: 'success', label: tr("成功") },
+              { value: 'failure', label: tr("失败") },
             ]}
           />
           <Input
             allowClear
-            placeholder="关键字（目标/说明）"
+            placeholder={tr("关键字（目标/说明）")}
             style={{ width: 190, maxWidth: '100%' }}
             value={draft.keyword}
             onChange={(e) => setDraft((current) => ({ ...current, keyword: e.target.value }))}
@@ -134,24 +137,23 @@ export function AuditPage() {
             onChange={(value) => setRange(value as [Dayjs | null, Dayjs | null] | null)}
           />
           <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
-            查询
-          </Button>
-          <Button onClick={handleReset}>重置</Button>
+            {tr("查询")}</Button>
+          <Button icon={<UndoOutlined />} onClick={handleReset}>
+            {tr("重置")}</Button>
           <Button
             icon={<ReloadOutlined />}
-            aria-label="刷新审计日志"
+            aria-label={tr("刷新审计日志")}
             onClick={() => void logs.refetch()}
             loading={logs.isFetching}
           >
-            刷新
-          </Button>
+            {tr("刷新")}</Button>
         </Flex>
       </Card>
 
       <Card
-        title="审计日志"
+        title={tr("审计日志")}
         size="small"
-        extra={<Typography.Text type="secondary">共 {logs.data?.total ?? 0} 条</Typography.Text>}
+        extra={<Typography.Text type="secondary">{tr("共")}{logs.data?.total ?? 0} {tr("条")}</Typography.Text>}
       >
         {logs.isError ? (
           <Alert
@@ -161,8 +163,7 @@ export function AuditPage() {
             message={(logs.error as Error).message}
             action={
               <Button size="small" onClick={() => void logs.refetch()}>
-                重试
-              </Button>
+                {tr("重试")}</Button>
             }
           />
         ) : null}
@@ -181,43 +182,46 @@ export function AuditPage() {
               setPageSize(nextPageSize);
             },
           })}
-          expandable={{ expandedRowRender: (record) => <AuditDetail record={record} /> }}
+          expandable={{
+            expandIcon: renderTableExpandIcon,
+            expandedRowRender: (record) => <AuditDetail record={record} />,
+          }}
           columns={[
             {
-              title: '时间',
+              title: tr("时间"),
               dataIndex: 'createdAt',
               width: 170,
-              render: (value: string) => new Date(value).toLocaleString(),
+              render: (value: string) => formatDateTime(value),
             },
             {
-              title: '应用',
+              title: tr("应用"),
               dataIndex: 'appKey',
               width: 110,
               responsive: ['md'],
               render: (value: string | null) => value ?? '-',
             },
-            { title: '动作', dataIndex: 'action', width: 220 },
+            { title: tr("动作"), dataIndex: 'action', width: 220 },
             {
-              title: '操作者',
+              title: tr("操作者"),
               dataIndex: 'actorName',
               width: 140,
               responsive: ['md'],
               render: (value: string | null, record) => value ?? record.actorId ?? '-',
             },
             {
-              title: '目标',
+              title: tr("目标"),
               dataIndex: 'targetType',
               ellipsis: true,
               render: (value: string | null, record) =>
                 value ? `${value} ${record.targetId ?? ''}`.trim() : '-',
             },
             {
-              title: '结果',
+              title: tr("结果"),
               dataIndex: 'result',
               width: 90,
               render: (value: string) => (
                 <Tag color={value === 'success' ? 'success' : 'error'}>
-                  {value === 'success' ? '成功' : '失败'}
+                  {value === 'success' ? tr("成功") : tr("失败")}
                 </Tag>
               ),
             },

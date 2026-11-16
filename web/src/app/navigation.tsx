@@ -1,17 +1,17 @@
 import {
   AppstoreOutlined,
+  BranchesOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   DesktopOutlined,
   FileTextOutlined,
   HistoryOutlined,
   KeyOutlined,
-  MobileOutlined,
   QrcodeOutlined,
   RocketOutlined,
-  SafetyOutlined,
+  SafetyCertificateOutlined,
   SendOutlined,
-  SwapOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import type { ReactNode } from 'react';
 import { PERMISSIONS, hasAnyPermissionCode } from '../shared/permissions';
@@ -20,7 +20,8 @@ export interface NavItem {
   /** 路由路径，同时作为菜单选中键。 */
   key: string;
   icon: ReactNode;
-  label: string;
+  /** i18n 键，渲染时经 `t` 落到当前语言。 */
+  labelKey: string;
   /** 命中任一权限码才显示；空数组 = 所有登录用户可见。 */
   anyOf: string[];
   /** 页面数据按应用隔离；令牌没有应用上下文时页面只能显示「没有可用的应用上下文」，菜单不露出。 */
@@ -33,85 +34,87 @@ export const HOME_PATH = '/overview';
 /**
  * 导航与路由守卫的同一份事实源。
  *
+ * 顺序即分组：总览 → 现场作业（密钥、扫码）→ 平台管理（身份与权限、应用接入）
+ * → 应用级页面（版本、设备、备份等）→ 审计日志收尾。
  * 现场工程师排在最前：他们进管理台基本只做两件事——发密钥、批扫码，
  * 这两个页面不该埋在「身份与权限」的标签页里。
  * 隐藏只是不打扰用户，越权请求仍由服务端 `RequirePermission` 拒绝。
  */
 export const NAV_ITEMS: NavItem[] = [
-  { key: '/overview', icon: <DashboardOutlined />, label: '总览', anyOf: [] },
+  { key: '/overview', icon: <DashboardOutlined />, labelKey: 'overview', anyOf: [] },
   {
     key: '/single-key',
-    icon: <MobileOutlined />,
-    label: '密钥登录',
+    icon: <KeyOutlined />,
+    labelKey: 'singleKey',
     anyOf: [PERMISSIONS.identitySingleKeyIssue],
   },
   {
     key: '/qr-approval',
     icon: <QrcodeOutlined />,
-    label: '扫码登录',
+    labelKey: 'qrApproval',
     anyOf: [PERMISSIONS.identityQrApprove],
   },
-  { key: '/apps', icon: <AppstoreOutlined />, label: '应用接入', anyOf: [PERMISSIONS.appsRead] },
   {
     key: '/identity',
-    icon: <SafetyOutlined />,
-    label: '身份与权限',
+    icon: <TeamOutlined />,
+    labelKey: 'identity',
     anyOf: [
       PERMISSIONS.identityUserRead,
       PERMISSIONS.identityRoleRead,
       PERMISSIONS.identitySessionRead,
     ],
   },
+  { key: '/apps', icon: <AppstoreOutlined />, labelKey: 'apps', anyOf: [PERMISSIONS.appsRead] },
   {
     key: '/versions',
-    icon: <SwapOutlined />,
-    label: '版本与渠道',
+    icon: <BranchesOutlined />,
+    labelKey: 'versions',
     anyOf: [PERMISSIONS.versionsChannelRead, PERMISSIONS.versionsReleaseRead],
     requiresApp: true,
   },
   {
     key: '/updaters',
     icon: <RocketOutlined />,
-    label: '更新器',
+    labelKey: 'updaters',
     anyOf: [PERMISSIONS.versionsReleaseRead],
     requiresApp: true,
   },
   {
     key: '/devices',
     icon: <DesktopOutlined />,
-    label: '设备',
+    labelKey: 'devices',
     anyOf: [PERMISSIONS.deviceRead],
     requiresApp: true,
   },
   {
     key: '/backups',
     icon: <DatabaseOutlined />,
-    label: '配置备份',
+    labelKey: 'backups',
     anyOf: [PERMISSIONS.backupNamespaceRead, PERMISSIONS.backupRead],
     requiresApp: true,
   },
   {
     key: '/documents',
     icon: <FileTextOutlined />,
-    label: '文档',
+    labelKey: 'documents',
     anyOf: [PERMISSIONS.documentCollectionRead, PERMISSIONS.documentRead],
     requiresApp: true,
   },
   {
     key: '/licensing',
-    icon: <KeyOutlined />,
-    label: '授权',
+    icon: <SafetyCertificateOutlined />,
+    labelKey: 'licensing',
     anyOf: [PERMISSIONS.licenseProductRead, PERMISSIONS.licenseRead],
     requiresApp: true,
   },
   {
     key: '/webhooks',
     icon: <SendOutlined />,
-    label: 'Webhook',
+    labelKey: 'webhooks',
     anyOf: [PERMISSIONS.webhookRead],
     requiresApp: true,
   },
-  { key: '/audit', icon: <HistoryOutlined />, label: '审计日志', anyOf: [PERMISSIONS.auditRead] },
+  { key: '/audit', icon: <HistoryOutlined />, labelKey: 'audit', anyOf: [PERMISSIONS.auditRead] },
 ];
 
 export interface NavVisibility {

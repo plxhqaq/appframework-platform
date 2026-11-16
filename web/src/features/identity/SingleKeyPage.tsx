@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import { KeyOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import {
@@ -5,8 +6,12 @@ import {
   App,
   Button,
   Card,
+  Col,
   Descriptions,
+  Empty,
+  Grid,
   Input,
+  Row,
   Space,
   Tag,
   Typography,
@@ -44,6 +49,7 @@ interface IssuedKey {
 export function SingleKeyPage() {
   const { message } = App.useApp();
   const { token } = theme.useToken();
+  const screens = Grid.useBreakpoint();
   const [duration, setDuration] = useState<number | null>(DEFAULT_DURATION_MINUTES);
   const [device, setDevice] = useState('');
   const [issued, setIssued] = useState<IssuedKey | null>(null);
@@ -59,121 +65,135 @@ export function SingleKeyPage() {
       }),
     onSuccess: (result) => {
       setIssued({ result, device: device.trim() });
-      message.success('密钥已签发，请立即告知使用人');
+      message.success(tr("密钥已签发，请立即告知使用人"));
     },
     onError: (error: Error) => message.error(error.message),
   });
 
   return (
-    <div className="field-page">
+    <div className="field-page field-page--wide">
       <PageHeading
-        title="密钥登录"
-        description="给现场的客户端发一个 6 位数字口令，兑换后拿到临时令牌。"
+        title={tr("密钥登录")}
+        description={tr("给现场的客户端发一个 6 位数字口令，兑换后拿到临时令牌。")}
       />
 
       <Alert
         type="info"
         showIcon
-        message="口令只能兑换一次"
-        description={`有效期最长 ${formatDuration(MAX_DURATION_MINUTES)}。兑换出的临时会话能用业务功能，但不能签发新密钥、也不能审批扫码。`}
+        message={tr("口令只能兑换一次")}
+        description={tr("有效期最长 {{arg0}}。兑换出的临时会话能用业务功能，但不能签发新密钥、也不能审批扫码。", { arg0: formatDuration(MAX_DURATION_MINUTES) })}
       />
 
-      <Card size="small" title="签发参数">
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <DurationPicker value={duration} onChange={setDuration} />
+      {/* 宽屏左右分栏；手机上结果排到表单上面，签发完不用往回滚。 */}
+      <Row gutter={[16, 16]}>
+        <Col xs={{ span: 24, order: issued ? 2 : 1 }} xl={{ span: 10, order: 1 }}>
+          <Card size="small" title={tr("签发参数")} className="key-panel">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <DurationPicker value={duration} onChange={setDuration} />
 
-          <div className="field-page__field">
-            <Typography.Text strong>绑定设备指纹</Typography.Text>
-            <Input
-              allowClear
-              value={device}
-              onChange={(event) => setDevice(event.target.value)}
-              placeholder="留空则不限制设备"
-              autoComplete="off"
-            />
-            <Typography.Text type="secondary">
-              填了就只有这台设备能兑换，指纹在客户端「关于」页可以复制。
-            </Typography.Text>
-          </div>
+              <div className="field-page__field">
+                <Typography.Text strong>{tr("绑定设备指纹")}</Typography.Text>
+                <Input
+                  allowClear
+                  value={device}
+                  onChange={(event) => setDevice(event.target.value)}
+                  placeholder={tr("留空则不限制设备")}
+                  autoComplete="off"
+                />
+                <Typography.Text type="secondary">
+                  {tr("填了就只有这台设备能兑换，指纹在客户端「关于」页可以复制。")}</Typography.Text>
+              </div>
 
-          <Button
-            type="primary"
-            size="large"
-            block
-            icon={<KeyOutlined />}
-            loading={issueMutation.isPending}
-            onClick={() => issueMutation.mutate()}
-          >
-            签发密钥
-          </Button>
-        </Space>
-      </Card>
-
-      {issued ? (
-        <Card
-          size="small"
-          title="密钥已签发"
-          extra={
-            left === null ? (
-              <Tag>已过期</Tag>
-            ) : (
-              <Tag color="processing">剩余 {formatCountdown(left)}</Tag>
-            )
-          }
-        >
-          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-            <div
-              className="key-card__code"
-              style={{
-                background: token.colorPrimaryBg,
-                borderColor: token.colorPrimaryBorder,
-              }}
-            >
-              <Typography.Text
-                className="key-card__digits"
-                style={{ color: token.colorText }}
-                copyable={{ text: issued.result.key, tooltips: ['复制密钥', '已复制'] }}
+              <Button
+                type="primary"
+                size="large"
+                block
+                icon={<KeyOutlined />}
+                loading={issueMutation.isPending}
+                onClick={() => issueMutation.mutate()}
               >
-                {issued.result.key}
-              </Typography.Text>
-            </div>
+                {tr("签发密钥")}</Button>
+            </Space>
+          </Card>
+        </Col>
 
-            <Alert
-              type="warning"
-              showIcon
-              message="明文只显示这一次"
-              description="再签发或离开本页后服务端也无法回查，请先念给使用人或截图发送。"
-            />
-
-            <Descriptions
+        {issued ? (
+          <Col xs={{ span: 24, order: 1 }} xl={{ span: 14, order: 2 }}>
+            <Card
               size="small"
-              column={1}
-              items={[
-                {
-                  key: 'duration',
-                  label: '有效期',
-                  children: formatDuration(issued.result.durationMinutes),
-                },
-                {
-                  key: 'expiresAt',
-                  label: '到期时间',
-                  children: formatDateTime(issued.result.expiresAt),
-                },
-                { key: 'device', label: '绑定设备', children: issued.device || '不限制' },
-              ]}
-            />
-
-            <Button
-              block
-              size="large"
-              icon={<ReloadOutlined />}
-              onClick={() => setIssued(null)}
+              title={tr("密钥已签发")}
+              className="key-panel"
+              extra={
+                left === null ? (
+                  <Tag>{tr("已过期")}</Tag>
+                ) : (
+                  <Tag color="processing">{tr("剩余")}{formatCountdown(left)}</Tag>
+                )
+              }
             >
-              再签发一个
-            </Button>
-          </Space>
-        </Card>
-      ) : null}
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <div
+                  className="key-card__code"
+                  style={{
+                    background: token.colorPrimaryBg,
+                    borderColor: token.colorPrimaryBorder,
+                  }}
+                >
+                  <Typography.Text
+                    className="key-card__digits"
+                    style={{ color: token.colorText }}
+                    copyable={{ text: issued.result.key, tooltips: [tr("复制密钥"), tr("已复制")] }}
+                  >
+                    {issued.result.key}
+                  </Typography.Text>
+                </div>
+
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={tr("明文只显示这一次")}
+                  description={tr("再签发或离开本页后服务端也无法回查，请先念给使用人或截图发送。")}
+                />
+
+                <Descriptions
+                  size="small"
+                  column={1}
+                  items={[
+                    {
+                      key: 'duration',
+                      label: tr("有效期"),
+                      children: formatDuration(issued.result.durationMinutes),
+                    },
+                    {
+                      key: 'expiresAt',
+                      label: tr("到期时间"),
+                      children: formatDateTime(issued.result.expiresAt),
+                    },
+                    { key: 'device', label: tr("绑定设备"), children: issued.device || tr("不限制") },
+                  ]}
+                />
+
+                <Button
+                  block
+                  size="large"
+                  icon={<ReloadOutlined />}
+                  onClick={() => setIssued(null)}
+                >
+                  {tr("再签发一个")}</Button>
+              </Space>
+            </Card>
+          </Col>
+        ) : screens.xl ? (
+          <Col xl={{ span: 14, order: 2 }}>
+            <Card size="small" title={tr("密钥预览")} className="key-panel key-panel--empty">
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={tr("签发后的 6 位口令与到期时间会显示在这里；明文只出现一次，记得先念给使用人。")}
+              />
+            </Card>
+          </Col>
+        ) : null}
+      </Row>
     </div>
   );
 }

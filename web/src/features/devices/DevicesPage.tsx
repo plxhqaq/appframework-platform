@@ -1,3 +1,5 @@
+import { formatDateTime } from '../../shared/format';
+import { tr } from '../../i18n/translate';
 import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -45,20 +47,20 @@ interface RestartFormValues {
 const DEFAULT_PAGE_SIZE = 20;
 
 const ONLINE_META: Record<DeviceOnlineStatus, { label: string; color?: string }> = {
-  online: { label: '在线', color: 'green' },
-  offline: { label: '离线' },
+  online: { get label() { return tr("在线"); }, color: 'green' },
+  offline: { get label() { return tr("离线"); } },
 };
 
 const STATION_META: Record<DeviceStationStatus, { label: string; color: string }> = {
-  idle: { label: '待机', color: 'blue' },
-  online: { label: '运行中', color: 'orange' },
+  idle: { get label() { return tr("待机"); }, color: 'blue' },
+  online: { get label() { return tr("运行中"); }, color: 'orange' },
 };
 
 const ALARM_META: Record<DeviceAlarmLevel, { label: string; color?: string }> = {
-  none: { label: '无' },
-  info: { label: '提示', color: 'blue' },
-  warning: { label: '警告', color: 'orange' },
-  error: { label: '错误', color: 'red' },
+  none: { get label() { return tr("无"); } },
+  info: { get label() { return tr("提示"); }, color: 'blue' },
+  warning: { get label() { return tr("警告"); }, color: 'orange' },
+  error: { get label() { return tr("错误"); }, color: 'red' },
 };
 
 /**
@@ -139,11 +141,11 @@ export function DevicesPage() {
         isEnabled: values.isEnabled,
       };
       await devicesApi.updateDevice(editTarget.id, body);
-      message.success('设备已更新');
+      message.success(tr("设备已更新"));
       setEditTarget(null);
       await refresh();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '保存失败');
+      message.error(error instanceof Error ? error.message : tr("保存失败"));
     } finally {
       setSaving(false);
     }
@@ -170,11 +172,11 @@ export function DevicesPage() {
       await devicesApi.restartDevice(restartTarget.id, {
         reason: values.reason?.trim() || null,
       });
-      message.success('重启命令已送达');
+      message.success(tr("重启命令已送达"));
       setRestartTarget(null);
       await refresh();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '重启失败');
+      message.error(error instanceof Error ? error.message : tr("重启失败"));
     } finally {
       setSaving(false);
     }
@@ -182,13 +184,13 @@ export function DevicesPage() {
 
   const columns: TableColumnsType<DeviceSummary> = [
     {
-      title: '设备',
+      title: tr("设备"),
       dataIndex: 'displayName',
       key: 'displayName',
       width: 220,
       render: (value: string, row: DeviceSummary) => (
         <Space direction="vertical" size={0}>
-          <Typography.Text>{value || '(未命名)'}</Typography.Text>
+          <Typography.Text>{value || tr("(未命名)")}</Typography.Text>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {row.shortId}
           </Typography.Text>
@@ -196,7 +198,7 @@ export function DevicesPage() {
       ),
     },
     {
-      title: '机器码',
+      title: tr("机器码"),
       dataIndex: 'machineCode',
       key: 'machineCode',
       width: 150,
@@ -204,7 +206,7 @@ export function DevicesPage() {
       render: (value: string) => <Typography.Text code>{value}</Typography.Text>,
     },
     {
-      title: '分支',
+      title: tr("分支"),
       dataIndex: 'branch',
       key: 'branch',
       width: 100,
@@ -212,7 +214,7 @@ export function DevicesPage() {
       render: (value: string | null) => value ?? '-',
     },
     {
-      title: '框架版本',
+      title: tr("框架版本"),
       dataIndex: 'frameworkVersion',
       key: 'frameworkVersion',
       width: 110,
@@ -220,7 +222,7 @@ export function DevicesPage() {
       render: (value: string | null) => value ?? '-',
     },
     {
-      title: '状态',
+      title: tr("状态"),
       key: 'status',
       width: 150,
       render: (_: unknown, row: DeviceSummary) => (
@@ -235,7 +237,7 @@ export function DevicesPage() {
       ),
     },
     {
-      title: '报警',
+      title: tr("报警"),
       dataIndex: 'alarmLevel',
       key: 'alarmLevel',
       width: 120,
@@ -252,34 +254,32 @@ export function DevicesPage() {
       },
     },
     {
-      title: '最后心跳',
+      title: tr("最后心跳"),
       dataIndex: 'lastHeartbeatAt',
       key: 'lastHeartbeatAt',
       width: 170,
       responsive: ['lg'],
-      render: (value: string | null) => (value ? new Date(value).toLocaleString() : '-'),
+      render: (value: string | null) => (value ? formatDateTime(value) : '-'),
     },
     {
-      title: '启用',
+      title: tr("启用"),
       dataIndex: 'isEnabled',
       key: 'isEnabled',
       width: 80,
-      render: (enabled: boolean) => (enabled ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>),
+      render: (enabled: boolean) => (enabled ? <Tag color="green">{tr("启用")}</Tag> : <Tag>{tr("停用")}</Tag>),
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
       width: 200,
       fixed: 'right',
       render: (_: unknown, row: DeviceSummary) => (
         <Space size="small">
           <Button type="link" size="small" onClick={() => setDetailId(row.id)}>
-            详情
-          </Button>
+            {tr("详情")}</Button>
           {canManage ? (
             <Button type="link" size="small" onClick={() => openEditForm(row)}>
-              编辑
-            </Button>
+              {tr("编辑")}</Button>
           ) : null}
           {canRestart ? (
             <Button
@@ -289,15 +289,14 @@ export function DevicesPage() {
               disabled={!row.isEnabled || row.onlineStatus !== 'online'}
               title={
                 !row.isEnabled
-                  ? '设备已停用'
+                  ? tr("设备已停用")
                   : row.onlineStatus !== 'online'
-                    ? '设备离线，无法重启'
+                    ? tr("设备离线，无法重启")
                     : undefined
               }
               onClick={() => openRestartForm(row)}
             >
-              重启
-            </Button>
+              {tr("重启")}</Button>
           ) : null}
         </Space>
       ),
@@ -306,12 +305,12 @@ export function DevicesPage() {
 
   if (appKey === null) {
     return (
-      <Card title="设备" size="small">
+      <Card title={tr("设备")} size="small">
         <Alert
           type="warning"
           showIcon
-          message="当前账号没有可用的应用上下文"
-          description="设备按应用隔离。请先在「应用接入」注册应用，并使用拥有该应用访问权的账号进入。"
+          message={tr("当前账号没有可用的应用上下文")}
+          description={tr("设备按应用隔离。请先在「应用接入」注册应用，并使用拥有该应用访问权的账号进入。")}
         />
       </Card>
     );
@@ -321,18 +320,17 @@ export function DevicesPage() {
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
       <Card
         size="small"
-        title="设备"
+        title={tr("设备")}
         extra={
           <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
-            刷新
-          </Button>
+            {tr("刷新")}</Button>
         }
       >
         <Space wrap style={{ marginBottom: 12 }}>
           <Input.Search
             key={`keyword-${appKey}`}
             allowClear
-            placeholder="设备名 / 机器码"
+            placeholder={tr("设备名 / 机器码")}
             style={{ width: 220, maxWidth: '100%' }}
             defaultValue={keyword}
             onSearch={(value) => {
@@ -342,7 +340,7 @@ export function DevicesPage() {
           />
           <Select<DeviceOnlineStatus>
             allowClear
-            placeholder="全部在线状态"
+            placeholder={tr("全部在线状态")}
             style={{ width: 160, maxWidth: '100%' }}
             value={onlineStatus}
             onChange={(value) => {
@@ -350,14 +348,14 @@ export function DevicesPage() {
               setPage(1);
             }}
             options={[
-              { value: 'online', label: '在线' },
-              { value: 'offline', label: '离线' },
+              { value: 'online', label: tr("在线") },
+              { value: 'offline', label: tr("离线") },
             ]}
           />
           <Input.Search
             key={`branch-${appKey}`}
             allowClear
-            placeholder="分支"
+            placeholder={tr("分支")}
             style={{ width: 160, maxWidth: '100%' }}
             defaultValue={branch}
             onSearch={(value) => {
@@ -375,8 +373,7 @@ export function DevicesPage() {
             message={(devices.error as Error).message}
             action={
               <Button size="small" onClick={() => void devices.refetch()}>
-                重试
-              </Button>
+                {tr("重试")}</Button>
             }
           />
         ) : null}
@@ -391,19 +388,19 @@ export function DevicesPage() {
             current: devices.data?.page ?? page,
             pageSize: devices.data?.pageSize ?? pageSize,
             total: devices.data?.total ?? 0,
-            showTotal: (total: number) => `共 ${total} 台设备`,
+            showTotal: (total: number) => tr("共 {{arg0}} 台设备", { arg0: total }),
             onChange: (nextPage: number, nextPageSize: number) => {
               setPage(nextPageSize === pageSize ? nextPage : 1);
               setPageSize(nextPageSize);
             },
           })}
-          locale={{ emptyText: '尚无设备连接（客户端连接 /hubs/devices 后自动注册）' }}
+          locale={{ emptyText: tr("尚无设备连接（客户端连接 /hubs/devices 后自动注册）") }}
         />
       </Card>
 
       <Modal
         open={editTarget !== null}
-        title={editTarget ? `编辑设备：${editTarget.displayName}` : '编辑设备'}
+        title={editTarget ? tr("编辑设备：{{arg0}}", { arg0: editTarget.displayName }) : tr("编辑设备")}
         confirmLoading={saving}
         onOk={() => void submitEdit()}
         onCancel={() => setEditTarget(null)}
@@ -411,38 +408,37 @@ export function DevicesPage() {
         <Form form={editForm} layout="vertical">
           <Form.Item
             name="customName"
-            label="自定义名（前缀拼在自动名之前，留空清除）"
+            label={tr("自定义名（前缀拼在自动名之前，留空清除）")}
             rules={[{ max: 128 }]}
           >
-            <Input placeholder="3 号线-涂布机" />
+            <Input placeholder={tr("3 号线-涂布机")} />
           </Form.Item>
-          <Form.Item name="isEnabled" label="启用" valuePropName="checked">
+          <Form.Item name="isEnabled" label={tr("启用")} valuePropName="checked">
             <Switch />
           </Form.Item>
           <Typography.Text type="secondary">
-            停用后设备仍可连接，但管理端定向下发与重启会拒绝。
-          </Typography.Text>
+            {tr("停用后设备仍可连接，但管理端定向下发与重启会拒绝。")}</Typography.Text>
         </Form>
       </Modal>
 
       <Modal
         open={restartTarget !== null}
-        title={restartTarget ? `重启设备：${restartTarget.displayName}` : '重启设备'}
+        title={restartTarget ? tr("重启设备：{{arg0}}", { arg0: restartTarget.displayName }) : tr("重启设备")}
         confirmLoading={saving}
-        okText="发送重启"
+        okText={tr("发送重启")}
         okButtonProps={{ danger: true, icon: <ThunderboltOutlined /> }}
         onOk={() => void submitRestart()}
         onCancel={() => setRestartTarget(null)}
       >
         <Form form={restartForm} layout="vertical">
-          <Form.Item name="reason" label="重启原因（可选，设备端展示）" rules={[{ max: 256 }]}>
-            <Input placeholder="配置下发后重启使新参数生效" />
+          <Form.Item name="reason" label={tr("重启原因（可选，设备端展示）")} rules={[{ max: 256 }]}>
+            <Input placeholder={tr("配置下发后重启使新参数生效")} />
           </Form.Item>
           <Alert
             type="warning"
             showIcon
-            message="重启会中断设备当前作业"
-            description="命令只送达在线设备；设备端由客户端实现倒计时与重启动作。"
+            message={tr("重启会中断设备当前作业")}
+            description={tr("命令只送达在线设备；设备端由客户端实现倒计时与重启动作。")}
           />
         </Form>
       </Modal>
@@ -450,7 +446,7 @@ export function DevicesPage() {
       <Drawer
         open={detailId !== null}
         width={responsiveWidth(isMobile, 720)}
-        title={detail.data ? detail.data.displayName : '设备详情'}
+        title={detail.data ? detail.data.displayName : tr("设备详情")}
         onClose={() => setDetailId(null)}
         styles={{ body: { padding: isMobile ? 12 : 24 } }}
       >
@@ -462,8 +458,7 @@ export function DevicesPage() {
             message={(detail.error as Error).message}
             action={
               <Button size="small" onClick={() => void detail.refetch()}>
-                重试
-              </Button>
+                {tr("重试")}</Button>
             }
           />
         ) : null}
@@ -484,10 +479,10 @@ function DeviceDescriptions({ device }: { device: DeviceDetail }) {
       column={{ xs: 1, md: 2 }}
       bordered
       items={[
-        { key: 'shortId', label: '短键', children: device.shortId },
+        { key: 'shortId', label: tr("短键"), children: device.shortId },
         {
           key: 'deviceKey',
-          label: '设备键',
+          label: tr("设备键"),
           children: (
             <Typography.Text code style={{ wordBreak: 'break-all' }}>
               {device.deviceKey}
@@ -496,22 +491,22 @@ function DeviceDescriptions({ device }: { device: DeviceDetail }) {
         },
         {
           key: 'machineCode',
-          label: '机器码',
+          label: tr("机器码"),
           children: <Typography.Text code>{device.machineCode}</Typography.Text>,
         },
         {
           key: 'installGuid',
-          label: '安装标识',
+          label: tr("安装标识"),
           children: device.installGuid ?? '-',
         },
-        { key: 'autoName', label: '自动名', children: device.autoName ?? '-' },
-        { key: 'customName', label: '自定义名', children: device.customName ?? '-' },
-        { key: 'ip', label: 'IP 地址', children: device.ipAddress ?? '-' },
-        { key: 'branch', label: '分支', children: device.branch ?? '-' },
-        { key: 'frameworkVersion', label: '框架版本', children: device.frameworkVersion ?? '-' },
+        { key: 'autoName', label: tr("自动名"), children: device.autoName ?? '-' },
+        { key: 'customName', label: tr("自定义名"), children: device.customName ?? '-' },
+        { key: 'ip', label: tr("IP 地址"), children: device.ipAddress ?? '-' },
+        { key: 'branch', label: tr("分支"), children: device.branch ?? '-' },
+        { key: 'frameworkVersion', label: tr("框架版本"), children: device.frameworkVersion ?? '-' },
         {
           key: 'status',
-          label: '在线 / 工位',
+          label: tr("在线 / 工位"),
           children: (
             <Space size={4}>
               <Tag color={online.color}>{online.label}</Tag>
@@ -523,42 +518,42 @@ function DeviceDescriptions({ device }: { device: DeviceDetail }) {
         },
         {
           key: 'alarm',
-          label: '报警',
+          label: tr("报警"),
           children: alarm.color ? (
             <Tag color={alarm.color} title={device.alarmMessage ?? undefined}>
               {alarm.label}
             </Tag>
           ) : (
-            '无'
+            tr("无")
           ),
         },
-        { key: 'alarmMessage', label: '报警摘要', children: device.alarmMessage ?? '-' },
-        { key: 'heartbeatSeconds', label: '心跳周期（秒）', children: device.heartbeatSeconds },
+        { key: 'alarmMessage', label: tr("报警摘要"), children: device.alarmMessage ?? '-' },
+        { key: 'heartbeatSeconds', label: tr("心跳周期（秒）"), children: device.heartbeatSeconds },
         {
           key: 'firstConnectedAt',
-          label: '首次连接',
+          label: tr("首次连接"),
           children: device.firstConnectedAt
-            ? new Date(device.firstConnectedAt).toLocaleString()
+            ? formatDateTime(device.firstConnectedAt)
             : '-',
         },
         {
           key: 'lastConnectedAt',
-          label: '本次连接',
+          label: tr("本次连接"),
           children: device.lastConnectedAt
-            ? new Date(device.lastConnectedAt).toLocaleString()
+            ? formatDateTime(device.lastConnectedAt)
             : '-',
         },
         {
           key: 'lastHeartbeatAt',
-          label: '最后心跳',
+          label: tr("最后心跳"),
           children: device.lastHeartbeatAt
-            ? new Date(device.lastHeartbeatAt).toLocaleString()
+            ? formatDateTime(device.lastHeartbeatAt)
             : '-',
         },
         {
           key: 'isEnabled',
-          label: '启用',
-          children: device.isEnabled ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>,
+          label: tr("启用"),
+          children: device.isEnabled ? <Tag color="green">{tr("启用")}</Tag> : <Tag>{tr("停用")}</Tag>,
         },
       ]}
     />

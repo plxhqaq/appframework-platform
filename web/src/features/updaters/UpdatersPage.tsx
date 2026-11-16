@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import {
   CloudUploadOutlined,
   DownloadOutlined,
@@ -22,7 +23,7 @@ import { ApiError, requestBlob } from '../../shared/api/client';
 import { versionsApi } from '../../shared/api/versions';
 import type { UpdaterInfo } from '../../shared/api/types';
 import { saveBlob } from '../../shared/download';
-import { formatBytes } from '../../shared/format';
+import { formatBytes, formatDateTime } from '../../shared/format';
 import { PERMISSIONS } from '../../shared/permissions';
 import { responsivePagination } from '../../shared/responsive';
 import { useResponsive } from '../../shared/useResponsive';
@@ -33,8 +34,8 @@ import { UpdaterUploadModal } from './UpdaterUploadModal';
 const RUNTIMES = ['any', 'win-x64', 'win-arm64', 'linux-x64', 'linux-arm64', 'osx-x64', 'osx-arm64'];
 
 const STATUS_META: Record<string, { label: string; color?: string }> = {
-  published: { label: '已发布', color: 'green' },
-  archived: { label: '已归档', color: 'orange' },
+  published: { get label() { return tr("已发布"); }, color: 'green' },
+  archived: { get label() { return tr("已归档"); }, color: 'orange' },
 };
 
 /**
@@ -112,7 +113,7 @@ export function UpdatersPage() {
   const archive = useMutation({
     mutationFn: (id: string) => versionsApi.archiveUpdater(id),
     onSuccess: async (archived) => {
-      message.success(`更新器 ${archived.target}/${archived.version} 已归档`);
+      message.success(tr("更新器 {{arg0}}/{{arg1}} 已归档", { arg0: archived.target, arg1: archived.version }));
       await refresh();
     },
     onError: (error: Error) => message.error(error.message),
@@ -120,11 +121,11 @@ export function UpdatersPage() {
 
   const confirmArchive = (row: UpdaterInfo) => {
     modal.confirm({
-      title: `归档更新器 ${row.target}/${row.version}？`,
-      content: '归档后 check 会回退到同目标上一版已发布更新器；下载入口同时关闭。',
-      okText: '归档',
+      title: tr("归档更新器 {{arg0}}/{{arg1}}？", { arg0: row.target, arg1: row.version }),
+      content: tr("归档后 check 会回退到同目标上一版已发布更新器；下载入口同时关闭。"),
+      okText: tr("归档"),
       okButtonProps: { danger: true },
-      cancelText: '取消',
+      cancelText: tr("取消"),
       onOk: () => archive.mutateAsync(row.id),
     });
   };
@@ -135,7 +136,7 @@ export function UpdatersPage() {
       const blob = await requestBlob(`/api/v1/client/versions/updaters/${row.id}/download`);
       saveBlob(blob, safeDownloadName(row.fileName));
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '下载失败');
+      message.error(error instanceof Error ? error.message : tr("下载失败"));
     } finally {
       setDownloadingId(null);
     }
@@ -145,26 +146,26 @@ export function UpdatersPage() {
 
   const columns: TableColumnsType<UpdaterInfo> = [
     {
-      title: '版本',
+      title: tr("版本"),
       dataIndex: 'version',
       key: 'version',
       width: 150,
       render: (version: string, row: UpdaterInfo) => (
         <Space size={4}>
           <Typography.Text strong>{version}</Typography.Text>
-          {latestIds.has(row.id) ? <Tag color="blue">最新</Tag> : null}
+          {latestIds.has(row.id) ? <Tag color="blue">{tr("最新")}</Tag> : null}
         </Space>
       ),
     },
     {
-      title: '目标',
+      title: tr("目标"),
       dataIndex: 'target',
       key: 'target',
       width: 120,
       render: (target: string) => <Typography.Text code>{target}</Typography.Text>,
     },
     {
-      title: '文件',
+      title: tr("文件"),
       dataIndex: 'fileName',
       key: 'fileName',
       ellipsis: true,
@@ -174,7 +175,7 @@ export function UpdatersPage() {
       ),
     },
     {
-      title: '大小',
+      title: tr("大小"),
       dataIndex: 'sizeBytes',
       key: 'sizeBytes',
       width: 100,
@@ -182,7 +183,7 @@ export function UpdatersPage() {
       render: (size: number) => formatBytes(size),
     },
     {
-      title: '状态',
+      title: tr("状态"),
       dataIndex: 'status',
       key: 'status',
       width: 90,
@@ -192,7 +193,7 @@ export function UpdatersPage() {
       },
     },
     {
-      title: '清单哈希',
+      title: tr("清单哈希"),
       dataIndex: 'manifestHash',
       key: 'manifestHash',
       width: 130,
@@ -207,16 +208,16 @@ export function UpdatersPage() {
         ),
     },
     {
-      title: '发布时间',
+      title: tr("发布时间"),
       dataIndex: 'publishedAt',
       key: 'publishedAt',
       width: 170,
       responsive: ['md'],
       render: (value: string | null | undefined) =>
-        value ? new Date(value).toLocaleString() : '-',
+        value ? formatDateTime(value) : '-',
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
       width: 160,
       fixed: 'right',
@@ -230,8 +231,7 @@ export function UpdatersPage() {
               loading={downloadingId === row.id}
               onClick={() => void download(row)}
             >
-              下载
-            </Button>
+              {tr("下载")}</Button>
           ) : null}
           {canArchive && row.status === 'published' ? (
             <Button
@@ -241,8 +241,7 @@ export function UpdatersPage() {
               loading={archive.isPending}
               onClick={() => confirmArchive(row)}
             >
-              归档
-            </Button>
+              {tr("归档")}</Button>
           ) : null}
         </Space>
       ),
@@ -251,12 +250,12 @@ export function UpdatersPage() {
 
   if (appKey === null) {
     return (
-      <Card title="更新器" size="small">
+      <Card title={tr("更新器")} size="small">
         <Alert
           type="warning"
           showIcon
-          message="当前账号没有可用的应用上下文"
-          description="更新器按应用隔离。请先在「应用接入」注册应用，并使用拥有该应用访问权的账号进入。"
+          message={tr("当前账号没有可用的应用上下文")}
+          description={tr("更新器按应用隔离。请先在「应用接入」注册应用，并使用拥有该应用访问权的账号进入。")}
         />
       </Card>
     );
@@ -266,7 +265,7 @@ export function UpdatersPage() {
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
       <Card
         size="small"
-        title="更新器版本"
+        title={tr("更新器版本")}
         extra={
           canUpload ? (
             <Button
@@ -274,15 +273,14 @@ export function UpdatersPage() {
               icon={<CloudUploadOutlined />}
               onClick={() => setUploadOpen(true)}
             >
-              上传更新器
-            </Button>
+              {tr("上传更新器")}</Button>
           ) : null
         }
       >
         <Space wrap style={{ marginBottom: 12 }}>
           <Select
             allowClear
-            placeholder="全部目标"
+            placeholder={tr("全部目标")}
             style={{ width: 180, maxWidth: '100%' }}
             value={targetFilter}
             onChange={(value) => {
@@ -293,7 +291,7 @@ export function UpdatersPage() {
           />
           <Select
             allowClear
-            placeholder="全部状态"
+            placeholder={tr("全部状态")}
             style={{ width: 160, maxWidth: '100%' }}
             value={statusFilter}
             onChange={(value) => {
@@ -301,13 +299,12 @@ export function UpdatersPage() {
               setPage(1);
             }}
             options={[
-              { value: 'published', label: '已发布' },
-              { value: 'archived', label: '已归档' },
+              { value: 'published', label: tr("已发布") },
+              { value: 'archived', label: tr("已归档") },
             ]}
           />
           <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
-            刷新
-          </Button>
+            {tr("刷新")}</Button>
         </Space>
 
         {updaters.isError ? (
@@ -318,8 +315,7 @@ export function UpdatersPage() {
             message={(updaters.error as Error).message}
             action={
               <Button size="small" onClick={() => void updaters.refetch()}>
-                重试
-              </Button>
+                {tr("重试")}</Button>
             }
           />
         ) : null}
@@ -335,13 +331,13 @@ export function UpdatersPage() {
             current: updaters.data?.page ?? page,
             pageSize: updaters.data?.pageSize ?? pageSize,
             total: updaters.data?.total ?? 0,
-            showTotal: (total: number) => `共 ${total} 个更新器`,
+            showTotal: (total: number) => tr("共 {{arg0}} 个更新器", { arg0: total }),
             onChange: (nextPage: number, nextPageSize: number) => {
               setPage(nextPageSize === pageSize ? nextPage : 1);
               setPageSize(nextPageSize);
             },
           })}
-          locale={{ emptyText: <Empty description="尚未登记更新器；客户端会跳过更新器升级" /> }}
+          locale={{ emptyText: <Empty description={tr("尚未登记更新器；客户端会跳过更新器升级")} /> }}
         />
       </Card>
 

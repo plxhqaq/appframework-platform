@@ -1,5 +1,6 @@
 import { Alert, Button } from 'antd';
 import type { CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface ErrorAlertProps {
   error: Error;
@@ -10,6 +11,7 @@ interface ErrorAlertProps {
 
 /** 统一的错误横幅：消息来自服务端，附带重试按钮，弱网下不必刷新整页。 */
 export function ErrorAlert({ error, onRetry, style }: ErrorAlertProps) {
+  const { t } = useTranslation('common');
   return (
     <Alert
       type="error"
@@ -19,7 +21,7 @@ export function ErrorAlert({ error, onRetry, style }: ErrorAlertProps) {
       action={
         onRetry ? (
           <Button size="small" onClick={onRetry}>
-            重试
+            {t('actions.retry')}
           </Button>
         ) : undefined
       }

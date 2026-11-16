@@ -1,4 +1,5 @@
-import { DownloadOutlined } from '@ant-design/icons';
+import { tr } from '../../i18n/translate';
+import { DownloadOutlined, InboxOutlined, SendOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App, Button, Collapse, Descriptions, Drawer, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { requestBlob } from '../../shared/api/client';
@@ -10,7 +11,7 @@ import type {
   ReleaseStatus,
 } from '../../shared/api/types';
 import { useState } from 'react';
-import { formatBytes } from '../../shared/format';
+import { formatBytes, formatDateTime } from '../../shared/format';
 import { responsivePagination, responsiveWidth } from '../../shared/responsive';
 import { useResponsive } from '../../shared/useResponsive';
 import { manifestSourceLabel, packageKindMeta, packageStatusMeta, safeDownloadName } from './packageUi';
@@ -26,9 +27,9 @@ interface ReleaseDetailDrawerProps {
 }
 
 const STATUS_META: Record<ReleaseStatus, { label: string; color?: string }> = {
-  draft: { label: '草稿' },
-  published: { label: '已发布', color: 'green' },
-  archived: { label: '已归档', color: 'orange' },
+  draft: { get label() { return tr("草稿"); } },
+  published: { get label() { return tr("已发布"); }, color: 'green' },
+  archived: { get label() { return tr("已归档"); }, color: 'orange' },
 };
 
 /** 版本详情：产物与文件清单是客户端做文件级差异的唯一依据，原样展示哈希便于核对。 */
@@ -65,7 +66,7 @@ export function ReleaseDetailDrawer({
         ? versionsApi.publishRelease(releaseId!)
         : versionsApi.archiveRelease(releaseId!),
     onSuccess: async (release) => {
-      message.success(`版本 ${release.version} 已${release.status === 'archived' ? '归档' : '发布'}`);
+      message.success(tr("版本 {{arg0}} 已{{arg1}}", { arg0: release.version, arg1: release.status === 'archived' ? tr("归档") : tr("发布") }));
       await queryClient.invalidateQueries({ queryKey: ['versions', 'release', releaseId] });
       onChanged();
     },
@@ -75,7 +76,7 @@ export function ReleaseDetailDrawer({
   const removePackage = useMutation({
     mutationFn: (id: string) => versionsApi.deletePackage(id),
     onSuccess: async (deleted) => {
-      message.success(`已删除发布包 ${deleted.fileName}`);
+      message.success(tr("已删除发布包 {{arg0}}", { arg0: deleted.fileName }));
       await queryClient.invalidateQueries({ queryKey: ['versions', 'release', releaseId] });
       onChanged();
     },
@@ -85,7 +86,7 @@ export function ReleaseDetailDrawer({
   const retryPackage = useMutation({
     mutationFn: (id: string) => versionsApi.retryPackage(id),
     onSuccess: async (queued) => {
-      message.success(`已重新排队摄取 ${queued.fileName}`);
+      message.success(tr("已重新排队摄取 {{arg0}}", { arg0: queued.fileName }));
       await queryClient.invalidateQueries({ queryKey: ['versions', 'release', releaseId] });
       onChanged();
     },
@@ -105,7 +106,7 @@ export function ReleaseDetailDrawer({
       anchor.remove();
       URL.revokeObjectURL(url);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '下载失败');
+      message.error(error instanceof Error ? error.message : tr("下载失败"));
     } finally {
       setDownloadingId(null);
     }
@@ -113,11 +114,11 @@ export function ReleaseDetailDrawer({
 
   const confirmDelete = (pkg: ReleasePackage) => {
     modal.confirm({
-      title: `删除发布包 ${pkg.fileName}？`,
-      content: '登记记录会立即移除；已落盘内容由孤儿清理任务回收。已发布版本下的包不可删除。',
-      okText: '删除',
+      title: tr("删除发布包 {{arg0}}？", { arg0: pkg.fileName }),
+      content: tr("登记记录会立即移除；已落盘内容由孤儿清理任务回收。已发布版本下的包不可删除。"),
+      okText: tr("删除"),
       okButtonProps: { danger: true },
-      cancelText: '取消',
+      cancelText: tr("取消"),
       onOk: () => removePackage.mutateAsync(pkg.id),
     });
   };
@@ -130,21 +131,29 @@ export function ReleaseDetailDrawer({
     <Drawer
       open={releaseId !== null}
       width={responsiveWidth(isMobile, 760)}
-      title={release ? `版本 ${release.version}` : '版本详情'}
+      title={release ? tr("版本 {{arg0}}", { arg0: release.version }) : tr("版本详情")}
       onClose={onClose}
       styles={{ body: { padding: isMobile ? 12 : 24 } }}
       extra={
         release ? (
           <Space>
             {canPublish && release.status === 'draft' ? (
-              <Button type="primary" loading={action.isPending} onClick={() => action.mutate('publish')}>
-                发布
-              </Button>
+              <Button
+                type="primary"
+                icon={<SendOutlined />}
+                loading={action.isPending}
+                onClick={() => action.mutate('publish')}
+              >
+                {tr("发布")}</Button>
             ) : null}
             {canArchive && release.status !== 'archived' ? (
-              <Button danger loading={action.isPending} onClick={() => action.mutate('archive')}>
-                归档
-              </Button>
+              <Button
+                danger
+                icon={<InboxOutlined />}
+                loading={action.isPending}
+                onClick={() => action.mutate('archive')}
+              >
+                {tr("归档")}</Button>
             ) : null}
           </Space>
         ) : null
@@ -158,8 +167,7 @@ export function ReleaseDetailDrawer({
           message={(detail.error as Error).message}
           action={
             <Button size="small" onClick={() => void detail.refetch()}>
-              重试
-            </Button>
+              {tr("重试")}</Button>
           }
         />
       ) : null}
@@ -171,62 +179,62 @@ export function ReleaseDetailDrawer({
             column={{ xs: 1, md: 2 }}
             bordered
             items={[
-              { key: 'channel', label: '渠道', children: release.channelKey },
+              { key: 'channel', label: tr("渠道"), children: release.channelKey },
               {
                 key: 'status',
-                label: '状态',
+                label: tr("状态"),
                 children: <Tag color={statusMeta?.color}>{statusMeta?.label}</Tag>,
               },
-              { key: 'artifacts', label: '产物', children: release.artifactCount },
-              { key: 'files', label: '文件数', children: release.fileCount },
-              { key: 'size', label: '总大小', children: formatBytes(release.totalSizeBytes) },
+              { key: 'artifacts', label: tr("产物"), children: release.artifactCount },
+              { key: 'files', label: tr("文件数"), children: release.fileCount },
+              { key: 'size', label: tr("总大小"), children: formatBytes(release.totalSizeBytes) },
               {
                 key: 'packages',
-                label: '发布包',
-                children: `${release.packageCount ?? packages.length} 个 · ${formatBytes(
-                  release.packageSizeBytes ?? 0,
-                )}`,
+                label: tr("发布包"),
+                children: tr('{{count}} 个 · {{size}}', {
+                  count: release.packageCount ?? packages.length,
+                  size: formatBytes(release.packageSizeBytes ?? 0),
+                }),
               },
               {
                 key: 'published',
-                label: '发布时间',
-                children: release.publishedAt ? new Date(release.publishedAt).toLocaleString() : '-',
+                label: tr("发布时间"),
+                children: release.publishedAt ? formatDateTime(release.publishedAt) : '-',
               },
               {
                 key: 'archived',
-                label: '归档时间',
-                children: release.archivedAt ? new Date(release.archivedAt).toLocaleString() : '-',
+                label: tr("归档时间"),
+                children: release.archivedAt ? formatDateTime(release.archivedAt) : '-',
               },
-              { key: 'createdBy', label: '创建人', children: release.createdBy ?? '-' },
-              { key: 'notes', label: '发布说明', span: 2, children: release.notes ?? '-' },
+              { key: 'createdBy', label: tr("创建人"), children: release.createdBy ?? '-' },
+              { key: 'notes', label: tr("发布说明"), span: 2, children: release.notes ?? '-' },
             ]}
           />
 
           <Typography.Title level={5} style={{ marginTop: 24 }}>
-            发布包
-          </Typography.Title>
+            {tr("发布包")}</Typography.Title>
           <Table<ReleasePackage>
             scroll={{ x: 'max-content' }}
             rowKey="id"
             size="small"
             dataSource={packages}
             pagination={false}
-            locale={{ emptyText: '尚未登记安装包；客户端 check 可回退到上面的文件级清单' }}
+            locale={{ emptyText: tr("尚未登记安装包；客户端 check 可回退到上面的文件级清单") }}
             columns={[
               {
-                title: '类型',
+                title: tr("类型"),
                 dataIndex: 'kind',
                 key: 'kind',
                 width: 130,
                 render: (kind: string, row) => (
                   <Space size={4}>
                     <Tag color={packageKindMeta(kind).color}>{packageKindMeta(kind).label}</Tag>
-                    {row.reused ? <Tag>复用</Tag> : null}
+                    {row.reused ? <Tag>{tr("复用")}</Tag> : null}
                   </Space>
                 ),
               },
               {
-                title: '目标 / 格式',
+                title: tr("目标 / 格式"),
                 key: 'target',
                 width: 150,
                 render: (_: unknown, row) => (
@@ -237,7 +245,7 @@ export function ReleaseDetailDrawer({
                 ),
               },
               {
-                title: '文件',
+                title: tr("文件"),
                 dataIndex: 'fileName',
                 key: 'fileName',
                 ellipsis: true,
@@ -246,14 +254,14 @@ export function ReleaseDetailDrawer({
                 ),
               },
               {
-                title: '大小',
+                title: tr("大小"),
                 dataIndex: 'sizeBytes',
                 key: 'sizeBytes',
                 width: 100,
                 render: (size: number) => formatBytes(size),
               },
               {
-                title: '清单文件数',
+                title: tr("清单文件数"),
                 dataIndex: 'fileCount',
                 key: 'fileCount',
                 width: 100,
@@ -262,7 +270,7 @@ export function ReleaseDetailDrawer({
                   fileCount != null ? fileCount : <Typography.Text type="secondary">-</Typography.Text>,
               },
               {
-                title: '状态',
+                title: tr("状态"),
                 dataIndex: 'status',
                 key: 'status',
                 width: 110,
@@ -279,7 +287,7 @@ export function ReleaseDetailDrawer({
                 },
               },
               {
-                title: '清单',
+                title: tr("清单"),
                 key: 'manifest',
                 width: 150,
                 render: (_: unknown, row) =>
@@ -309,7 +317,7 @@ export function ReleaseDetailDrawer({
                 ),
               },
               {
-                title: '操作',
+                title: tr("操作"),
                 key: 'actions',
                 width: 190,
                 fixed: 'right',
@@ -323,8 +331,7 @@ export function ReleaseDetailDrawer({
                         loading={downloadingId === row.id}
                         onClick={() => void downloadPackage(row)}
                       >
-                        下载
-                      </Button>
+                        {tr("下载")}</Button>
                     ) : null}
                     {canUpload && row.kind === 'incremental' && row.status === 'failed' ? (
                       <Button
@@ -333,8 +340,7 @@ export function ReleaseDetailDrawer({
                         loading={retryPackage.isPending}
                         onClick={() => retryPackage.mutate(row.id)}
                       >
-                        重试
-                      </Button>
+                        {tr("重试")}</Button>
                     ) : null}
                     {canArchive && release.status === 'draft' ? (
                       <Button
@@ -344,8 +350,7 @@ export function ReleaseDetailDrawer({
                         loading={removePackage.isPending}
                         onClick={() => confirmDelete(row)}
                       >
-                        删除
-                      </Button>
+                        {tr("删除")}</Button>
                     ) : null}
                   </Space>
                 ),
@@ -354,8 +359,7 @@ export function ReleaseDetailDrawer({
           />
 
           <Typography.Title level={5} style={{ marginTop: 24 }}>
-            运行时产物
-          </Typography.Title>
+            {tr("运行时产物")}</Typography.Title>
           <Collapse
             defaultActiveKey={release.artifacts.map((artifact) => artifact.runtimeIdentifier)}
             items={release.artifacts.map((artifact: ReleaseArtifact) => ({
@@ -363,10 +367,10 @@ export function ReleaseDetailDrawer({
               label: (
                 <Space wrap>
                   <Typography.Text strong>{artifact.runtimeIdentifier}</Typography.Text>
-                  <Tag>{artifact.fileCount} 个文件</Tag>
+                  <Tag>{artifact.fileCount} {tr("个文件")}</Tag>
                   <Tag>{formatBytes(artifact.totalSizeBytes)}</Tag>
                   <Typography.Text type="secondary" copyable={{ text: artifact.manifestHash }}>
-                    清单哈希 {artifact.manifestHash.slice(0, 12)}…
+                    {tr("清单哈希")}{artifact.manifestHash.slice(0, 12)}…
                   </Typography.Text>
                 </Space>
               ),
@@ -382,7 +386,7 @@ export function ReleaseDetailDrawer({
                   })}
                   columns={[
                     {
-                      title: '路径',
+                      title: tr("路径"),
                       dataIndex: 'path',
                       key: 'path',
                       render: (path: string) => (
@@ -392,7 +396,7 @@ export function ReleaseDetailDrawer({
                       ),
                     },
                     {
-                      title: '大小',
+                      title: tr("大小"),
                       dataIndex: 'sizeBytes',
                       key: 'sizeBytes',
                       width: 100,

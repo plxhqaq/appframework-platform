@@ -1,3 +1,6 @@
+import { formatDateTime } from '../../shared/format';
+import { tr } from '../../i18n/translate';
+import { PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App, Button, Flex, Input, Popconfirm, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -14,7 +17,7 @@ import { UserFormModal } from './UserFormModal';
 const DEFAULT_PAGE_SIZE = 20;
 
 function formatTime(value?: string | null): string {
-  return value ? new Date(value).toLocaleString() : '-';
+  return value ? formatDateTime(value) : '-';
 }
 
 /** 用户管理：分页 + 关键字；口令只能通过"重置"动作修改，避免管理员看到旧口令。 */
@@ -44,7 +47,7 @@ export function UsersPanel() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['identity', 'users'] });
       await queryClient.invalidateQueries({ queryKey: ['identity', 'roles'] });
-      message.success('用户已删除');
+      message.success(tr("用户已删除"));
     },
     onError: (error: Error) => message.error(error.message),
   });
@@ -60,7 +63,7 @@ export function UsersPanel() {
       setEditing(await identityApi.getUser(user.id));
       setFormOpen(true);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '获取用户详情失败');
+      message.error(error instanceof Error ? error.message : tr("获取用户详情失败"));
     } finally {
       setLoadingDetailId(null);
     }
@@ -68,21 +71,25 @@ export function UsersPanel() {
 
   const columns: TableColumnsType<UserSummary> = [
     {
-      title: '用户名',
+      title: tr("用户名"),
       dataIndex: 'userName',
       key: 'userName',
-      width: 150,
-      render: (userName: string) => <Typography.Text code>{userName}</Typography.Text>,
+      width: 170,
+      render: (userName: string) => (
+        <Typography.Text code style={{ whiteSpace: 'nowrap' }}>
+          {userName}
+        </Typography.Text>
+      ),
     },
     {
-      title: '显示名',
+      title: tr("显示名"),
       dataIndex: 'displayName',
       key: 'displayName',
       width: 150,
       render: (value: string | null) => value ?? <Typography.Text type="secondary">-</Typography.Text>,
     },
     {
-      title: '角色',
+      title: tr("角色"),
       dataIndex: 'roles',
       key: 'roles',
       render: (roles: UserSummary['roles']) =>
@@ -97,23 +104,23 @@ export function UsersPanel() {
         ),
     },
     {
-      title: '状态',
+      title: tr("状态"),
       dataIndex: 'isEnabled',
       key: 'isEnabled',
       width: 90,
-      render: (enabled: boolean) => (enabled ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>),
+      render: (enabled: boolean) => (enabled ? <Tag color="green">{tr("启用")}</Tag> : <Tag>{tr("停用")}</Tag>),
     },
     {
-      title: '首登改密',
+      title: tr("首登改密"),
       dataIndex: 'mustChangePassword',
       key: 'mustChangePassword',
       width: 100,
       responsive: ['md'],
       render: (required: boolean) =>
-        required ? <Tag color="orange">待修改</Tag> : <Typography.Text type="secondary">-</Typography.Text>,
+        required ? <Tag color="orange">{tr("待修改")}</Tag> : <Typography.Text type="secondary">-</Typography.Text>,
     },
     {
-      title: '最近登录',
+      title: tr("最近登录"),
       dataIndex: 'lastLoginAt',
       key: 'lastLoginAt',
       width: 180,
@@ -121,7 +128,7 @@ export function UsersPanel() {
       render: formatTime,
     },
     {
-      title: '创建时间',
+      title: tr("创建时间"),
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 180,
@@ -129,41 +136,38 @@ export function UsersPanel() {
       render: formatTime,
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
       width: 220,
       fixed: 'right',
       render: (_: unknown, user: UserSummary) => (
         <Space size="small" wrap>
           {canManage ? (
-            <Tooltip title={user.userName === 'admin' ? '内置 admin 账号仍可编辑资料，但不可删除' : undefined}>
+            <Tooltip title={user.userName === 'admin' ? tr("内置 admin 账号仍可编辑资料，但不可删除") : undefined}>
               <Button
                 type="link"
                 size="small"
                 loading={loadingDetailId === user.id}
                 onClick={() => void openEdit(user)}
               >
-                编辑
-              </Button>
+                {tr("编辑")}</Button>
             </Tooltip>
           ) : null}
           {canReset ? (
             <Button type="link" size="small" onClick={() => setResetting(user)}>
-              重置口令
-            </Button>
+              {tr("重置口令")}</Button>
           ) : null}
           {canManage ? (
             <Popconfirm
-              title={`删除用户 ${user.userName}？`}
-              description="删除后该用户的历史审计仍保留，但账号不可恢复。"
-              okText="删除"
+              title={tr("删除用户 {{arg0}}？", { arg0: user.userName })}
+              description={tr("删除后该用户的历史审计仍保留，但账号不可恢复。")}
+              okText={tr("删除")}
               okButtonProps={{ danger: true }}
-              cancelText="取消"
+              cancelText={tr("取消")}
               onConfirm={() => deleteMutation.mutateAsync(user.id).catch(() => undefined)}
             >
               <Button type="link" size="small" danger>
-                删除
-              </Button>
+                {tr("删除")}</Button>
             </Popconfirm>
           ) : null}
         </Space>
@@ -176,7 +180,7 @@ export function UsersPanel() {
       <Flex wrap gap={8} justify="space-between" align="center">
         <Input.Search
           allowClear
-          placeholder="按用户名或显示名搜索"
+          placeholder={tr("按用户名或显示名搜索")}
           style={{ width: 280, maxWidth: '100%', minWidth: 0 }}
           loading={users.isFetching}
           onSearch={(value) => {
@@ -185,9 +189,8 @@ export function UsersPanel() {
           }}
         />
         {canManage ? (
-          <Button type="primary" onClick={openCreate}>
-            新建用户
-          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+            {tr("新建用户")}</Button>
         ) : null}
       </Flex>
 
@@ -198,8 +201,7 @@ export function UsersPanel() {
           message={(users.error as Error).message}
           action={
             <Button size="small" onClick={() => void users.refetch()}>
-              重试
-            </Button>
+              {tr("重试")}</Button>
           }
         />
       ) : null}
@@ -215,13 +217,13 @@ export function UsersPanel() {
           current: users.data?.page ?? page,
           pageSize: users.data?.pageSize ?? pageSize,
           total: users.data?.total ?? 0,
-          showTotal: (total: number) => `共 ${total} 个用户`,
+          showTotal: (total: number) => tr("共 {{arg0}} 个用户", { arg0: total }),
           onChange: (nextPage: number, nextPageSize: number) => {
             setPage(nextPageSize === pageSize ? nextPage : 1);
             setPageSize(nextPageSize);
           },
         })}
-        locale={{ emptyText: '没有匹配的用户' }}
+        locale={{ emptyText: tr("没有匹配的用户") }}
       />
 
       <UserFormModal

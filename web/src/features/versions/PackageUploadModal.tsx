@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import { FileOutlined, InboxOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -63,10 +64,10 @@ interface UploadProgress {
 }
 
 const STAGE_LABEL: Record<UploadStage, string> = {
-  hash: '计算文件哈希',
-  upload: '上传安装包',
-  manifest: '处理旁挂清单',
-  register: '登记发布包',
+  get hash() { return tr("计算文件哈希"); },
+  get upload() { return tr("上传安装包"); },
+  get manifest() { return tr("处理旁挂清单"); },
+  get register() { return tr("登记发布包"); },
 };
 
 /**
@@ -113,7 +114,7 @@ export function PackageUploadModal({
   const mutation = useMutation({
     mutationFn: async (values: PackageFormValues) => {
       if (!file) {
-        throw new Error('请先选择安装包文件');
+        throw new Error(tr("请先选择安装包文件"));
       }
 
       applyProgress('hash', 0, file.size);
@@ -162,15 +163,19 @@ export function PackageUploadModal({
 
       if (registered.status === 'failed') {
         setResult(registered);
-        message.error(registered.errorMessage ?? '发布包登记失败');
+        message.error(registered.errorMessage ?? tr("发布包登记失败"));
         return;
       }
 
       const status = packageStatusMeta(registered.status).label;
       message.success(
-        `${registered.fileName} 已登记（${formatBytes(registered.sizeBytes)}，${status}，` +
-          `清单来源 ${manifestSourceLabel(registered.manifestSource)}）` +
-          `${registered.reused ? '，复用已有内容' : ''}`,
+        tr('{{file}} 已登记（{{size}}，{{status}}，清单来源 {{source}}）{{reused}}', {
+          file: registered.fileName,
+          size: formatBytes(registered.sizeBytes),
+          status,
+          source: manifestSourceLabel(registered.manifestSource),
+          reused: registered.reused ? tr('，复用已有内容') : '',
+        }),
       );
 
       if (registered.status === 'pending') {
@@ -201,7 +206,7 @@ export function PackageUploadModal({
     onSuccess: (queued) => {
       setResult(queued);
       void queryClient.invalidateQueries({ queryKey: ['versions', 'package', queued.id] });
-      message.success('已重新排队摄取');
+      message.success(tr("已重新排队摄取"));
       onSaved();
     },
     onError: (error: Error) => message.error(error.message),
@@ -209,7 +214,7 @@ export function PackageUploadModal({
 
   const handleOk = async () => {
     if (!file) {
-      message.error('请先选择安装包文件');
+      message.error(tr("请先选择安装包文件"));
       return;
     }
 
@@ -227,12 +232,12 @@ export function PackageUploadModal({
     if (values.kind === 'full' && !manifestFile && format !== 'zip' && format !== '7z') {
       const confirmed = await new Promise<boolean>((resolve) => {
         modal.confirm({
-          title: '确认按全量安装包登记',
+          title: tr("确认按全量安装包登记"),
           content:
-            '未提供旁挂清单。若安装包内没有内嵌清单，服务端会按人工登记处理' +
-            '（清单来源 manual；渠道/版本取自表单，留空则登记失败）。',
-          okText: '确认登记',
-          cancelText: '返回检查',
+            tr("未提供旁挂清单。若安装包内没有内嵌清单，服务端会按人工登记处理") +
+            tr("（清单来源 manual；渠道/版本取自表单，留空则登记失败）。"),
+          okText: tr("确认登记"),
+          cancelText: tr("返回检查"),
           onOk: () => resolve(true),
           onCancel: () => resolve(false),
         });
@@ -258,9 +263,9 @@ export function PackageUploadModal({
     <Modal
       open={open}
       width={760}
-      title="上传安装包"
-      okText={current ? '关闭' : '上传并登记'}
-      cancelText="取消"
+      title={tr("上传安装包")}
+      okText={current ? tr("关闭") : tr("上传并登记")}
+      cancelText={tr("取消")}
       confirmLoading={mutation.isPending}
       maskClosable={!mutation.isPending}
       closable={!mutation.isPending}
@@ -284,34 +289,34 @@ export function PackageUploadModal({
     >
       <Form<PackageFormValues> form={form} layout="vertical" requiredMark={false}>
         <Space size="middle" style={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          <Form.Item name="kind" label="包类型" style={{ width: 260 }}>
+          <Form.Item name="kind" label={tr("包类型")} style={{ width: 260 }}>
             <Segmented
               options={[
-                { value: 'full', label: '全量安装包' },
-                { value: 'incremental', label: '增量包' },
+                { value: 'full', label: tr("全量安装包") },
+                { value: 'incremental', label: tr("增量包") },
               ]}
             />
           </Form.Item>
 
           <Form.Item
             name="target"
-            label="目标运行时"
+            label={tr("目标运行时")}
             style={{ width: 200 }}
-            rules={[{ required: true, message: '请选择运行时' }]}
-            tooltip="全量包可登记为 any（对所有平台可用）；增量包必须对应具体运行时。"
+            rules={[{ required: true, message: tr("请选择运行时") }]}
+            tooltip={tr("全量包可登记为 any（对所有平台可用）；增量包必须对应具体运行时。")}
           >
             <Select
               options={[
-                { value: 'any', label: 'any（全平台）' },
+                { value: 'any', label: tr("any（全平台）") },
                 ...RUNTIMES.map((value) => ({ value, label: value })),
               ]}
             />
           </Form.Item>
 
-          <Form.Item name="channelKey" label="渠道" style={{ width: 220 }}>
+          <Form.Item name="channelKey" label={tr("渠道")} style={{ width: 220 }}>
             <Select
               allowClear
-              placeholder="留空则取包内清单"
+              placeholder={tr("留空则取包内清单")}
               options={channels.map((channel) => ({
                 value: channel.key,
                 label: `${channel.name}（${channel.key}）`,
@@ -321,26 +326,26 @@ export function PackageUploadModal({
 
           <Form.Item
             name="version"
-            label="版本号"
+            label={tr("版本号")}
             style={{ width: 200 }}
-            tooltip="留空则取包内清单；人工登记的全量包必须填写。"
+            tooltip={tr("留空则取包内清单；人工登记的全量包必须填写。")}
           >
             <Input placeholder="1.2.3" autoComplete="off" />
           </Form.Item>
         </Space>
 
-        <Form.Item name="notes" label="发布说明" rules={[{ max: 4000 }]}>
-          <Input.TextArea rows={2} placeholder="可选；仅在自动创建草稿版本时写入" />
+        <Form.Item name="notes" label={tr("发布说明")} rules={[{ max: 4000 }]}>
+          <Input.TextArea rows={2} placeholder={tr("可选；仅在自动创建草稿版本时写入")} />
         </Form.Item>
 
         <Form.Item
           name="publish"
-          label="登记后立即发布"
+          label={tr("登记后立即发布")}
           valuePropName="checked"
           tooltip={
             canPublish
-              ? '草稿版本的包对客户端不可见；发布后 check 才会下发。'
-              : '当前账号没有版本发布权限，包会保留在草稿版本中。'
+              ? tr("草稿版本的包对客户端不可见；发布后 check 才会下发。")
+              : tr("当前账号没有版本发布权限，包会保留在草稿版本中。")
           }
         >
           <Switch disabled={!canPublish} />
@@ -366,17 +371,17 @@ export function PackageUploadModal({
             </Typography.Text>
             <Typography.Text type="secondary">
               {formatBytes(file.size)}
-              {format ? ` · ${format.toUpperCase()}` : ' · 无法从扩展名推断格式'}
+              {format ? ` · ${format.toUpperCase()}` : tr(" · 无法从扩展名推断格式")}
             </Typography.Text>
-            <Typography.Text type="secondary">点击或拖拽可重新选择</Typography.Text>
+            <Typography.Text type="secondary">{tr("点击或拖拽可重新选择")}</Typography.Text>
           </Space>
         ) : (
           <>
             <p className="ant-upload-drag-icon">
               <InboxOutlined />
             </p>
-            <p className="ant-upload-text">点击或拖拽安装包到此处</p>
-            <p className="ant-upload-hint">支持 exe / msi / msp / zip / 7z / bin，单文件上传</p>
+            <p className="ant-upload-text">{tr("点击或拖拽安装包到此处")}</p>
+            <p className="ant-upload-hint">{tr("支持 exe / msi / msp / zip / 7z / bin，单文件上传")}</p>
           </>
         )}
       </Upload.Dragger>
@@ -393,7 +398,7 @@ export function PackageUploadModal({
           }}
         >
           <Button icon={<PlusOutlined />}>
-            {manifestFile ? '更换旁挂清单' : '选择旁挂清单（可选）'}
+            {manifestFile ? tr("更换旁挂清单") : tr("选择旁挂清单（可选）")}
           </Button>
         </Upload>
         {manifestFile ? (
@@ -402,8 +407,7 @@ export function PackageUploadModal({
           </Tag>
         ) : null}
         <Typography.Text type="secondary">
-          不选则由服务端从包内探测清单；sidecar 适用于 exe 未内嵌清单的场景。
-        </Typography.Text>
+          {tr("不选则由服务端从包内探测清单；sidecar 适用于 exe 未内嵌清单的场景。")}</Typography.Text>
       </Space>
 
       {largeFile ? (
@@ -411,8 +415,8 @@ export function PackageUploadModal({
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
-          message="安装包超过 256MB"
-          description="浏览器端会分块计算 SHA-256 并以流式上传，耗时取决于磁盘与网络；超大产物建议用发行脚本/CI 上传。"
+          message={tr("安装包超过 256MB")}
+          description={tr("浏览器端会分块计算 SHA-256 并以流式上传，耗时取决于磁盘与网络；超大产物建议用发行脚本/CI 上传。")}
         />
       ) : null}
 
@@ -421,8 +425,8 @@ export function PackageUploadModal({
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message="增量包登记后进入待摄取"
-          description="服务端会异步解析文件清单；摄取完成前 check 不会下发该增量包。"
+          message={tr("增量包登记后进入待摄取")}
+          description={tr("服务端会异步解析文件清单；摄取完成前 check 不会下发该增量包。")}
         />
       ) : null}
 
@@ -447,8 +451,8 @@ export function PackageUploadModal({
           type="error"
           showIcon
           style={{ marginBottom: 12 }}
-          message={`发布包 ${current.fileName} 处理失败：${current.errorCode ?? '未知错误'}`}
-          description={current.errorMessage ?? '请检查清单内容与文件名约定后重试。'}
+          message={tr("发布包 {{arg0}} 处理失败：{{arg1}}", { arg0: current.fileName, arg1: current.errorCode ?? tr("未知错误") })}
+          description={current.errorMessage ?? tr("请检查清单内容与文件名约定后重试。")}
           action={
             <Button
               size="small"
@@ -456,8 +460,7 @@ export function PackageUploadModal({
               loading={retry.isPending}
               onClick={() => void retry.mutateAsync()}
             >
-              重试摄取
-            </Button>
+              {tr("重试摄取")}</Button>
           }
         />
       ) : null}
@@ -468,7 +471,7 @@ export function PackageUploadModal({
           showIcon
           style={{ marginBottom: 12 }}
           message={`${current.fileName} ${packageStatusMeta(current.status).label}`}
-          description="服务端正在异步解析文件清单；完成后这里会显示文件数与失败原因。"
+          description={tr("服务端正在异步解析文件清单；完成后这里会显示文件数与失败原因。")}
         />
       ) : null}
 
@@ -477,8 +480,8 @@ export function PackageUploadModal({
           type="success"
           showIcon
           style={{ marginBottom: 12 }}
-          message={`${current.fileName} 已可用`}
-          description={`清单 ${current.fileCount} 个文件 · ${formatBytes(current.sizeBytes)}，来源 ${manifestSourceLabel(current.manifestSource)}。`}
+          message={tr('{{file}} 已可用', { file: current.fileName })}
+          description={tr("清单 {{arg0}} 个文件 · {{arg1}}，来源 {{arg2}}。", { arg0: current.fileCount, arg1: formatBytes(current.sizeBytes), arg2: manifestSourceLabel(current.manifestSource) })}
         />
       ) : null}
     </Modal>

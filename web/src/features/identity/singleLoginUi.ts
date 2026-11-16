@@ -1,3 +1,5 @@
+import { formatDateTime as formatDateTimeShared } from '../../shared/format';
+import { tr } from '../../i18n/translate';
 import { useEffect, useState } from 'react';
 
 /**
@@ -12,10 +14,10 @@ export const MAX_DURATION_MINUTES = 120;
 export const DEFAULT_DURATION_MINUTES = 30;
 
 export const DURATION_PRESETS = [
-  { value: 15, label: '15 分钟' },
-  { value: 30, label: '30 分钟' },
-  { value: 60, label: '1 小时' },
-  { value: 120, label: '2 小时' },
+  { value: 15, get label() { return tr("15 分钟"); } },
+  { value: 30, get label() { return tr("30 分钟"); } },
+  { value: 60, get label() { return tr("1 小时"); } },
+  { value: 120, get label() { return tr("2 小时"); } },
 ];
 
 /** 把输入框里的任意值收敛成合法分钟数（空值取默认）。 */
@@ -29,16 +31,16 @@ export function clampDuration(value: number | null | undefined): number {
 /** 时长的人话说法，给结果卡片用。 */
 export function formatDuration(minutes: number): string {
   if (minutes % 60 === 0) {
-    return `${minutes / 60} 小时`;
+    return tr('{{count}} 小时', { count: minutes / 60 });
   }
-  return `${minutes} 分钟`;
+  return tr('{{count}} 分钟', { count: minutes });
 }
 
 export const QR_STATUS_META: Record<string, { color: string; label: string }> = {
-  pending: { color: 'gold', label: '待审批' },
-  approved: { color: 'green', label: '已批准' },
-  rejected: { color: 'red', label: '已拒绝' },
-  expired: { color: 'default', label: '已过期' },
+  pending: { color: 'gold', get label() { return tr("待审批"); } },
+  approved: { color: 'green', get label() { return tr("已批准"); } },
+  rejected: { color: 'red', get label() { return tr("已拒绝"); } },
+  expired: { color: 'default', get label() { return tr("已过期"); } },
 };
 
 export function qrStatusMeta(status: string): { color: string; label: string } {
@@ -46,7 +48,7 @@ export function qrStatusMeta(status: string): { color: string; label: string } {
 }
 
 export function formatDateTime(value?: string | null): string {
-  return value ? new Date(value).toLocaleString() : '-';
+  return formatDateTimeShared(value);
 }
 
 /** 剩余时间的 mm:ss；已到期返回 null，由调用方决定怎么提示。 */

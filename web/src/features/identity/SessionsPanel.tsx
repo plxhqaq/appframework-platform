@@ -1,3 +1,5 @@
+import { formatDateTime } from '../../shared/format';
+import { tr } from '../../i18n/translate';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App, Button, Input, Popconfirm, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -12,7 +14,7 @@ import { useAuthStore } from '../../stores/auth';
 const DEFAULT_PAGE_SIZE = 20;
 
 function formatTime(value?: string | null): string {
-  return value ? new Date(value).toLocaleString() : '-';
+  return value ? formatDateTime(value) : '-';
 }
 
 /** 会话 = 一条刷新令牌家族记录；吊销后该设备需要重新登录。 */
@@ -36,21 +38,25 @@ export function SessionsPanel() {
     mutationFn: (id: string) => identityApi.revokeSession(id),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['identity', 'sessions'] });
-      message.success('会话已吊销');
+      message.success(tr("会话已吊销"));
     },
     onError: (error: Error) => message.error(error.message),
   });
 
   const columns: TableColumnsType<SessionSummary> = [
     {
-      title: '用户',
+      title: tr("用户"),
       dataIndex: 'userName',
       key: 'userName',
-      width: 150,
-      render: (userName: string) => <Typography.Text code>{userName}</Typography.Text>,
+      width: 170,
+      render: (userName: string) => (
+        <Typography.Text code style={{ whiteSpace: 'nowrap' }}>
+          {userName}
+        </Typography.Text>
+      ),
     },
     {
-      title: '设备指纹',
+      title: tr("设备指纹"),
       dataIndex: 'deviceFingerprint',
       key: 'deviceFingerprint',
       width: 180,
@@ -66,14 +72,14 @@ export function SessionsPanel() {
         ),
     },
     {
-      title: '来源 IP',
+      title: tr("来源 IP"),
       dataIndex: 'createdByIp',
       key: 'createdByIp',
       width: 140,
       render: (value: string | null) => value ?? <Typography.Text type="secondary">-</Typography.Text>,
     },
     {
-      title: '创建时间',
+      title: tr("创建时间"),
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 180,
@@ -81,7 +87,7 @@ export function SessionsPanel() {
       render: formatTime,
     },
     {
-      title: '最后使用',
+      title: tr("最后使用"),
       dataIndex: 'lastUsedAt',
       key: 'lastUsedAt',
       width: 180,
@@ -89,7 +95,7 @@ export function SessionsPanel() {
       render: formatTime,
     },
     {
-      title: '过期时间',
+      title: tr("过期时间"),
       dataIndex: 'expiresAt',
       key: 'expiresAt',
       width: 180,
@@ -97,30 +103,29 @@ export function SessionsPanel() {
       render: formatTime,
     },
     {
-      title: '状态',
+      title: tr("状态"),
       dataIndex: 'isActive',
       key: 'isActive',
       width: 90,
-      render: (active: boolean) => (active ? <Tag color="green">有效</Tag> : <Tag>已失效</Tag>),
+      render: (active: boolean) => (active ? <Tag color="green">{tr("有效")}</Tag> : <Tag>{tr("已失效")}</Tag>),
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
       width: 90,
       fixed: 'right',
       render: (_: unknown, session: SessionSummary) =>
         canRevoke && session.isActive ? (
           <Popconfirm
-            title="吊销该会话？"
-            description="该设备上的刷新令牌会立即失效，需要重新登录。"
-            okText="吊销"
+            title={tr("吊销该会话？")}
+            description={tr("该设备上的刷新令牌会立即失效，需要重新登录。")}
+            okText={tr("吊销")}
             okButtonProps={{ danger: true }}
-            cancelText="取消"
+            cancelText={tr("取消")}
             onConfirm={() => revokeMutation.mutateAsync(session.id).catch(() => undefined)}
           >
             <Button type="link" size="small" danger>
-              吊销
-            </Button>
+              {tr("吊销")}</Button>
           </Popconfirm>
         ) : (
           <Typography.Text type="secondary">-</Typography.Text>
@@ -132,7 +137,7 @@ export function SessionsPanel() {
     <Space direction="vertical" size="small" style={{ width: '100%' }}>
       <Input.Search
         allowClear
-        placeholder="按用户 ID 过滤"
+        placeholder={tr("按用户 ID 过滤")}
         style={{ width: 320, maxWidth: '100%', minWidth: 0 }}
         loading={sessions.isFetching}
         onSearch={(value) => {
@@ -148,8 +153,7 @@ export function SessionsPanel() {
           message={(sessions.error as Error).message}
           action={
             <Button size="small" onClick={() => void sessions.refetch()}>
-              重试
-            </Button>
+              {tr("重试")}</Button>
           }
         />
       ) : null}
@@ -165,13 +169,13 @@ export function SessionsPanel() {
           current: sessions.data?.page ?? page,
           pageSize: sessions.data?.pageSize ?? pageSize,
           total: sessions.data?.total ?? 0,
-          showTotal: (total: number) => `共 ${total} 个会话`,
+          showTotal: (total: number) => tr("共 {{arg0}} 个会话", { arg0: total }),
           onChange: (nextPage: number, nextPageSize: number) => {
             setPage(nextPageSize === pageSize ? nextPage : 1);
             setPageSize(nextPageSize);
           },
         })}
-        locale={{ emptyText: '没有匹配的会话' }}
+        locale={{ emptyText: tr("没有匹配的会话") }}
       />
     </Space>
   );

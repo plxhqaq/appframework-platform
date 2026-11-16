@@ -1,3 +1,5 @@
+import { formatDate as formatSharedDate, formatDateTime } from '../../shared/format';
+import { tr } from '../../i18n/translate';
 import {
   KeyOutlined,
   PlusOutlined,
@@ -43,20 +45,20 @@ import { RenewLicenseModal } from './RenewLicenseModal';
 import { RevokeLicenseModal } from './RevokeLicenseModal';
 
 const KIND_META: Record<LicenseKind, { label: string; color?: string }> = {
-  trial: { label: '试用', color: 'blue' },
-  official: { label: '正式', color: 'green' },
+  trial: { get label() { return tr("试用"); }, color: 'blue' },
+  official: { get label() { return tr("正式"); }, color: 'green' },
 };
 
 const STATUS_META: Record<string, { label: string; color?: string }> = {
-  active: { label: '有效', color: 'green' },
-  expired: { label: '已过期', color: 'orange' },
-  revoked: { label: '已吊销', color: 'red' },
-  unlicensed: { label: '未授权' },
-  unmanaged: { label: '未启用' },
+  active: { get label() { return tr("有效"); }, color: 'green' },
+  expired: { get label() { return tr("已过期"); }, color: 'orange' },
+  revoked: { get label() { return tr("已吊销"); }, color: 'red' },
+  unlicensed: { get label() { return tr("未授权"); } },
+  unmanaged: { get label() { return tr("未启用"); } },
 };
 
 function formatDate(value?: string | null): string {
-  return value ? new Date(value).toLocaleDateString() : '-';
+  return formatSharedDate(value);
 }
 
 /**
@@ -164,80 +166,81 @@ export function LicensingPage() {
     try {
       if (action === 'sync') {
         await licensingApi.syncSigningKeys();
-        message.success('密钥登记表已同步');
+        message.success(tr("密钥登记表已同步"));
       } else if (row) {
         if (action === 'activate') {
           await licensingApi.activateSigningKey(row.id);
-          message.success(`已激活 ${row.keyId}`);
+          message.success(tr("已激活 {{arg0}}", { arg0: row.keyId }));
         } else {
           await licensingApi.retireSigningKey(row.id);
-          message.success(`已退役 ${row.keyId}（旧快照仍可验签）`);
+          message.success(tr("已退役 {{arg0}}（旧快照仍可验签）", { arg0: row.keyId }));
         }
       }
       await refresh();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '操作失败');
+      message.error(error instanceof Error ? error.message : tr("操作失败"));
     }
   };
 
   const deleteOfflineCode = async (row: OfflineLicenseCode) => {
     try {
       await licensingApi.deleteOfflineCode(row.id);
-      message.success('台账已删除（已发出的码到期前仍可用）');
+      message.success(tr("台账已删除（已发出的码到期前仍可用）"));
       await refresh();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '删除失败');
+      message.error(error instanceof Error ? error.message : tr("删除失败"));
     }
   };
 
   const productColumns: TableColumnsType<LicenseProduct> = [
     {
-      title: '产品键',
+      title: tr("产品键"),
       dataIndex: 'key',
       key: 'key',
       width: 140,
       render: (key: string) => <Typography.Text code>{key}</Typography.Text>,
     },
-    { title: '名称', dataIndex: 'name', key: 'name', width: 160 },
+    { title: tr("名称"), dataIndex: 'name', key: 'name', width: 160 },
     {
-      title: '席位',
+      title: tr("席位"),
       dataIndex: 'seatLimit',
       key: 'seatLimit',
       width: 90,
       responsive: ['md'],
-      render: (value: number | null) => value ?? '不限',
+      render: (value: number | null) => value ?? tr("不限"),
     },
     {
-      title: '有效/总授权',
+      title: tr("有效/总授权"),
       key: 'counts',
       width: 120,
       responsive: ['md'],
       render: (_: unknown, row: LicenseProduct) => `${row.activeEntitlementCount} / ${row.entitlementCount}`,
     },
     {
-      title: '宽限',
+      title: tr("宽限"),
       dataIndex: 'defaultGraceDays',
       key: 'defaultGraceDays',
       width: 70,
       responsive: ['md'],
     },
     {
-      title: '试用',
+      title: tr("试用"),
       dataIndex: 'trialDays',
       key: 'trialDays',
       width: 90,
       responsive: ['md'],
-      render: (value: number) => (value > 0 ? `${value} 天` : '关闭'),
+      render: (value: number) =>
+        value > 0 ? tr('{{count}} 天', { count: value }) : tr('关闭'),
     },
     {
-      title: '状态',
+      title: tr("状态"),
       dataIndex: 'isEnabled',
       key: 'isEnabled',
       width: 80,
-      render: (enabled: boolean) => (enabled ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>),
+      render: (enabled: boolean) => (enabled ? <Tag color="green">{tr("启用")}</Tag> : <Tag>{tr("停用")}</Tag>),
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
       width: 100,
       fixed: 'right',
@@ -251,16 +254,15 @@ export function LicensingPage() {
               setProductFormOpen(true);
             }}
           >
-            编辑
-          </Button>
+            {tr("编辑")}</Button>
         ) : null,
     },
   ];
 
   const entitlementColumns: TableColumnsType<LicenseEntitlement> = [
-    { title: '产品', dataIndex: 'productKey', key: 'productKey', width: 130 },
+    { title: tr("产品"), dataIndex: 'productKey', key: 'productKey', width: 130 },
     {
-      title: '机器码',
+      title: tr("机器码"),
       dataIndex: 'machineCode',
       key: 'machineCode',
       width: 180,
@@ -271,7 +273,7 @@ export function LicensingPage() {
       ),
     },
     {
-      title: '类型',
+      title: tr("类型"),
       dataIndex: 'kind',
       key: 'kind',
       width: 80,
@@ -281,7 +283,7 @@ export function LicensingPage() {
       },
     },
     {
-      title: '状态',
+      title: tr("状态"),
       dataIndex: 'status',
       key: 'status',
       width: 90,
@@ -291,7 +293,7 @@ export function LicensingPage() {
       },
     },
     {
-      title: '到期',
+      title: tr("到期"),
       dataIndex: 'notAfter',
       key: 'notAfter',
       width: 110,
@@ -299,7 +301,7 @@ export function LicensingPage() {
       render: (value: string) => formatDate(value),
     },
     {
-      title: '授权编号',
+      title: tr("授权编号"),
       dataIndex: 'licenseNo',
       key: 'licenseNo',
       width: 170,
@@ -307,15 +309,15 @@ export function LicensingPage() {
       render: (value: string | null) => value ?? '-',
     },
     {
-      title: '最后校验',
+      title: tr("最后校验"),
       dataIndex: 'lastSeenAt',
       key: 'lastSeenAt',
       width: 150,
       responsive: ['md'],
-      render: (value: string | null) => (value ? new Date(value).toLocaleString() : '-'),
+      render: (value: string | null) => (value ? formatDateTime(value) : '-'),
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
       width: 150,
       fixed: 'right',
@@ -323,13 +325,11 @@ export function LicensingPage() {
         <Space size="small">
           {canIssue && row.status !== 'revoked' ? (
             <Button type="link" size="small" onClick={() => setRenewing(row)}>
-              续期
-            </Button>
+              {tr("续期")}</Button>
           ) : null}
           {canRevoke && row.status !== 'revoked' ? (
             <Button type="link" size="small" danger onClick={() => setRevoking(row)}>
-              吊销
-            </Button>
+              {tr("吊销")}</Button>
           ) : null}
         </Space>
       ),
@@ -337,9 +337,9 @@ export function LicensingPage() {
   ];
 
   const offlineColumns: TableColumnsType<OfflineLicenseCode> = [
-    { title: '产品', dataIndex: 'productKey', key: 'productKey', width: 130 },
+    { title: tr("产品"), dataIndex: 'productKey', key: 'productKey', width: 130 },
     {
-      title: '机器码',
+      title: tr("机器码"),
       dataIndex: 'machineCode',
       key: 'machineCode',
       width: 170,
@@ -350,14 +350,14 @@ export function LicensingPage() {
       ),
     },
     {
-      title: '授权编号',
+      title: tr("授权编号"),
       dataIndex: 'licenseNo',
       key: 'licenseNo',
       width: 170,
       responsive: ['md'],
     },
     {
-      title: '授权码',
+      title: tr("授权码"),
       dataIndex: 'formattedCode',
       key: 'formattedCode',
       render: (value: string, row: OfflineLicenseCode) => (
@@ -367,7 +367,7 @@ export function LicensingPage() {
       ),
     },
     {
-      title: '到期',
+      title: tr("到期"),
       dataIndex: 'notAfter',
       key: 'notAfter',
       width: 110,
@@ -375,15 +375,15 @@ export function LicensingPage() {
       render: (value: string) => formatDate(value),
     },
     {
-      title: '签发时间',
+      title: tr("签发时间"),
       dataIndex: 'issuedAt',
       key: 'issuedAt',
       width: 150,
       responsive: ['md'],
-      render: (value: string) => new Date(value).toLocaleString(),
+      render: (value: string) => formatDateTime(value),
     },
     {
-      title: '备注',
+      title: tr("备注"),
       dataIndex: 'remark',
       key: 'remark',
       width: 150,
@@ -391,22 +391,21 @@ export function LicensingPage() {
       render: (value: string | null) => value ?? '-',
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
       width: 100,
       fixed: 'right',
       render: (_: unknown, row: OfflineLicenseCode) =>
         canIssueOffline ? (
           <Popconfirm
-            title="删除台账行？"
-            description="已发出的码到期前仍然可用，删除只影响这里的记录。"
-            okText="删除"
-            cancelText="取消"
+            title={tr("删除台账行？")}
+            description={tr("已发出的码到期前仍然可用，删除只影响这里的记录。")}
+            okText={tr("删除")}
+            cancelText={tr("取消")}
             onConfirm={() => void deleteOfflineCode(row)}
           >
             <Button type="link" size="small" danger>
-              删除
-            </Button>
+              {tr("删除")}</Button>
           </Popconfirm>
         ) : null,
     },
@@ -414,50 +413,50 @@ export function LicensingPage() {
 
   const signingKeyColumns: TableColumnsType<LicenseSigningKey> = [
     {
-      title: '密钥 ID',
+      title: tr("密钥 ID"),
       dataIndex: 'keyId',
       key: 'keyId',
       width: 170,
       render: (value: string) => <Typography.Text code>{value}</Typography.Text>,
     },
-    { title: '算法', dataIndex: 'algorithm', key: 'algorithm', width: 160 },
+    { title: tr("算法"), dataIndex: 'algorithm', key: 'algorithm', width: 160 },
     {
-      title: '指纹',
+      title: tr("指纹"),
       dataIndex: 'fingerprint',
       key: 'fingerprint',
       width: 260,
       render: (value: string) => <Typography.Text copyable ellipsis style={{ maxWidth: 240 }}>{value}</Typography.Text>,
     },
     {
-      title: '状态',
+      title: tr("状态"),
       dataIndex: 'status',
       key: 'status',
       width: 110,
       render: (status: string, row: LicenseSigningKey) =>
         status === 'active' ? (
-          <Tag color="green">{row.isCurrent ? '当前签发' : '启用'}</Tag>
+          <Tag color="green">{row.isCurrent ? tr("当前签发") : tr("启用")}</Tag>
         ) : (
-          <Tag>已退役</Tag>
+          <Tag>{tr("已退役")}</Tag>
         ),
     },
     {
-      title: '启用时间',
+      title: tr("启用时间"),
       dataIndex: 'activatedAt',
       key: 'activatedAt',
       width: 150,
       responsive: ['md'],
-      render: (value: string | null) => (value ? new Date(value).toLocaleString() : '-'),
+      render: (value: string | null) => (value ? formatDateTime(value) : '-'),
     },
     {
-      title: '退役时间',
+      title: tr("退役时间"),
       dataIndex: 'retiredAt',
       key: 'retiredAt',
       width: 150,
       responsive: ['md'],
-      render: (value: string | null) => (value ? new Date(value).toLocaleString() : '-'),
+      render: (value: string | null) => (value ? formatDateTime(value) : '-'),
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
       width: 140,
       fixed: 'right',
@@ -465,13 +464,11 @@ export function LicensingPage() {
         <Space size="small">
           {canManageKeys && row.status === 'retired' ? (
             <Button type="link" size="small" onClick={() => void mutateKey('activate', row)}>
-              激活
-            </Button>
+              {tr("激活")}</Button>
           ) : null}
           {canManageKeys && row.status === 'active' && !row.isCurrent ? (
             <Button type="link" size="small" danger onClick={() => void mutateKey('retire', row)}>
-              退役
-            </Button>
+              {tr("退役")}</Button>
           ) : null}
         </Space>
       ),
@@ -480,12 +477,12 @@ export function LicensingPage() {
 
   if (appKey === null) {
     return (
-      <Card title="授权" size="small">
+      <Card title={tr("授权")} size="small">
         <Alert
           type="warning"
           showIcon
-          message="当前账号没有可用的应用上下文"
-          description="授权产品、授权主体与离线码按应用隔离。请先在「应用接入」注册应用，并使用拥有该应用访问权的账号进入。"
+          message={tr("当前账号没有可用的应用上下文")}
+          description={tr("授权产品、授权主体与离线码按应用隔离。请先在「应用接入」注册应用，并使用拥有该应用访问权的账号进入。")}
         />
       </Card>
     );
@@ -499,11 +496,11 @@ export function LicensingPage() {
         items={[
           {
             key: 'products',
-            label: '授权产品',
+            label: tr("授权产品"),
             children: (
               <Card
                 size="small"
-                title="产品"
+                title={tr("产品")}
                 extra={
                   canManageProducts ? (
                     <Button
@@ -514,8 +511,7 @@ export function LicensingPage() {
                         setProductFormOpen(true);
                       }}
                     >
-                      新建产品
-                    </Button>
+                      {tr("新建产品")}</Button>
                   ) : null
                 }
               >
@@ -527,8 +523,7 @@ export function LicensingPage() {
                     message={(products.error as Error).message}
                     action={
                       <Button size="small" onClick={() => void products.refetch()}>
-                        重试
-                      </Button>
+                        {tr("重试")}</Button>
                     }
                   />
                 ) : null}
@@ -540,30 +535,29 @@ export function LicensingPage() {
                   dataSource={products.data ?? []}
                   columns={productColumns}
                   pagination={false}
-                  locale={{ emptyText: '尚未创建授权产品（如 erp-pro）' }}
+                  locale={{ emptyText: tr("尚未创建授权产品（如 erp-pro）") }}
                 />
               </Card>
             ),
           },
           {
             key: 'entitlements',
-            label: '授权主体',
+            label: tr("授权主体"),
             children: (
               <Card
                 size="small"
-                title="授权"
+                title={tr("授权")}
                 extra={
                   canIssue ? (
                     <Button type="primary" icon={<PlusOutlined />} onClick={() => setIssueOpen(true)}>
-                      签发授权
-                    </Button>
+                      {tr("签发授权")}</Button>
                   ) : null
                 }
               >
                 <Space wrap style={{ marginBottom: 12 }}>
                   <Select
                     allowClear
-                    placeholder="全部产品"
+                    placeholder={tr("全部产品")}
                     style={{ width: 200, maxWidth: '100%' }}
                     value={productFilter}
                     onChange={(value) => {
@@ -577,7 +571,7 @@ export function LicensingPage() {
                   />
                   <Select
                     allowClear
-                    placeholder="全部状态"
+                    placeholder={tr("全部状态")}
                     style={{ width: 150, maxWidth: '100%' }}
                     value={statusFilter}
                     onChange={(value) => {
@@ -585,20 +579,19 @@ export function LicensingPage() {
                       setEntPage(1);
                     }}
                     options={[
-                      { value: 'active', label: '有效' },
-                      { value: 'expired', label: '已过期' },
-                      { value: 'revoked', label: '已吊销' },
+                      { value: 'active', label: tr("有效") },
+                      { value: 'expired', label: tr("已过期") },
+                      { value: 'revoked', label: tr("已吊销") },
                     ]}
                   />
                   <Input.Search
                     allowClear
-                    placeholder="机器码 / 授权编号"
+                    placeholder={tr("机器码 / 授权编号")}
                     style={{ width: 240, maxWidth: '100%' }}
                     onSearch={applyKeyword}
                   />
-                  <Button icon={<ReloadOutlined />} aria-label="刷新授权列表" onClick={() => void refresh()}>
-                    刷新
-                  </Button>
+                  <Button icon={<ReloadOutlined />} aria-label={tr("刷新授权列表")} onClick={() => void refresh()}>
+                    {tr("刷新")}</Button>
                 </Space>
 
                 {entitlements.isError ? (
@@ -609,8 +602,7 @@ export function LicensingPage() {
                     message={(entitlements.error as Error).message}
                     action={
                       <Button size="small" onClick={() => void entitlements.refetch()}>
-                        重试
-                      </Button>
+                        {tr("重试")}</Button>
                     }
                   />
                 ) : null}
@@ -625,45 +617,42 @@ export function LicensingPage() {
                     current: entPage,
                     pageSize: entPageSize,
                     total: entitlements.data?.total ?? 0,
-                    showTotal: (total) => `共 ${total} 条`,
+                    showTotal: (total) => tr("共 {{arg0}} 条", { arg0: total }),
                     onChange: (page: number, size: number) => {
                       setEntPage(page);
                       setEntPageSize(size);
                     },
                   })}
-                  locale={{ emptyText: <Empty description="尚无授权；签发后客户端校验状态即可拿到签名快照" /> }}
+                  locale={{ emptyText: <Empty description={tr("尚无授权；签发后客户端校验状态即可拿到签名快照")} /> }}
                 />
               </Card>
             ),
           },
           {
             key: 'offline',
-            label: '离线授权码',
+            label: tr("离线授权码"),
             children: (
               <Card
                 size="small"
-                title="离线码台账"
+                title={tr("离线码台账")}
                 extra={
                   canIssueOffline ? (
                     <Button type="primary" icon={<PlusOutlined />} onClick={() => setOfflineOpen(true)}>
-                      签发离线码
-                    </Button>
+                      {tr("签发离线码")}</Button>
                   ) : null
                 }
               >
                 <Space wrap style={{ marginBottom: 12 }}>
                   <Input.Search
                     allowClear
-                    placeholder="机器码 / 授权编号"
+                    placeholder={tr("机器码 / 授权编号")}
                     style={{ width: 260, maxWidth: '100%' }}
                     onSearch={applyKeyword}
                   />
-                  <Button icon={<ReloadOutlined />} aria-label="刷新离线码台账" onClick={() => void refresh()}>
-                    刷新
-                  </Button>
+                  <Button icon={<ReloadOutlined />} aria-label={tr("刷新离线码台账")} onClick={() => void refresh()}>
+                    {tr("刷新")}</Button>
                   <Typography.Text type="secondary">
-                    离线码绑定机器码与产品键；发出去以后无法吊销，请在台账里保留记录。
-                  </Typography.Text>
+                    {tr("离线码绑定机器码与产品键；发出去以后无法吊销，请在台账里保留记录。")}</Typography.Text>
                 </Space>
 
                 {offlineCodes.isError ? (
@@ -674,8 +663,7 @@ export function LicensingPage() {
                     message={(offlineCodes.error as Error).message}
                     action={
                       <Button size="small" onClick={() => void offlineCodes.refetch()}>
-                        重试
-                      </Button>
+                        {tr("重试")}</Button>
                     }
                   />
                 ) : null}
@@ -690,13 +678,13 @@ export function LicensingPage() {
                     current: offPage,
                     pageSize: offPageSize,
                     total: offlineCodes.data?.total ?? 0,
-                    showTotal: (total) => `共 ${total} 条`,
+                    showTotal: (total) => tr("共 {{arg0}} 条", { arg0: total }),
                     onChange: (page: number, size: number) => {
                       setOffPage(page);
                       setOffPageSize(size);
                     },
                   })}
-                  locale={{ emptyText: '尚未签发离线授权码' }}
+                  locale={{ emptyText: tr("尚未签发离线授权码") }}
                 />
               </Card>
             ),
@@ -708,18 +696,16 @@ export function LicensingPage() {
                   label: (
                     <Space size={6}>
                       <SafetyCertificateOutlined />
-                      签名密钥
-                    </Space>
+                      {tr("签名密钥")}</Space>
                   ),
                   children: (
                     <Card
                       size="small"
-                      title="签名密钥"
+                      title={tr("签名密钥")}
                       extra={
                         <Space>
                           <Button icon={<ReloadOutlined />} onClick={() => void mutateKey('sync')}>
-                            同步配置
-                          </Button>
+                            {tr("同步配置")}</Button>
                         </Space>
                       }
                     >
@@ -731,8 +717,7 @@ export function LicensingPage() {
                           message={(signingKeys.error as Error).message}
                           action={
                             <Button size="small" onClick={() => void signingKeys.refetch()}>
-                              重试
-                            </Button>
+                              {tr("重试")}</Button>
                           }
                         />
                       ) : null}
@@ -744,33 +729,29 @@ export function LicensingPage() {
                           style={{ marginBottom: 16 }}
                           message={
                             signingStatus.isManaged
-                              ? `当前签发密钥：${signingStatus.currentKeyId ?? '-'}`
-                              : '部署未配置签发私钥（Licensing__SigningKeyPkcs8），授权校验不生效'
+                              ? tr("当前签发密钥：{{arg0}}", { arg0: signingStatus.currentKeyId ?? '-' })
+                              : tr("部署未配置签发私钥（Licensing__SigningKeyPkcs8），授权校验不生效")
                           }
                           description={
                             signingStatus.isManaged ? (
                               <Space direction="vertical" size={2}>
                                 <Typography.Text type="secondary">
-                                  公钥指纹：{signingStatus.fingerprint}
+                                  {tr("公钥指纹：")}{signingStatus.fingerprint}
                                 </Typography.Text>
                                 <Typography.Text type="secondary">
-                                  退役密钥继续参与验签；私钥只存在于部署环境变量，管理台永远拿不到。
-                                </Typography.Text>
+                                  {tr("退役密钥继续参与验签；私钥只存在于部署环境变量，管理台永远拿不到。")}</Typography.Text>
                               </Space>
                             ) : (
                               <Typography.Text type="secondary">
-                                未配置私钥时客户端一律按 unmanaged 处理，也不会签发离线码。
-                              </Typography.Text>
+                                {tr("未配置私钥时客户端一律按 unmanaged 处理，也不会签发离线码。")}</Typography.Text>
                             )
                           }
                         />
                       ) : null}
 
                       <Descriptions size="small" column={1} style={{ marginBottom: 12 }}>
-                        <Descriptions.Item label="轮换做法">
-                          部署新私钥 → 重启服务 → 点「同步配置」把新密钥登记为当前；
-                          旧密钥自动转为退役状态，客户端已拿到的旧快照仍能验签。
-                        </Descriptions.Item>
+                        <Descriptions.Item label={tr("轮换做法")}>
+                          {tr("部署新私钥 → 重启服务 → 点「同步配置」把新密钥登记为当前； 旧密钥自动转为退役状态，客户端已拿到的旧快照仍能验签。")}</Descriptions.Item>
                       </Descriptions>
 
                       <Table<LicenseSigningKey>
@@ -781,7 +762,7 @@ export function LicensingPage() {
                         dataSource={signingStatus?.keys ?? []}
                         columns={signingKeyColumns}
                         pagination={false}
-                        locale={{ emptyText: '尚未登记签名密钥' }}
+                        locale={{ emptyText: tr("尚未登记签名密钥") }}
                       />
                     </Card>
                   ),
@@ -831,8 +812,7 @@ export function LicensingPage() {
           <Space>
             <KeyOutlined />
             <Typography.Text type="secondary">
-              签名密钥由平台管理员维护；当前账号只能查看授权数据。
-            </Typography.Text>
+              {tr("签名密钥由平台管理员维护；当前账号只能查看授权数据。")}</Typography.Text>
           </Space>
         </Card>
       )}

@@ -1,7 +1,9 @@
 import { LockOutlined, UserOutlined } from '@ant-design/icons';
 import { Alert, App, Button, Card, Form, Input, Typography } from 'antd';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { LocaleSwitch } from '../../app/LocaleSwitch';
 import { HOME_PATH } from '../../app/navigation';
 import { safeReturnTo } from '../../shared/returnTo';
 import { useAuthStore } from '../../stores/auth';
@@ -18,6 +20,7 @@ interface LoginFormValues {
  * 登录完必须回到那一单，而不是被扔到总览让现场再找一遍。
  */
 export function LoginPage() {
+  const { t } = useTranslation('auth');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { message } = App.useApp();
@@ -37,7 +40,7 @@ export function LoginPage() {
     try {
       const session = await signIn(values.userName, values.password);
       if (session.mustChangePassword) {
-        message.warning('首次登录或口令已被重置，请先修改口令');
+        message.warning(t('login.mustChangePassword'));
         navigate(
           returnTo === HOME_PATH
             ? '/password'
@@ -48,7 +51,7 @@ export function LoginPage() {
       }
       navigate(returnTo, { replace: true });
     } catch (caught) {
-      const text = caught instanceof Error ? caught.message : '登录失败';
+      const text = caught instanceof Error ? caught.message : t('login.failed');
       setError(text);
       message.error(text);
     }
@@ -57,17 +60,20 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <Card className="login-page__card">
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+          <LocaleSwitch />
+        </div>
         <Typography.Title level={3} style={{ marginBottom: 4 }}>
-          AppFramework 平台
+          {t('login.title')}
         </Typography.Title>
-        <Typography.Paragraph type="secondary">通用服务提供平台 · 管理台</Typography.Paragraph>
+        <Typography.Paragraph type="secondary">{t('login.subtitle')}</Typography.Paragraph>
 
         {returnTo !== HOME_PATH ? (
           <Alert
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
-            message="登录后会回到你刚才打开的页面"
+            message={t('login.returnHint')}
           />
         ) : null}
 
@@ -78,24 +84,24 @@ export function LoginPage() {
           requiredMark={false}
           onFinish={handleFinish}
         >
-          <Form.Item name="userName" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}>
-            <Input prefix={<UserOutlined />} placeholder="用户名" autoComplete="username" />
+          <Form.Item name="userName" label={t('login.userName')} rules={[{ required: true, message: t('login.userNameRequired') }]}>
+            <Input prefix={<UserOutlined />} placeholder={t('login.userName')} autoComplete="username" />
           </Form.Item>
 
           <Form.Item
             name="password"
-            label="密码"
-            rules={[{ required: true, message: '请输入密码' }]}
+            label={t('login.password')}
+            rules={[{ required: true, message: t('login.passwordRequired') }]}
           >
             <Input.Password
               prefix={<LockOutlined />}
-              placeholder="密码"
+              placeholder={t('login.password')}
               autoComplete="current-password"
             />
           </Form.Item>
 
           <Button type="primary" htmlType="submit" block loading={pending}>
-            登录
+            {t('login.submit')}
           </Button>
         </Form>
       </Card>

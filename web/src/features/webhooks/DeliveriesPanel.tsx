@@ -1,9 +1,13 @@
+import { formatDateTime } from '../../shared/format';
+import { tr } from '../../i18n/translate';
+import { ReloadOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Alert, Button, Card, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useState } from 'react';
 import { webhookApi } from '../../shared/api/webhooks';
 import { responsivePagination } from '../../shared/responsive';
+import { renderTableExpandIcon } from '../../shared/ui/TableExpandIcon';
 import { useResponsive } from '../../shared/useResponsive';
 import { canRedeliver, DELIVERY_STATUS_META, formatPayload } from './webhookUi';
 import type { WebhookDelivery, WebhookDeliveryStatus, WebhookSubscription } from '../../shared/api/types';
@@ -36,7 +40,7 @@ export function DeliveriesPanel({ subscriptions, canManage, appKey }: Deliveries
   const redeliver = useMutation({
     mutationFn: (id: string) => webhookApi.redeliver(id),
     onSuccess: (delivery) => {
-      message.success(`投递 ${delivery.id.slice(0, 8)} 已重新入队（第 ${delivery.attempts + 1} 次尝试待执行）`);
+      message.success(tr("投递 {{arg0}} 已重新入队（第 {{arg1}} 次尝试待执行）", { arg0: delivery.id.slice(0, 8), arg1: delivery.attempts + 1 }));
       void queryClient.invalidateQueries({ queryKey: ['webhooks', 'deliveries'] });
       void queryClient.invalidateQueries({ queryKey: ['webhooks', 'subscriptions'] });
     },
@@ -45,20 +49,20 @@ export function DeliveriesPanel({ subscriptions, canManage, appKey }: Deliveries
 
   const columns: TableColumnsType<WebhookDelivery> = [
     {
-      title: '生成时间',
+      title: tr("生成时间"),
       dataIndex: 'createdAt',
       width: 170,
       responsive: ['md'],
-      render: (value: string) => new Date(value).toLocaleString(),
+      render: (value: string) => formatDateTime(value),
     },
     {
-      title: '事件',
+      title: tr("事件"),
       dataIndex: 'eventType',
       width: 160,
       render: (value: string) => <Typography.Text code>{value}</Typography.Text>,
     },
     {
-      title: '状态',
+      title: tr("状态"),
       dataIndex: 'status',
       width: 120,
       render: (value: WebhookDeliveryStatus) => (
@@ -68,39 +72,39 @@ export function DeliveriesPanel({ subscriptions, canManage, appKey }: Deliveries
       ),
     },
     {
-      title: '尝试',
+      title: tr("尝试"),
       dataIndex: 'attempts',
       width: 70,
       responsive: ['md'],
     },
     {
-      title: '状态码',
+      title: tr("状态码"),
       dataIndex: 'lastStatusCode',
       width: 90,
       responsive: ['md'],
       render: (value: number | null) => value ?? '-',
     },
     {
-      title: '下次尝试',
+      title: tr("下次尝试"),
       dataIndex: 'nextAttemptAt',
       width: 170,
       responsive: ['md'],
       render: (value: string | null, record) =>
         record.status === 'pending' || record.status === 'failed'
           ? value
-            ? new Date(value).toLocaleString()
+            ? formatDateTime(value)
             : '-'
           : '-',
     },
     {
-      title: '错误',
+      title: tr("错误"),
       dataIndex: 'lastError',
       ellipsis: true,
       render: (value: string | null) =>
         value ? <Typography.Text style={{ wordBreak: 'break-all' }}>{value}</Typography.Text> : '-',
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
       width: 90,
       fixed: 'right',
@@ -110,16 +114,15 @@ export function DeliveriesPanel({ subscriptions, canManage, appKey }: Deliveries
         }
 
         return (
-          <Tooltip title="重新入队，退避计时从头开始">
+          <Tooltip title={tr("重新入队，退避计时从头开始")}>
             <Button
               type="link"
               size="small"
-              aria-label="重投该投递"
+              aria-label={tr("重投该投递")}
               loading={redeliver.isPending && redeliver.variables === record.id}
               onClick={() => redeliver.mutate(record.id)}
             >
-              重投
-            </Button>
+              {tr("重投")}</Button>
           </Tooltip>
         );
       },
@@ -129,14 +132,14 @@ export function DeliveriesPanel({ subscriptions, canManage, appKey }: Deliveries
   return (
     <Card
       size="small"
-      title="投递台账"
+      title={tr("投递台账")}
       extra={
         <Space wrap>
           <Select
             allowClear
             size="small"
             style={{ width: 240, maxWidth: '100%', minWidth: 0 }}
-            placeholder="按订阅过滤"
+            placeholder={tr("按订阅过滤")}
             value={subscriptionId}
             onChange={(value) => {
               setSubscriptionId(value);
@@ -146,13 +149,13 @@ export function DeliveriesPanel({ subscriptions, canManage, appKey }: Deliveries
           />
           <Button
             size="small"
+            icon={<ReloadOutlined />}
             loading={deliveries.isFetching}
-            aria-label="刷新投递台账"
+            aria-label={tr("刷新投递台账")}
             onClick={() => void deliveries.refetch()}
           >
-            刷新
-          </Button>
-          <Typography.Text type="secondary">共 {deliveries.data?.total ?? 0} 条</Typography.Text>
+            {tr("刷新")}</Button>
+          <Typography.Text type="secondary">{tr("共")}{deliveries.data?.total ?? 0} {tr("条")}</Typography.Text>
         </Space>
       }
     >
@@ -164,8 +167,7 @@ export function DeliveriesPanel({ subscriptions, canManage, appKey }: Deliveries
           message={(deliveries.error as Error).message}
           action={
             <Button size="small" onClick={() => void deliveries.refetch()}>
-              重试
-            </Button>
+              {tr("重试")}</Button>
           }
         />
       ) : null}
@@ -179,22 +181,23 @@ export function DeliveriesPanel({ subscriptions, canManage, appKey }: Deliveries
           current: page,
           pageSize,
           total: deliveries.data?.total ?? 0,
-          showTotal: (total) => `共 ${total} 条`,
+          showTotal: (total) => tr("共 {{arg0}} 条", { arg0: total }),
           onChange: (nextPage: number, nextPageSize: number) => {
             setPage(nextPage);
             setPageSize(nextPageSize);
           },
         })}
         expandable={{
+          expandIcon: renderTableExpandIcon,
           expandedRowRender: (record) => (
             <Space direction="vertical" size={4} style={{ width: '100%' }}>
               <Typography.Text type="secondary" style={{ wordBreak: 'break-all' }}>
-                订阅：{urlById.get(record.subscriptionId) ?? record.subscriptionId} / Delivery：
+                {tr("订阅：")}{urlById.get(record.subscriptionId) ?? record.subscriptionId} / Delivery：
                 <Typography.Text code>{record.id}</Typography.Text>
               </Typography.Text>
               {record.lastError ? (
                 <Typography.Text type="danger" style={{ wordBreak: 'break-all' }}>
-                  最近错误：{record.lastError}
+                  {tr("最近错误：")}{record.lastError}
                 </Typography.Text>
               ) : null}
               <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>

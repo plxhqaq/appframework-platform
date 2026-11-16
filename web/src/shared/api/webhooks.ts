@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import { request } from './client';
 import type {
   CreateWebhookSubscriptionRequest,
@@ -18,12 +19,12 @@ import type {
  * 服务端仍以自身白名单为准：不在名单里的事件在创建时就返回校验失败。
  */
 export const WEBHOOK_EVENT_TYPES = [
-  { value: 'version.released', label: '版本发布' },
-  { value: 'license.revoked', label: '授权吊销' },
-  { value: 'backup.pushed', label: '备份下发' },
-  { value: 'document.uploaded', label: '文档上传' },
-  { value: 'document.deleted', label: '文档删除' },
-  { value: 'webhook.test', label: '订阅测试（手动触发）' },
+  { value: 'version.released', get label() { return tr("版本发布"); } },
+  { value: 'license.revoked', get label() { return tr("授权吊销"); } },
+  { value: 'backup.pushed', get label() { return tr("备份下发"); } },
+  { value: 'document.uploaded', get label() { return tr("文档上传"); } },
+  { value: 'document.deleted', get label() { return tr("文档删除"); } },
+  { value: 'webhook.test', get label() { return tr("订阅测试（手动触发）"); } },
 ] as const;
 
 /** 单条订阅的事件数上限（与 `WebhookConventions.MaxEventTypes` 一致）。 */

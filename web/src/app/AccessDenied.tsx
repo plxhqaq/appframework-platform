@@ -1,4 +1,6 @@
+import { HomeOutlined } from '@ant-design/icons';
 import { Button, Result } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { HOME_PATH } from './navigation';
 
@@ -9,19 +11,23 @@ import { HOME_PATH } from './navigation';
  * 都需要一句明确的解释——是权限不够，不是页面不存在。
  */
 export function AccessDenied({ description }: { description?: string }) {
+  const { t } = useTranslation('auth');
   const navigate = useNavigate();
 
   return (
     <Result
       status="403"
-      title="没有访问该页面的权限"
+      title={t('denied.title')}
       subTitle={
-        description ??
-        '当前账号的权限里没有这个页面需要的权限码。需要的话请让管理员在「身份与权限 → 角色」里补上。'
+        description ?? t('denied.description')
       }
       extra={
-        <Button type="primary" onClick={() => navigate(HOME_PATH, { replace: true })}>
-          返回总览
+        <Button
+          type="primary"
+          icon={<HomeOutlined />}
+          onClick={() => navigate(HOME_PATH, { replace: true })}
+        >
+          {t('denied.backHome')}
         </Button>
       }
     />

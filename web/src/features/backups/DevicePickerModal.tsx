@@ -1,3 +1,5 @@
+import { formatDateTime } from '../../shared/format';
+import { tr } from '../../i18n/translate';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Flex, Input, Modal, Space, Table, Tag, Typography } from 'antd';
@@ -57,9 +59,9 @@ export function DevicePickerModal({
   });
 
   const columns: TableColumnsType<DeviceSummary> = [
-    { title: '设备名', dataIndex: 'displayName', key: 'displayName', ellipsis: true },
+    { title: tr("设备名"), dataIndex: 'displayName', key: 'displayName', ellipsis: true },
     {
-      title: '机器码',
+      title: tr("机器码"),
       dataIndex: 'machineCode',
       key: 'machineCode',
       width: 170,
@@ -67,7 +69,7 @@ export function DevicePickerModal({
       render: (value: string) => <Typography.Text code>{value}</Typography.Text>,
     },
     {
-      title: '分支',
+      title: tr("分支"),
       dataIndex: 'branch',
       key: 'branch',
       width: 100,
@@ -75,33 +77,32 @@ export function DevicePickerModal({
       render: (value: string | null) => value ?? '-',
     },
     {
-      title: '状态',
+      title: tr("状态"),
       key: 'status',
       width: 150,
       render: (_: unknown, row: DeviceSummary) => (
         <Space size={4} wrap>
           {row.isEnabled ? (
             <Tag color={row.stationStatus === 'idle' ? 'green' : 'orange'}>
-              {row.stationStatus === 'idle' ? '在线/待机' : '运行中'}
+              {row.stationStatus === 'idle' ? tr("在线/待机") : tr("运行中")}
             </Tag>
           ) : (
-            <Tag>已停用</Tag>
+            <Tag>{tr("已停用")}</Tag>
           )}
           {row.isEnabled && row.stationStatus !== 'idle' ? (
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              不可下发
-            </Typography.Text>
+              {tr("不可下发")}</Typography.Text>
           ) : null}
         </Space>
       ),
     },
     {
-      title: '最后心跳',
+      title: tr("最后心跳"),
       dataIndex: 'lastHeartbeatAt',
       key: 'lastHeartbeatAt',
       width: 170,
       responsive: ['lg'],
-      render: (value: string | null) => (value ? new Date(value).toLocaleString() : '-'),
+      render: (value: string | null) => (value ? formatDateTime(value) : '-'),
     },
   ];
 
@@ -128,22 +129,22 @@ export function DevicePickerModal({
   return (
     <Modal
       open={open}
-      title="选择目标设备"
+      title={tr("选择目标设备")}
       width={responsiveWidth(isMobile, 920)}
       onCancel={onCancel}
       onOk={() => onConfirm(draft)}
-      okText={`确定（已选 ${draft.size} 台）`}
+      okText={tr("确定（已选 {{arg0}} 台）", { arg0: draft.size })}
       okButtonProps={{ disabled: draft.size === 0 }}
-      cancelText="取消"
+      cancelText={tr("取消")}
     >
       {appKey === null ? (
-        <Alert type="warning" showIcon message="当前账号没有可用的应用上下文" />
+        <Alert type="warning" showIcon message={tr("当前账号没有可用的应用上下文")} />
       ) : (
         <Space direction="vertical" size={12} style={{ display: 'flex' }}>
           <Flex wrap gap={8}>
             <Input.Search
               allowClear
-              placeholder="设备名 / 机器码 / IP"
+              placeholder={tr("设备名 / 机器码 / IP")}
               style={{ width: 240, maxWidth: '100%' }}
               onSearch={(value) => {
                 setKeyword(value.trim() || undefined);
@@ -152,7 +153,7 @@ export function DevicePickerModal({
             />
             <Input
               allowClear
-              placeholder="分支"
+              placeholder={tr("分支")}
               style={{ width: 160, maxWidth: '100%' }}
               value={branch}
               onChange={(event) => {
@@ -161,11 +162,9 @@ export function DevicePickerModal({
               }}
             />
             <Button icon={<ReloadOutlined />} onClick={() => void devices.refetch()}>
-              刷新
-            </Button>
+              {tr("刷新")}</Button>
             <Typography.Text type="secondary" style={{ alignSelf: 'center' }}>
-              仅显示在线设备；运行中与停用设备不可勾选
-            </Typography.Text>
+              {tr("仅显示在线设备；运行中与停用设备不可勾选")}</Typography.Text>
           </Flex>
 
           {devices.isError ? (
@@ -175,8 +174,7 @@ export function DevicePickerModal({
               message={(devices.error as Error).message}
               action={
                 <Button size="small" onClick={() => void devices.refetch()}>
-                  重试
-                </Button>
+                  {tr("重试")}</Button>
               }
             />
           ) : null}
@@ -193,13 +191,13 @@ export function DevicePickerModal({
               current: devices.data?.page ?? page,
               pageSize: devices.data?.pageSize ?? pageSize,
               total: devices.data?.total ?? 0,
-              showTotal: (total: number) => `共 ${total} 台在线设备`,
+              showTotal: (total: number) => tr("共 {{arg0}} 台在线设备", { arg0: total }),
               onChange: (nextPage: number, nextPageSize: number) => {
                 setPage(nextPageSize === pageSize ? nextPage : 1);
                 setPageSize(nextPageSize);
               },
             })}
-            locale={{ emptyText: '没有符合条件的在线设备' }}
+            locale={{ emptyText: tr("没有符合条件的在线设备") }}
           />
         </Space>
       )}

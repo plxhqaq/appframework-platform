@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import { useMutation } from '@tanstack/react-query';
 import { App, Form, Input, Modal, Select, Switch } from 'antd';
 import { useEffect } from 'react';
@@ -71,7 +72,7 @@ export function ChannelFormModal({ open, channel, onClose, onSaved }: ChannelFor
       return versionsApi.createChannel(body);
     },
     onSuccess: () => {
-      message.success(isEdit ? '渠道已更新' : '渠道已创建');
+      message.success(isEdit ? tr("渠道已更新") : tr("渠道已创建"));
       onSaved();
       onClose();
     },
@@ -94,9 +95,9 @@ export function ChannelFormModal({ open, channel, onClose, onSaved }: ChannelFor
   return (
     <Modal
       open={open}
-      title={isEdit ? `编辑渠道 · ${channel.key}` : '新建渠道'}
-      okText="保存"
-      cancelText="取消"
+      title={isEdit ? tr("编辑渠道 · {{arg0}}", { arg0: channel.key }) : tr("新建渠道")}
+      okText={tr("保存")}
+      cancelText={tr("取消")}
       confirmLoading={mutation.isPending}
       onCancel={onClose}
       onOk={() => void handleOk()}
@@ -108,37 +109,37 @@ export function ChannelFormModal({ open, channel, onClose, onSaved }: ChannelFor
       <Form<ChannelFormValues> form={form} layout="vertical" requiredMark={false}>
         <Form.Item
           name="key"
-          label="渠道键"
-          tooltip="客户端检查更新时按渠道键引用；创建后不可修改。"
+          label={tr("渠道键")}
+          tooltip={tr("客户端检查更新时按渠道键引用；创建后不可修改。")}
           rules={[
-            { required: true, message: '请输入渠道键' },
+            { required: true, message: tr("请输入渠道键") },
             {
               pattern: /^[a-z][a-z0-9-]{1,31}$/,
-              message: '格式：小写字母开头，2–32 位小写字母/数字/连字符',
+              message: tr("格式：小写字母开头，2–32 位小写字母/数字/连字符"),
             },
           ]}
         >
-          <Input placeholder="例如 stable" disabled={isEdit} autoComplete="off" />
+          <Input placeholder={tr("例如 stable")} disabled={isEdit} autoComplete="off" />
         </Form.Item>
 
         <Form.Item
           name="name"
-          label="名称"
-          rules={[{ required: true, message: '请输入渠道名称' }, { max: 256 }]}
+          label={tr("名称")}
+          rules={[{ required: true, message: tr("请输入渠道名称") }, { max: 256 }]}
         >
-          <Input placeholder="例如 稳定版" autoComplete="off" />
+          <Input placeholder={tr("例如 稳定版")} autoComplete="off" />
         </Form.Item>
 
-        <Form.Item name="description" label="说明" rules={[{ max: 1024 }]}>
-          <Input.TextArea rows={3} placeholder="可选，给运维/客户端同学看的用途说明" />
+        <Form.Item name="description" label={tr("说明")} rules={[{ max: 1024 }]}>
+          <Input.TextArea rows={3} placeholder={tr("可选，给运维/客户端同学看的用途说明")} />
         </Form.Item>
 
         <Form.Item
           name="audienceTags"
-          label="受众标签"
-          tooltip="客户端 check 省略渠道键时，请求标签必须包含本渠道的全部标签才会命中；多个渠道命中时取标签最多的一个。留空表示只能按渠道键命中。"
+          label={tr("受众标签")}
+          tooltip={tr("客户端 check 省略渠道键时，请求标签必须包含本渠道的全部标签才会命中；多个渠道命中时取标签最多的一个。留空表示只能按渠道键命中。")}
           rules={[
-            { type: 'array', max: 16, message: '最多 16 个受众标签' },
+            { type: 'array', max: 16, message: tr("最多 16 个受众标签") },
             {
               validator: async (_rule, value?: string[]) => {
                 const invalid = (value ?? []).filter(
@@ -146,7 +147,7 @@ export function ChannelFormModal({ open, channel, onClose, onSaved }: ChannelFor
                 );
                 if (invalid.length > 0) {
                   throw new Error(
-                    `标签 ${invalid.join('、')} 非法：小写字母/数字开头，最长 64 位，可含 . _ : -`,
+                    tr("标签 {{arg0}} 非法：小写字母/数字开头，最长 64 位，可含 . _ : -", { arg0: invalid.join('、') }),
                   );
                 }
               },
@@ -156,16 +157,16 @@ export function ChannelFormModal({ open, channel, onClose, onSaved }: ChannelFor
           <Select
             mode="tags"
             tokenSeparators={[',', ' ']}
-            placeholder="例如 win-x64、hardware:scanner"
+            placeholder={tr("例如 win-x64、hardware:scanner")}
             allowClear
           />
         </Form.Item>
 
         <Form.Item
           name="allowDowngrade"
-          label="允许降级"
+          label={tr("允许降级")}
           valuePropName="checked"
-          tooltip="归档最新版本后，客户端会收到 isDowngrade=true 并允许回退到上一版本。默认关闭，避免归档操作误让现场降级；仅在强制回退演练时临时打开。"
+          tooltip={tr("归档最新版本后，客户端会收到 isDowngrade=true 并允许回退到上一版本。默认关闭，避免归档操作误让现场降级；仅在强制回退演练时临时打开。")}
         >
           <Switch />
         </Form.Item>
@@ -173,9 +174,9 @@ export function ChannelFormModal({ open, channel, onClose, onSaved }: ChannelFor
         {isEdit ? (
           <Form.Item
             name="isEnabled"
-            label="启用"
+            label={tr("启用")}
             valuePropName="checked"
-            tooltip="停用后不能再创建新版本；已发布版本的下载不受影响。"
+            tooltip={tr("停用后不能再创建新版本；已发布版本的下载不受影响。")}
           >
             <Switch />
           </Form.Item>

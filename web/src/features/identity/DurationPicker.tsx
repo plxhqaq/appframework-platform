@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import { InputNumber, Segmented, Space, Typography } from 'antd';
 import { DURATION_PRESETS, MAX_DURATION_MINUTES, clampDuration } from './singleLoginUi';
 
@@ -10,7 +11,7 @@ import { DURATION_PRESETS, MAX_DURATION_MINUTES, clampDuration } from './singleL
 export function DurationPicker({
   value,
   onChange,
-  label = '有效期',
+  label = tr("有效期"),
 }: {
   value: number | null;
   onChange: (value: number | null) => void;
@@ -34,10 +35,10 @@ export function DurationPicker({
           onChange={onChange}
           onBlur={() => onChange(clampDuration(value))}
           style={{ width: 104 }}
-          aria-label="自定义有效期（分钟）"
+          aria-label={tr("自定义有效期（分钟）")}
         />
         <Typography.Text type="secondary">
-          分钟，可填 1–{MAX_DURATION_MINUTES}
+          {tr("分钟，可填 1–")}{MAX_DURATION_MINUTES}
         </Typography.Text>
       </Space>
     </div>

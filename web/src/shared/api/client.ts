@@ -1,3 +1,4 @@
+import i18n from '../../i18n';
 import type { ApiResult } from './types';
 
 /**
@@ -105,7 +106,7 @@ async function execute<T>(path: string, options: RequestOptions, retried: boolea
 
     throw new ApiError(
       payload?.code ?? -1,
-      payload?.message ?? `请求失败（HTTP ${response.status}）`,
+      payload?.message ?? i18n.t('messages.requestFailed', { ns: 'common', status: response.status }),
       response.status,
       payload?.traceId,
     );
@@ -143,7 +144,7 @@ export async function requestBlob(path: string, retried = false): Promise<Blob> 
 
     throw new ApiError(
       payload?.code ?? -1,
-      payload?.message ?? `下载失败（HTTP ${response.status}）`,
+      payload?.message ?? i18n.t('messages.downloadFailed', { ns: 'common', status: response.status }),
       response.status,
       payload?.traceId,
     );
@@ -185,7 +186,7 @@ export function uploadWithProgress<T>(
 
       const abort = () => xhr.abort();
       if (options.signal?.aborted) {
-        reject(new DOMException('上传已取消', 'AbortError'));
+        reject(new DOMException(i18n.t('messages.uploadCanceled', { ns: 'common' }), 'AbortError'));
         return;
       }
       options.signal?.addEventListener('abort', abort, { once: true });
@@ -200,11 +201,11 @@ export function uploadWithProgress<T>(
 
       xhr.onerror = () => {
         finish();
-        reject(new ApiError(-1, '网络异常，上传失败', 0));
+        reject(new ApiError(-1, i18n.t('messages.networkError', { ns: 'common' }), 0));
       };
       xhr.onabort = () => {
         finish();
-        reject(new DOMException('上传已取消', 'AbortError'));
+        reject(new DOMException(i18n.t('messages.uploadCanceled', { ns: 'common' }), 'AbortError'));
       };
       xhr.onload = () => {
         finish();
@@ -217,14 +218,14 @@ export function uploadWithProgress<T>(
               if (renewed) {
                 send(true).then(resolve, reject);
               } else {
-                reject(toError(payload, xhr.status, '上传失败'));
+                reject(toError(payload, xhr.status, i18n.t('messages.uploadFailed', { ns: 'common' })));
               }
             });
           return;
         }
 
         if (xhr.status < 200 || xhr.status >= 300 || !payload || payload.isSuccess === false) {
-          reject(toError(payload, xhr.status, '上传失败'));
+          reject(toError(payload, xhr.status, i18n.t('messages.uploadFailed', { ns: 'common' })));
           return;
         }
 
@@ -240,7 +241,7 @@ export function uploadWithProgress<T>(
 function toError(payload: ApiResult<unknown> | null, status: number, fallback: string): ApiError {
   return new ApiError(
     payload?.code ?? -1,
-    payload?.message ?? `${fallback}（HTTP ${status}）`,
+    payload?.message ?? `${fallback} (HTTP ${status})`,
     status,
     payload?.traceId,
   );

@@ -1,6 +1,8 @@
-import { App, Button, Card, Form, Input, Typography } from 'antd';
+import { tr } from '../../i18n/translate';
+import { Alert, App, Button, Card, Col, Form, Input, Row, Space } from 'antd';
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { PageHeading } from '../../app/PageHeading';
 import { authApi } from '../../shared/api/auth';
 import { loginPath, safeReturnTo } from '../../shared/returnTo';
 import { useAuthStore } from '../../stores/auth';
@@ -30,74 +32,100 @@ export function ChangePasswordPage() {
     setPending(true);
     try {
       const result = await authApi.changePassword(values.currentPassword, values.newPassword);
-      message.success(`口令已修改，已吊销 ${result.revokedSessions} 个会话，请重新登录`);
+      message.success(tr("口令已修改，已吊销 {{arg0}} 个会话，请重新登录", { arg0: result.revokedSessions }));
       await signOut();
       // 扫码直达时先被要求改密的，改完重新登录还要回到那一单
       navigate(loginPath(safeReturnTo(searchParams.get('returnTo'))), { replace: true });
     } catch (caught) {
-      message.error(caught instanceof Error ? caught.message : '修改口令失败');
+      message.error(caught instanceof Error ? caught.message : tr("修改口令失败"));
     } finally {
       setPending(false);
     }
   };
 
   return (
-    <Card title="修改口令" size="small" style={{ maxWidth: 520 }}>
-      <Typography.Paragraph type="secondary">
-        {session?.mustChangePassword
-          ? '当前账号要求先修改初始口令。修改后全部已登录设备都需要重新登录。'
-          : '修改后全部已登录设备都需要重新登录。'}
-      </Typography.Paragraph>
+    <div className="field-page field-page--wide">
+      <PageHeading
+        title={tr("修改口令")}
+        description={
+          session?.mustChangePassword
+            ? tr("当前账号要求先修改初始口令，修改后全部已登录设备都需要重新登录。")
+            : tr("修改后全部已登录设备都需要重新登录。")
+        }
+      />
 
-      <Form<ChangePasswordValues>
-        form={form}
-        layout="vertical"
-        requiredMark={false}
-        onFinish={handleFinish}
-      >
-        <Form.Item
-          name="currentPassword"
-          label="当前口令"
-          rules={[{ required: true, message: '请输入当前口令' }]}
-        >
-          <Input.Password autoComplete="current-password" />
-        </Form.Item>
+      <Row gutter={[16, 16]}>
+        <Col xs={24} xl={14}>
+          <Card size="small" title={tr("口令变更")}>
+            <Form<ChangePasswordValues>
+              form={form}
+              layout="vertical"
+              requiredMark={false}
+              style={{ maxWidth: 640 }}
+              onFinish={handleFinish}
+            >
+              <Form.Item
+                name="currentPassword"
+                label={tr("当前口令")}
+                rules={[{ required: true, message: tr("请输入当前口令") }]}
+              >
+                <Input.Password autoComplete="current-password" />
+              </Form.Item>
 
-        <Form.Item
-          name="newPassword"
-          label="新口令"
-          tooltip="8–128 位，且同时包含字母与数字"
-          rules={[
-            { required: true, message: '请输入新口令' },
-            { pattern: PASSWORD_PATTERN, message: '8–128 位，且同时包含字母与数字' },
-          ]}
-        >
-          <Input.Password autoComplete="new-password" />
-        </Form.Item>
+              <Form.Item
+                name="newPassword"
+                label={tr("新口令")}
+                tooltip={tr("8–128 位，且同时包含字母与数字")}
+                rules={[
+                  { required: true, message: tr("请输入新口令") },
+                  { pattern: PASSWORD_PATTERN, message: tr("8–128 位，且同时包含字母与数字") },
+                ]}
+              >
+                <Input.Password autoComplete="new-password" />
+              </Form.Item>
 
-        <Form.Item
-          name="confirmPassword"
-          label="确认新口令"
-          dependencies={['newPassword']}
-          rules={[
-            { required: true, message: '请再次输入新口令' },
-            ({ getFieldValue }) => ({
-              validator(_, value: string) {
-                if (!value || getFieldValue('newPassword') === value) {
-                  return Promise.resolve();
-                }
-                return Promise.reject(new Error('两次输入的口令不一致'));
-              },
-            }),
-          ]}
-        >
-          <Input.Password autoComplete="new-password" />
-        </Form.Item>
+              <Form.Item
+                name="confirmPassword"
+                label={tr("确认新口令")}
+                dependencies={['newPassword']}
+                rules={[
+                  { required: true, message: tr("请再次输入新口令") },
+                  ({ getFieldValue }) => ({
+                    validator(_, value: string) {
+                      if (!value || getFieldValue('newPassword') === value) {
+                        return Promise.resolve();
+                      }
+                      return Promise.reject(new Error(tr("两次输入的口令不一致")));
+                    },
+                  }),
+                ]}
+              >
+                <Input.Password autoComplete="new-password" />
+              </Form.Item>
 
-        <Button type="primary" htmlType="submit" loading={pending}>
-          修改并重新登录
-        </Button>
-      </Form>
-    </Card>
+              <Button type="primary" htmlType="submit" loading={pending}>
+                {tr("修改并重新登录")}</Button>
+            </Form>
+          </Card>
+        </Col>
+
+        <Col xs={24} xl={10}>
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Alert
+              type="warning"
+              showIcon
+              message={tr("改密后全部设备需重新登录")}
+              description={tr("服务端会吊销该账号的全部刷新令牌，其他设备上正在使用的会话随即失效。")}
+            />
+            <Alert
+              type="info"
+              showIcon
+              message={tr("口令规则")}
+              description={tr("8–128 位，且同时包含字母与数字。")}
+            />
+          </Space>
+        </Col>
+      </Row>
+    </div>
   );
 }

@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import { Alert, Modal, Typography } from 'antd';
 
 interface SecretOnceModalProps {
@@ -19,9 +20,9 @@ export function SecretOnceModal({ open, secret, caption, onClose }: SecretOnceMo
   return (
     <Modal
       open={open}
-      title="签名密钥（只显示一次）"
-      okText="我已保存"
-      cancelText="稍后处理"
+      title={tr("签名密钥（只显示一次）")}
+      okText={tr("我已保存")}
+      cancelText={tr("稍后处理")}
       onCancel={onClose}
       onOk={onClose}
       okButtonProps={{ disabled: secret.length === 0 }}
@@ -30,12 +31,10 @@ export function SecretOnceModal({ open, secret, caption, onClose }: SecretOnceMo
         type="warning"
         showIcon
         style={{ marginBottom: 12 }}
-        message="关闭后无法再次查看"
+        message={tr("关闭后无法再次查看")}
         description={
           <span>
-            列表里只会保留 <Typography.Text code>secretHint</Typography.Text>（前 14 个字符）。
-            请立即写入接收方的配置或密钥系统；遗失只能轮换出新密钥。
-          </span>
+            {tr("列表里只会保留")}<Typography.Text code>secretHint</Typography.Text>{tr("（前 14 个字符）。 请立即写入接收方的配置或密钥系统；遗失只能轮换出新密钥。")}</span>
         }
       />
       <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
@@ -45,11 +44,9 @@ export function SecretOnceModal({ open, secret, caption, onClose }: SecretOnceMo
         <Typography.Text code>{secret}</Typography.Text>
       </Typography.Paragraph>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-        接收方按{' '}
+        {tr("接收方按")}{' '}
         <Typography.Text code>{'sha256=hex(HMAC-SHA256(secret, "{timestamp}.{rawBody}"))'}</Typography.Text>{' '}
-        校验 <Typography.Text code>X-Platform-Signature</Typography.Text>；
-        签名用的是原始请求体字节，先解析 JSON 再重新序列化会校验不过。
-      </Typography.Paragraph>
+        {tr("校验")}<Typography.Text code>X-Platform-Signature</Typography.Text>{tr("； 签名用的是原始请求体字节，先解析 JSON 再重新序列化会校验不过。")}</Typography.Paragraph>
     </Modal>
   );
 }

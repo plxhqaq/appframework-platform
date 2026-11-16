@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import { useMutation } from '@tanstack/react-query';
 import { App, Form, Input, Modal, Select, Switch, Typography } from 'antd';
 import { useEffect } from 'react';
@@ -70,7 +71,7 @@ export function SubscriptionFormModal({
     },
     onSuccess: (result) => {
       if (result === null) {
-        message.success('订阅已更新');
+        message.success(tr("订阅已更新"));
       } else {
         onCreated(result.secret, result.url);
       }
@@ -96,9 +97,9 @@ export function SubscriptionFormModal({
   return (
     <Modal
       open={open}
-      title={isEdit ? '编辑订阅' : '新建 Webhook 订阅'}
-      okText="保存"
-      cancelText="取消"
+      title={isEdit ? tr("编辑订阅") : tr("新建 Webhook 订阅")}
+      okText={tr("保存")}
+      cancelText={tr("取消")}
       confirmLoading={mutation.isPending}
       onCancel={onClose}
       onOk={() => void handleOk()}
@@ -110,47 +111,47 @@ export function SubscriptionFormModal({
       <Form<SubscriptionFormValues> form={form} layout="vertical" requiredMark={false}>
         <Form.Item
           name="url"
-          label="接收地址"
-          tooltip="必须是 http/https 绝对地址；投递时会带 X-Platform-Signature / Timestamp / Event / Delivery 四个头。"
+          label={tr("接收地址")}
+          tooltip={tr("必须是 http/https 绝对地址；投递时会带 X-Platform-Signature / Timestamp / Event / Delivery 四个头。")}
           rules={[
-            { required: true, message: '请输入接收地址' },
+            { required: true, message: tr("请输入接收地址") },
             {
               validator: (_, value: string) => {
                 const text = value?.trim() ?? '';
                 if (!text) {
-                  return Promise.reject(new Error('请输入接收地址'));
+                  return Promise.reject(new Error(tr("请输入接收地址")));
                 }
                 const parsed = /^https?:\/\/.+/i.test(text);
-                return parsed ? Promise.resolve() : Promise.reject(new Error('仅支持 http/https 绝对地址'));
+                return parsed ? Promise.resolve() : Promise.reject(new Error(tr("仅支持 http/https 绝对地址")));
               },
             },
-            { max: 2048, message: '地址不超过 2048 字符' },
+            { max: 2048, message: tr("地址不超过 2048 字符") },
           ]}
         >
-          <Input placeholder="例如 https://hooks.example.com/platform" autoComplete="off" />
+          <Input placeholder={tr("例如 https://hooks.example.com/platform")} autoComplete="off" />
         </Form.Item>
 
         <Form.Item
           name="eventTypes"
           label={
             <span>
-              订阅事件{' '}
-              <Typography.Text type="secondary">（留空 = 订阅全部事件）</Typography.Text>
+              {tr("订阅事件")}{' '}
+              <Typography.Text type="secondary">{tr("（留空 = 订阅全部事件）")}</Typography.Text>
             </span>
           }
-          tooltip={`最多 ${WEBHOOK_MAX_EVENT_TYPES} 个；「测试投递」不受白名单限制，任何订阅都能收到 webhook.test。`}
+          tooltip={tr("最多 {{arg0}} 个；「测试投递」不受白名单限制，任何订阅都能收到 webhook.test。", { arg0: WEBHOOK_MAX_EVENT_TYPES })}
           rules={[
             {
               type: 'array',
               max: WEBHOOK_MAX_EVENT_TYPES,
-              message: `最多订阅 ${WEBHOOK_MAX_EVENT_TYPES} 个事件`,
+              message: tr("最多订阅 {{arg0}} 个事件", { arg0: WEBHOOK_MAX_EVENT_TYPES }),
             },
           ]}
         >
           <Select
             mode="multiple"
             allowClear
-            placeholder="留空表示全部事件"
+            placeholder={tr("留空表示全部事件")}
             options={WEBHOOK_EVENT_TYPES.map((item) => ({
               value: item.value,
               label: `${item.label}（${item.value}）`,
@@ -158,15 +159,15 @@ export function SubscriptionFormModal({
           />
         </Form.Item>
 
-        <Form.Item name="description" label="说明" rules={[{ max: 1024 }]}>
-          <Input.TextArea rows={2} placeholder="可选，例如「产线告警群机器人中转」" />
+        <Form.Item name="description" label={tr("说明")} rules={[{ max: 1024 }]}>
+          <Input.TextArea rows={2} placeholder={tr("可选，例如「产线告警群机器人中转」")} />
         </Form.Item>
 
         <Form.Item
           name="isEnabled"
-          label="启用"
+          label={tr("启用")}
           valuePropName="checked"
-          tooltip="停用后不再投递任何事件；已入队的投递记录保持原状态，台账仍可读。"
+          tooltip={tr("停用后不再投递任何事件；已入队的投递记录保持原状态，台账仍可读。")}
         >
           <Switch />
         </Form.Item>

@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import { FileOutlined, InboxOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import {
@@ -42,10 +43,10 @@ interface UploadProgress {
 }
 
 const STAGE_LABEL: Record<UploadStage, string> = {
-  hash: '计算文件哈希',
-  upload: '上传更新器',
-  manifest: '处理旁挂清单',
-  register: '登记更新器',
+  get hash() { return tr("计算文件哈希"); },
+  get upload() { return tr("上传更新器"); },
+  get manifest() { return tr("处理旁挂清单"); },
+  get register() { return tr("登记更新器"); },
 };
 
 /**
@@ -73,7 +74,7 @@ export function UpdaterUploadModal({ open, onClose, onSaved }: UpdaterUploadModa
   const mutation = useMutation({
     mutationFn: async (values: UpdaterFormValues) => {
       if (!file) {
-        throw new Error('请先选择更新器文件');
+        throw new Error(tr("请先选择更新器文件"));
       }
 
       applyProgress('hash', 0, file.size);
@@ -112,7 +113,7 @@ export function UpdaterUploadModal({ open, onClose, onSaved }: UpdaterUploadModa
       });
     },
     onSuccess: (registered) => {
-      message.success(`更新器 ${registered.target}/${registered.version} 已登记`);
+      message.success(tr("更新器 {{arg0}}/{{arg1}} 已登记", { arg0: registered.target, arg1: registered.version }));
       onSaved();
       onClose();
     },
@@ -122,7 +123,7 @@ export function UpdaterUploadModal({ open, onClose, onSaved }: UpdaterUploadModa
 
   const handleOk = async () => {
     if (!file) {
-      message.error('请先选择更新器文件');
+      message.error(tr("请先选择更新器文件"));
       return;
     }
 
@@ -147,9 +148,9 @@ export function UpdaterUploadModal({ open, onClose, onSaved }: UpdaterUploadModa
     <Modal
       open={open}
       width={720}
-      title="上传更新器"
-      okText="上传并登记"
-      cancelText="取消"
+      title={tr("上传更新器")}
+      okText={tr("上传并登记")}
+      cancelText={tr("取消")}
       confirmLoading={mutation.isPending}
       maskClosable={!mutation.isPending}
       closable={!mutation.isPending}
@@ -167,14 +168,14 @@ export function UpdaterUploadModal({ open, onClose, onSaved }: UpdaterUploadModa
         <Space size="middle" style={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <Form.Item
             name="target"
-            label="目标运行时"
+            label={tr("目标运行时")}
             style={{ width: 220 }}
-            rules={[{ required: true, message: '请选择运行时' }]}
-            tooltip="any 作为兜底更新器；具体 RID 优先于 any。"
+            rules={[{ required: true, message: tr("请选择运行时") }]}
+            tooltip={tr("any 作为兜底更新器；具体 RID 优先于 any。")}
           >
             <Select
               options={[
-                { value: 'any', label: 'any（全平台兜底）' },
+                { value: 'any', label: tr("any（全平台兜底）") },
                 ...RUNTIMES.map((value) => ({ value, label: value })),
               ]}
             />
@@ -182,16 +183,16 @@ export function UpdaterUploadModal({ open, onClose, onSaved }: UpdaterUploadModa
 
           <Form.Item
             name="version"
-            label="版本号"
+            label={tr("版本号")}
             style={{ width: 220 }}
-            tooltip="留空则依次取包内清单与 PE FileVersion；都读不到时服务端会要求手填。"
+            tooltip={tr("留空则依次取包内清单与 PE FileVersion；都读不到时服务端会要求手填。")}
           >
             <Input placeholder="1.0.0" autoComplete="off" />
           </Form.Item>
         </Space>
 
-        <Form.Item name="notes" label="发布说明" rules={[{ max: 4000 }]}>
-          <Input.TextArea rows={2} placeholder="可选" />
+        <Form.Item name="notes" label={tr("发布说明")} rules={[{ max: 4000 }]}>
+          <Input.TextArea rows={2} placeholder={tr("可选")} />
         </Form.Item>
       </Form>
 
@@ -212,15 +213,15 @@ export function UpdaterUploadModal({ open, onClose, onSaved }: UpdaterUploadModa
               <FileOutlined /> {file.name}
             </Typography.Text>
             <Typography.Text type="secondary">{formatBytes(file.size)}</Typography.Text>
-            <Typography.Text type="secondary">点击或拖拽可重新选择</Typography.Text>
+            <Typography.Text type="secondary">{tr("点击或拖拽可重新选择")}</Typography.Text>
           </Space>
         ) : (
           <>
             <p className="ant-upload-drag-icon">
               <InboxOutlined />
             </p>
-            <p className="ant-upload-text">点击或拖拽更新器到此处</p>
-            <p className="ant-upload-hint">支持 exe / msi / msp / zip / 7z / bin，单文件上传</p>
+            <p className="ant-upload-text">{tr("点击或拖拽更新器到此处")}</p>
+            <p className="ant-upload-hint">{tr("支持 exe / msi / msp / zip / 7z / bin，单文件上传")}</p>
           </>
         )}
       </Upload.Dragger>
@@ -237,7 +238,7 @@ export function UpdaterUploadModal({ open, onClose, onSaved }: UpdaterUploadModa
           }}
         >
           <Button icon={<PlusOutlined />}>
-            {manifestFile ? '更换旁挂清单' : '选择旁挂清单（可选）'}
+            {manifestFile ? tr("更换旁挂清单") : tr("选择旁挂清单（可选）")}
           </Button>
         </Upload>
         {manifestFile ? (
@@ -246,8 +247,7 @@ export function UpdaterUploadModal({ open, onClose, onSaved }: UpdaterUploadModa
           </Tag>
         ) : null}
         <Typography.Text type="secondary">
-          清单 kind 必须是 updater；不选则由服务端从包内探测。
-        </Typography.Text>
+          {tr("清单 kind 必须是 updater；不选则由服务端从包内探测。")}</Typography.Text>
       </Space>
 
       {progress ? (
@@ -269,8 +269,8 @@ export function UpdaterUploadModal({ open, onClose, onSaved }: UpdaterUploadModa
       <Alert
         type="info"
         showIcon
-        message="更新器独立于应用版本"
-        description="客户端先更新更新器再应用增量；同 target + version 只允许一份内容，重复登记相同内容会复用。"
+        message={tr("更新器独立于应用版本")}
+        description={tr("客户端先更新更新器再应用增量；同 target + version 只允许一份内容，重复登记相同内容会复用。")}
       />
     </Modal>
   );

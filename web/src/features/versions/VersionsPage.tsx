@@ -1,4 +1,5 @@
-import { CloudUploadOutlined, PlusOutlined } from '@ant-design/icons';
+import { tr } from '../../i18n/translate';
+import { CloudUploadOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -16,7 +17,7 @@ import type { TableColumnsType } from 'antd';
 import { useEffect, useState } from 'react';
 import { versionsApi } from '../../shared/api/versions';
 import type { ReleaseChannel, ReleaseSummary, ReleaseStatus } from '../../shared/api/types';
-import { formatBytes } from '../../shared/format';
+import { formatBytes, formatDateTime } from '../../shared/format';
 import { PERMISSIONS } from '../../shared/permissions';
 import { responsivePagination } from '../../shared/responsive';
 import { useResponsive } from '../../shared/useResponsive';
@@ -27,9 +28,9 @@ import { ReleaseCreateModal } from './ReleaseCreateModal';
 import { ReleaseDetailDrawer } from './ReleaseDetailDrawer';
 
 const STATUS_META: Record<ReleaseStatus, { label: string; color?: string }> = {
-  draft: { label: '草稿' },
-  published: { label: '已发布', color: 'green' },
-  archived: { label: '已归档', color: 'orange' },
+  draft: { get label() { return tr("草稿"); } },
+  published: { get label() { return tr("已发布"); }, color: 'green' },
+  archived: { get label() { return tr("已归档"); }, color: 'orange' },
 };
 
 /**
@@ -95,39 +96,39 @@ export function VersionsPage() {
     try {
       if (action === 'publish') {
         await versionsApi.publishRelease(row.id);
-        message.success(`版本 ${row.version} 已发布`);
+        message.success(tr("版本 {{arg0}} 已发布", { arg0: row.version }));
       } else {
         await versionsApi.archiveRelease(row.id);
-        message.success(`版本 ${row.version} 已归档`);
+        message.success(tr("版本 {{arg0}} 已归档", { arg0: row.version }));
       }
       await refresh();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '操作失败');
+      message.error(error instanceof Error ? error.message : tr("操作失败"));
     }
   };
 
   const channelColumns: TableColumnsType<ReleaseChannel> = [
     {
-      title: '渠道键',
+      title: tr("渠道键"),
       dataIndex: 'key',
       key: 'key',
       width: 140,
       render: (key: string) => <Typography.Text code>{key}</Typography.Text>,
     },
     {
-      title: '名称',
+      title: tr("名称"),
       dataIndex: 'name',
       key: 'name',
       width: 180,
       render: (name: string, channel: ReleaseChannel) => (
         <Space size={4}>
           <span>{name}</span>
-          {channel.autoCreated ? <Tag color="orange">自动</Tag> : null}
+          {channel.autoCreated ? <Tag color="orange">{tr("自动")}</Tag> : null}
         </Space>
       ),
     },
     {
-      title: '受众标签',
+      title: tr("受众标签"),
       dataIndex: 'audienceTags',
       key: 'audienceTags',
       width: 220,
@@ -144,37 +145,37 @@ export function VersionsPage() {
         ),
     },
     {
-      title: '说明',
+      title: tr("说明"),
       dataIndex: 'description',
       key: 'description',
       responsive: ['md'],
       render: (value: string | null) => value ?? <Typography.Text type="secondary">-</Typography.Text>,
     },
     {
-      title: '最新版本',
+      title: tr("最新版本"),
       dataIndex: 'latestVersion',
       key: 'latestVersion',
       width: 120,
       responsive: ['md'],
       render: (value: string | null) =>
-        value ? <Tag color="blue">{value}</Tag> : <Typography.Text type="secondary">未发布</Typography.Text>,
+        value ? <Tag color="blue">{value}</Tag> : <Typography.Text type="secondary">{tr("未发布")}</Typography.Text>,
     },
     {
-      title: '版本数',
+      title: tr("版本数"),
       dataIndex: 'releaseCount',
       key: 'releaseCount',
       width: 80,
       responsive: ['md'],
     },
     {
-      title: '状态',
+      title: tr("状态"),
       dataIndex: 'isEnabled',
       key: 'isEnabled',
       width: 80,
-      render: (enabled: boolean) => (enabled ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>),
+      render: (enabled: boolean) => (enabled ? <Tag color="green">{tr("启用")}</Tag> : <Tag>{tr("停用")}</Tag>),
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
       width: 100,
       fixed: 'right',
@@ -188,23 +189,22 @@ export function VersionsPage() {
               setChannelFormOpen(true);
             }}
           >
-            编辑
-          </Button>
+            {tr("编辑")}</Button>
         ) : null,
     },
   ];
 
   const releaseColumns: TableColumnsType<ReleaseSummary> = [
-    { title: '渠道', dataIndex: 'channelKey', key: 'channelKey', width: 120 },
+    { title: tr("渠道"), dataIndex: 'channelKey', key: 'channelKey', width: 120 },
     {
-      title: '版本',
+      title: tr("版本"),
       dataIndex: 'version',
       key: 'version',
       width: 140,
       render: (value: string) => <Typography.Text strong>{value}</Typography.Text>,
     },
     {
-      title: '状态',
+      title: tr("状态"),
       dataIndex: 'status',
       key: 'status',
       width: 100,
@@ -214,28 +214,28 @@ export function VersionsPage() {
       },
     },
     {
-      title: '产物',
+      title: tr("产物"),
       dataIndex: 'artifactCount',
       key: 'artifactCount',
       width: 70,
       responsive: ['md'],
     },
     {
-      title: '安装包',
+      title: tr("安装包"),
       dataIndex: 'packageCount',
       key: 'packageCount',
       width: 80,
       responsive: ['md'],
     },
     {
-      title: '文件数',
+      title: tr("文件数"),
       dataIndex: 'fileCount',
       key: 'fileCount',
       width: 80,
       responsive: ['md'],
     },
     {
-      title: '总大小',
+      title: tr("总大小"),
       dataIndex: 'totalSizeBytes',
       key: 'totalSizeBytes',
       width: 110,
@@ -243,32 +243,29 @@ export function VersionsPage() {
       render: (value: number) => formatBytes(value),
     },
     {
-      title: '发布时间',
+      title: tr("发布时间"),
       dataIndex: 'publishedAt',
       key: 'publishedAt',
       width: 170,
       responsive: ['md'],
-      render: (value: string | null) => (value ? new Date(value).toLocaleString() : '-'),
+      render: (value: string | null) => (value ? formatDateTime(value) : '-'),
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
       width: 180,
       fixed: 'right',
       render: (_: unknown, row: ReleaseSummary) => (
         <Space size="small">
           <Button type="link" size="small" onClick={() => setDetailId(row.id)}>
-            详情
-          </Button>
+            {tr("详情")}</Button>
           {canPublish && row.status === 'draft' ? (
             <Button type="link" size="small" onClick={() => void mutateRelease('publish', row)}>
-              发布
-            </Button>
+              {tr("发布")}</Button>
           ) : null}
           {canArchive && row.status !== 'archived' ? (
             <Button type="link" size="small" danger onClick={() => void mutateRelease('archive', row)}>
-              归档
-            </Button>
+              {tr("归档")}</Button>
           ) : null}
         </Space>
       ),
@@ -277,12 +274,12 @@ export function VersionsPage() {
 
   if (appKey === null) {
     return (
-      <Card title="版本与渠道" size="small">
+      <Card title={tr("版本与渠道")} size="small">
         <Alert
           type="warning"
           showIcon
-          message="当前账号没有可用的应用上下文"
-          description="版本数据按应用隔离。请先在「应用接入」注册应用，并使用拥有该应用访问权的账号进入。"
+          message={tr("当前账号没有可用的应用上下文")}
+          description={tr("版本数据按应用隔离。请先在「应用接入」注册应用，并使用拥有该应用访问权的账号进入。")}
         />
       </Card>
     );
@@ -292,7 +289,7 @@ export function VersionsPage() {
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
       <Card
         size="small"
-        title="渠道"
+        title={tr("渠道")}
         extra={
           canManageChannels ? (
             <Button
@@ -303,8 +300,7 @@ export function VersionsPage() {
                 setChannelFormOpen(true);
               }}
             >
-              新建渠道
-            </Button>
+              {tr("新建渠道")}</Button>
           ) : null
         }
       >
@@ -316,8 +312,7 @@ export function VersionsPage() {
             message={(channels.error as Error).message}
             action={
               <Button size="small" onClick={() => void channels.refetch()}>
-                重试
-              </Button>
+                {tr("重试")}</Button>
             }
           />
         ) : null}
@@ -329,24 +324,22 @@ export function VersionsPage() {
           dataSource={channels.data ?? []}
           columns={channelColumns}
           pagination={false}
-          locale={{ emptyText: '尚未创建渠道（如 stable / beta）' }}
+          locale={{ emptyText: tr("尚未创建渠道（如 stable / beta）") }}
         />
       </Card>
 
       <Card
         size="small"
-        title="版本"
+        title={tr("版本")}
         extra={
           <Space>
             {canUpload ? (
               <Button icon={<CloudUploadOutlined />} onClick={() => setPackageFormOpen(true)}>
-                上传安装包
-              </Button>
+                {tr("上传安装包")}</Button>
             ) : null}
             {canPublish && canUpload ? (
               <Button type="primary" icon={<PlusOutlined />} onClick={() => setReleaseFormOpen(true)}>
-                新建版本
-              </Button>
+                {tr("新建版本")}</Button>
             ) : null}
           </Space>
         }
@@ -354,7 +347,7 @@ export function VersionsPage() {
         <Space wrap style={{ marginBottom: 12 }}>
           <Select
             allowClear
-            placeholder="全部渠道"
+            placeholder={tr("全部渠道")}
             style={{ width: 180, maxWidth: '100%' }}
             value={channelFilter}
             onChange={(value) => {
@@ -368,7 +361,7 @@ export function VersionsPage() {
           />
           <Select
             allowClear
-            placeholder="全部状态"
+            placeholder={tr("全部状态")}
             style={{ width: 160, maxWidth: '100%' }}
             value={statusFilter}
             onChange={(value) => {
@@ -376,12 +369,13 @@ export function VersionsPage() {
               setPage(1);
             }}
             options={[
-              { value: 'draft', label: '草稿' },
-              { value: 'published', label: '已发布' },
-              { value: 'archived', label: '已归档' },
+              { value: 'draft', label: tr("草稿") },
+              { value: 'published', label: tr("已发布") },
+              { value: 'archived', label: tr("已归档") },
             ]}
           />
-          <Button onClick={() => void refresh()}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
+            {tr("刷新")}</Button>
         </Space>
 
         {releases.isError ? (
@@ -392,8 +386,7 @@ export function VersionsPage() {
             message={(releases.error as Error).message}
             action={
               <Button size="small" onClick={() => void releases.refetch()}>
-                重试
-              </Button>
+                {tr("重试")}</Button>
             }
           />
         ) : null}
@@ -408,13 +401,13 @@ export function VersionsPage() {
             current: releases.data?.page ?? page,
             pageSize: releases.data?.pageSize ?? pageSize,
             total: releases.data?.total ?? 0,
-            showTotal: (total: number) => `共 ${total} 个版本`,
+            showTotal: (total: number) => tr("共 {{arg0}} 个版本", { arg0: total }),
             onChange: (nextPage: number, nextPageSize: number) => {
               setPage(nextPageSize === pageSize ? nextPage : 1);
               setPageSize(nextPageSize);
             },
           })}
-          locale={{ emptyText: <Empty description="尚无版本；上传文件后按清单创建版本" /> }}
+          locale={{ emptyText: <Empty description={tr("尚无版本；上传文件后按清单创建版本")} /> }}
         />
       </Card>
 

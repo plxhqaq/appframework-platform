@@ -1,6 +1,7 @@
 import { AppstoreOutlined } from '@ant-design/icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { App, Select, Tooltip } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores/auth';
 
 interface AppContextSelectProps {
@@ -15,6 +16,7 @@ interface AppContextSelectProps {
  * 统一收到 Header 后，页面只依赖令牌里的 appKey，不再自己维护切换入口。
  */
 export function AppContextSelect({ compact = false }: AppContextSelectProps) {
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const session = useAuthStore((state) => state.session);
@@ -30,10 +32,10 @@ export function AppContextSelect({ compact = false }: AppContextSelectProps) {
   const disabled = switching || appKeys.length <= 1;
 
   return (
-    <Tooltip title="应用上下文来自令牌；切换后版本、授权、文档、备份等应用级数据随之切换。">
+    <Tooltip title={t('common:appContext.hint')}>
       <Select
         size="small"
-        aria-label="切换应用上下文"
+        aria-label={t('common:appContext.switch')}
         value={current}
         loading={switching}
         disabled={disabled}
@@ -48,9 +50,9 @@ export function AppContextSelect({ compact = false }: AppContextSelectProps) {
           try {
             const updated = await switchAppContext(next);
             await queryClient.invalidateQueries();
-            message.success(`已进入应用 ${updated.appKey ?? next}`);
+            message.success(t('common:messages.switchAppSuccess', { appKey: updated.appKey ?? next }));
           } catch (error) {
-            message.error(error instanceof Error ? error.message : '切换应用失败');
+            message.error(error instanceof Error ? error.message : t('common:messages.switchAppFailed'));
           }
         }}
       />

@@ -1,3 +1,5 @@
+import { formatDateTime } from '../../shared/format';
+import { tr } from '../../i18n/translate';
 import { PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -61,7 +63,7 @@ export function WebhooksPage() {
     mutationFn: (id: string) => webhookApi.rotateSecret(id),
     onSuccess: (result, id) => {
       const target = subscriptions.data?.find((item) => item.id === id);
-      setReveal({ secret: result.secret, caption: `接收地址：${target?.url ?? id}` });
+      setReveal({ secret: result.secret, caption: tr("接收地址：{{arg0}}", { arg0: target?.url ?? id }) });
       void refresh();
     },
     onError: (error: Error) => message.error(error.message),
@@ -70,7 +72,7 @@ export function WebhooksPage() {
   const remove = useMutation({
     mutationFn: (id: string) => webhookApi.deleteSubscription(id),
     onSuccess: async () => {
-      message.success('订阅及其投递记录已删除');
+      message.success(tr("订阅及其投递记录已删除"));
       await refresh();
     },
     onError: (error: Error) => message.error(error.message),
@@ -79,7 +81,7 @@ export function WebhooksPage() {
   const sendTest = useMutation({
     mutationFn: (id: string) => webhookApi.sendTest(id),
     onSuccess: (result) => {
-      message.success(`已入队 ${result.deliveryCount} 条测试投递，稍后在台账查看结果`);
+      message.success(tr("已入队 {{arg0}} 条测试投递，稍后在台账查看结果", { arg0: result.deliveryCount }));
       void refresh();
     },
     onError: (error: Error) => message.error(error.message),
@@ -87,18 +89,18 @@ export function WebhooksPage() {
 
   const handleRotate = (row: WebhookSubscription) => {
     modal.confirm({
-      title: '轮换签名密钥？',
-      content: '旧密钥立即失效：接收方换上新密钥之前，所有投递都会因签名不符被拒。',
-      okText: '轮换',
+      title: tr("轮换签名密钥？"),
+      content: tr("旧密钥立即失效：接收方换上新密钥之前，所有投递都会因签名不符被拒。"),
+      okText: tr("轮换"),
       okButtonProps: { danger: true },
-      cancelText: '取消',
+      cancelText: tr("取消"),
       onOk: () => rotate.mutateAsync(row.id),
     });
   };
 
   const columns: TableColumnsType<WebhookSubscription> = [
     {
-      title: '接收地址',
+      title: tr("接收地址"),
       dataIndex: 'url',
       key: 'url',
       ellipsis: true,
@@ -109,14 +111,14 @@ export function WebhooksPage() {
       ),
     },
     {
-      title: '订阅事件',
+      title: tr("订阅事件"),
       dataIndex: 'eventTypes',
       key: 'eventTypes',
       width: 260,
       responsive: ['md'],
       render: (eventTypes: string[]) =>
         eventTypes.length === 0 ? (
-          <Typography.Text type="secondary">全部事件</Typography.Text>
+          <Typography.Text type="secondary">{tr("全部事件")}</Typography.Text>
         ) : (
           <Space size={2} wrap>
             {eventTypes.map((eventType) => (
@@ -126,7 +128,7 @@ export function WebhooksPage() {
         ),
     },
     {
-      title: '密钥提示',
+      title: tr("密钥提示"),
       dataIndex: 'secretHint',
       key: 'secretHint',
       width: 190,
@@ -134,37 +136,37 @@ export function WebhooksPage() {
       render: (hint: string) => <Typography.Text code>{hint}</Typography.Text>,
     },
     {
-      title: '状态',
+      title: tr("状态"),
       dataIndex: 'isEnabled',
       key: 'isEnabled',
       width: 90,
       render: (isEnabled: boolean) =>
-        isEnabled ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>,
+        isEnabled ? <Tag color="green">{tr("启用")}</Tag> : <Tag>{tr("停用")}</Tag>,
     },
     {
-      title: '最近投递',
+      title: tr("最近投递"),
       dataIndex: 'lastDeliveryAt',
       key: 'lastDeliveryAt',
       width: 170,
       responsive: ['md'],
-      render: (value: string | null) => (value ? new Date(value).toLocaleString() : '-'),
+      render: (value: string | null) => (value ? formatDateTime(value) : '-'),
     },
     {
-      title: '创建',
+      title: tr("创建"),
       key: 'created',
       width: 180,
       responsive: ['md'],
       render: (_: unknown, row: WebhookSubscription) => (
         <Space direction="vertical" size={0}>
           <Typography.Text type="secondary">{row.createdBy ?? '-'}</Typography.Text>
-          <Typography.Text type="secondary">{new Date(row.createdAt).toLocaleString()}</Typography.Text>
+          <Typography.Text type="secondary">{formatDateTime(row.createdAt)}</Typography.Text>
         </Space>
       ),
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
-      width: 230,
+      width: 250,
       fixed: 'right',
       render: (_: unknown, row: WebhookSubscription) => (
         <Space size="small" wrap>
@@ -172,9 +174,8 @@ export function WebhooksPage() {
             setEditing(row);
             setFormOpen(true);
           }}>
-            编辑
-          </Button>
-          <Tooltip title="投递一条 webhook.test，不看事件白名单">
+            {tr("编辑")}</Button>
+          <Tooltip title={tr("投递一条 webhook.test，不看事件白名单")}>
             <Button
               type="link"
               size="small"
@@ -182,8 +183,7 @@ export function WebhooksPage() {
               loading={sendTest.isPending && sendTest.variables === row.id}
               onClick={() => sendTest.mutate(row.id)}
             >
-              测试
-            </Button>
+              {tr("测试")}</Button>
           </Tooltip>
           <Button
             type="link"
@@ -191,20 +191,18 @@ export function WebhooksPage() {
             disabled={!canManage}
             onClick={() => handleRotate(row)}
           >
-            轮换密钥
-          </Button>
+            {tr("轮换密钥")}</Button>
           <Popconfirm
-            title="删除订阅？"
-            description="其投递记录一并删除，且不可恢复。"
-            okText="删除"
+            title={tr("删除订阅？")}
+            description={tr("其投递记录一并删除，且不可恢复。")}
+            okText={tr("删除")}
             okButtonProps={{ danger: true }}
-            cancelText="取消"
+            cancelText={tr("取消")}
             disabled={!canManage}
             onConfirm={() => remove.mutate(row.id)}
           >
             <Button type="link" size="small" danger disabled={!canManage}>
-              删除
-            </Button>
+              {tr("删除")}</Button>
           </Popconfirm>
         </Space>
       ),
@@ -216,8 +214,8 @@ export function WebhooksPage() {
       <Alert
         type="warning"
         showIcon
-        message="缺少 webhook.read 权限"
-        description="Webhook 订阅与投递台账只对持有 webhook.read 的角色开放，请联系平台管理员分配角色。"
+        message={tr("缺少 webhook.read 权限")}
+        description={tr("Webhook 订阅与投递台账只对持有 webhook.read 的角色开放，请联系平台管理员分配角色。")}
       />
     );
   }
@@ -228,8 +226,8 @@ export function WebhooksPage() {
         <Alert
           type="warning"
           showIcon
-          message="当前账号没有可用的应用上下文"
-          description="订阅按应用隔离。请先在「应用接入」注册应用，并使用拥有该应用访问权的账号进入。"
+          message={tr("当前账号没有可用的应用上下文")}
+          description={tr("订阅按应用隔离。请先在「应用接入」注册应用，并使用拥有该应用访问权的账号进入。")}
         />
       </Card>
     );
@@ -239,7 +237,7 @@ export function WebhooksPage() {
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
       <Card
         size="small"
-        title="订阅"
+        title={tr("订阅")}
         extra={
           canManage ? (
             <Button
@@ -250,8 +248,7 @@ export function WebhooksPage() {
                 setFormOpen(true);
               }}
             >
-              新建订阅
-            </Button>
+              {tr("新建订阅")}</Button>
           ) : null
         }
       >
@@ -263,8 +260,7 @@ export function WebhooksPage() {
             message={(subscriptions.error as Error).message}
             action={
               <Button size="small" onClick={() => void subscriptions.refetch()}>
-                重试
-              </Button>
+                {tr("重试")}</Button>
             }
           />
         ) : null}
@@ -276,7 +272,7 @@ export function WebhooksPage() {
           columns={columns}
           pagination={false}
           scroll={{ x: 'max-content' }}
-          locale={{ emptyText: '当前应用还没有 Webhook 订阅' }}
+          locale={{ emptyText: tr("当前应用还没有 Webhook 订阅") }}
         />
       </Card>
 
@@ -293,7 +289,7 @@ export function WebhooksPage() {
           setFormOpen(false);
           setEditing(null);
         }}
-        onCreated={(secret, url) => setReveal({ secret, caption: `接收地址：${url}` })}
+        onCreated={(secret, url) => setReveal({ secret, caption: tr("接收地址：{{arg0}}", { arg0: url }) })}
         onSaved={() => void refresh()}
       />
 

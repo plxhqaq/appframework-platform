@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Form, Input, Modal, Select, Switch } from 'antd';
 import { useEffect } from 'react';
@@ -75,7 +76,7 @@ export function UserFormModal({ open, user, onClose }: UserFormModalProps) {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['identity', 'users'] });
       await queryClient.invalidateQueries({ queryKey: ['identity', 'roles'] });
-      message.success(isEdit ? '用户已更新' : '用户已创建');
+      message.success(isEdit ? tr("用户已更新") : tr("用户已创建"));
       onClose();
     },
     onError: (error: Error) => message.error(error.message),
@@ -97,9 +98,9 @@ export function UserFormModal({ open, user, onClose }: UserFormModalProps) {
   return (
     <Modal
       open={open}
-      title={isEdit ? `编辑用户 · ${user.userName}` : '新建用户'}
-      okText="保存"
-      cancelText="取消"
+      title={isEdit ? tr("编辑用户 · {{arg0}}", { arg0: user.userName }) : tr("新建用户")}
+      okText={tr("保存")}
+      cancelText={tr("取消")}
       confirmLoading={mutation.isPending}
       onCancel={onClose}
       onOk={() => void handleOk()}
@@ -116,43 +117,43 @@ export function UserFormModal({ open, user, onClose }: UserFormModalProps) {
       >
         <Form.Item
           name="userName"
-          label="用户名"
-          tooltip="小写字母或数字开头，3–64 位小写字母/数字/点/下划线/连字符；创建后不可修改。"
+          label={tr("用户名")}
+          tooltip={tr("小写字母或数字开头，3–64 位小写字母/数字/点/下划线/连字符；创建后不可修改。")}
           rules={[
-            { required: true, message: '请输入用户名' },
+            { required: true, message: tr("请输入用户名") },
             {
               pattern: /^[a-z0-9][a-z0-9._-]{2,63}$/,
-              message: '格式：小写字母或数字开头，3–64 位小写字母/数字/点/下划线/连字符',
+              message: tr("格式：小写字母或数字开头，3–64 位小写字母/数字/点/下划线/连字符"),
             },
           ]}
         >
-          <Input placeholder="例如 alice" disabled={isEdit} autoComplete="off" />
+          <Input placeholder={tr("例如 alice")} disabled={isEdit} autoComplete="off" />
         </Form.Item>
 
         {!isEdit ? (
           <Form.Item
             name="password"
-            label="初始口令"
-            tooltip="8–128 位，且同时包含字母与数字"
+            label={tr("初始口令")}
+            tooltip={tr("8–128 位，且同时包含字母与数字")}
             rules={[
-              { required: true, message: '请输入初始口令' },
-              { pattern: PASSWORD_PATTERN, message: '8–128 位，且同时包含字母与数字' },
+              { required: true, message: tr("请输入初始口令") },
+              { pattern: PASSWORD_PATTERN, message: tr("8–128 位，且同时包含字母与数字") },
             ]}
           >
             <Input.Password autoComplete="new-password" />
           </Form.Item>
         ) : null}
 
-        <Form.Item name="displayName" label="显示名">
-          <Input placeholder="可选" autoComplete="off" />
+        <Form.Item name="displayName" label={tr("显示名")}>
+          <Input placeholder={tr("可选")} autoComplete="off" />
         </Form.Item>
 
-        <Form.Item name="roleIds" label="角色">
+        <Form.Item name="roleIds" label={tr("角色")}>
           <Select
             mode="multiple"
             allowClear
             loading={roles.isPending}
-            placeholder="选择角色（可多选）"
+            placeholder={tr("选择角色（可多选）")}
             optionFilterProp="label"
             options={(roles.data ?? []).map((role) => ({
               value: role.id,
@@ -161,16 +162,16 @@ export function UserFormModal({ open, user, onClose }: UserFormModalProps) {
           />
         </Form.Item>
 
-        <Form.Item name="isEnabled" label="启用" valuePropName="checked">
+        <Form.Item name="isEnabled" label={tr("启用")} valuePropName="checked">
           <Switch />
         </Form.Item>
 
         {!isEdit ? (
           <Form.Item
             name="mustChangePassword"
-            label="首次登录强制改密"
+            label={tr("首次登录强制改密")}
             valuePropName="checked"
-            tooltip="管理员设定的初始口令对方已知，建议保持开启。"
+            tooltip={tr("管理员设定的初始口令对方已知，建议保持开启。")}
           >
             <Switch />
           </Form.Item>

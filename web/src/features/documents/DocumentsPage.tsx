@@ -1,4 +1,5 @@
-import { PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { tr } from '../../i18n/translate';
+import { PlusOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -32,7 +33,7 @@ import type {
   UpdateDocumentRequest,
 } from '../../shared/api/types';
 import { saveBlob } from '../../shared/download';
-import { formatBytes } from '../../shared/format';
+import { formatBytes, formatDateTime } from '../../shared/format';
 import { PERMISSIONS } from '../../shared/permissions';
 import { responsivePagination, responsiveWidth } from '../../shared/responsive';
 import { useResponsive } from '../../shared/useResponsive';
@@ -61,8 +62,8 @@ interface EditFormValues {
 const DEFAULT_PAGE_SIZE = 20;
 
 const VISIBILITY_META: Record<DocumentVisibility, { label: string; color?: string }> = {
-  client: { label: '客户端可见', color: 'green' },
-  internal: { label: '仅内部' },
+  client: { get label() { return tr("客户端可见"); }, color: 'green' },
+  internal: { get label() { return tr("仅内部"); } },
 };
 
 /**
@@ -162,7 +163,7 @@ export function DocumentsPage() {
           isEnabled: values.isEnabled,
         };
         await documentsApi.updateCollection(editingCollection.id, body);
-        message.success('集合已更新');
+        message.success(tr("集合已更新"));
       } else {
         const body: CreateDocumentCollectionRequest = {
           key: values.key,
@@ -170,13 +171,13 @@ export function DocumentsPage() {
           description: values.description ?? null,
         };
         await documentsApi.createCollection(body);
-        message.success('集合已创建');
+        message.success(tr("集合已创建"));
       }
 
       setCollectionOpen(false);
       await refresh();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '保存失败');
+      message.error(error instanceof Error ? error.message : tr("保存失败"));
     } finally {
       setSaving(false);
     }
@@ -203,7 +204,7 @@ export function DocumentsPage() {
 
     const file = uploadFiles[0]?.originFileObj;
     if (!file) {
-      message.warning('请选择要上传的文件');
+      message.warning(tr("请选择要上传的文件"));
       return;
     }
 
@@ -216,11 +217,11 @@ export function DocumentsPage() {
         values.visibility,
         values.applicableVersion?.trim() || undefined,
       );
-      message.success('文档已上传');
+      message.success(tr("文档已上传"));
       setUploadOpen(false);
       await refresh();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '上传失败');
+      message.error(error instanceof Error ? error.message : tr("上传失败"));
     } finally {
       setSaving(false);
     }
@@ -238,18 +239,18 @@ export function DocumentsPage() {
 
     const file = revisionFiles[0]?.originFileObj;
     if (!file) {
-      message.warning('请选择要上传的文件');
+      message.warning(tr("请选择要上传的文件"));
       return;
     }
 
     setSaving(true);
     try {
       await documentsApi.addRevision(revisionTarget.id, file);
-      message.success('已生成新修订');
+      message.success(tr("已生成新修订"));
       setRevisionTarget(null);
       await refresh();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '上传修订失败');
+      message.error(error instanceof Error ? error.message : tr("上传修订失败"));
     } finally {
       setSaving(false);
     }
@@ -284,11 +285,11 @@ export function DocumentsPage() {
         applicableVersion: values.applicableVersion?.trim() ?? '',
       };
       await documentsApi.updateDocument(editTarget.id, body);
-      message.success('文档已更新');
+      message.success(tr("文档已更新"));
       setEditTarget(null);
       await refresh();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '更新失败');
+      message.error(error instanceof Error ? error.message : tr("更新失败"));
     } finally {
       setSaving(false);
     }
@@ -299,25 +300,25 @@ export function DocumentsPage() {
       const blob = await requestBlob(url);
       saveBlob(blob, fileName);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '下载失败');
+      message.error(error instanceof Error ? error.message : tr("下载失败"));
     }
   };
 
   const handleDelete = (row: DocumentSummary) => {
     Modal.confirm({
-      title: `删除文档「${row.title}」？`,
-      content: '客户端清单会立即移除；文件与修订在宽限期后由后台清理。',
-      okText: '删除',
+      title: tr("删除文档「{{arg0}}」？", { arg0: row.title }),
+      content: tr("客户端清单会立即移除；文件与修订在宽限期后由后台清理。"),
+      okText: tr("删除"),
       okButtonProps: { danger: true },
-      cancelText: '取消',
+      cancelText: tr("取消"),
       onOk: async () => {
         try {
           await documentsApi.deleteDocument(row.id);
-          message.success('文档已删除');
+          message.success(tr("文档已删除"));
           setDetailId(null);
           await refresh();
         } catch (error) {
-          message.error(error instanceof Error ? error.message : '删除失败');
+          message.error(error instanceof Error ? error.message : tr("删除失败"));
         }
       },
     });
@@ -325,46 +326,45 @@ export function DocumentsPage() {
 
   const collectionColumns: TableColumnsType<DocumentCollection> = [
     {
-      title: '键',
+      title: tr("键"),
       dataIndex: 'key',
       key: 'key',
       width: 140,
       render: (value: string) => <Typography.Text code>{value}</Typography.Text>,
     },
-    { title: '名称', dataIndex: 'name', key: 'name', width: 160 },
+    { title: tr("名称"), dataIndex: 'name', key: 'name', width: 160 },
     {
-      title: '说明',
+      title: tr("说明"),
       dataIndex: 'description',
       key: 'description',
       render: (value: string | null) => value ?? <Typography.Text type="secondary">-</Typography.Text>,
     },
-    { title: '文档数', dataIndex: 'documentCount', key: 'documentCount', width: 80 },
+    { title: tr("文档数"), dataIndex: 'documentCount', key: 'documentCount', width: 80 },
     {
-      title: '状态',
+      title: tr("状态"),
       dataIndex: 'isEnabled',
       key: 'isEnabled',
       width: 80,
-      render: (enabled: boolean) => (enabled ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>),
+      render: (enabled: boolean) => (enabled ? <Tag color="green">{tr("启用")}</Tag> : <Tag>{tr("停用")}</Tag>),
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
       width: 80,
       fixed: 'right',
       render: (_: unknown, row: DocumentCollection) =>
         canManageCollection ? (
           <Button type="link" size="small" onClick={() => openCollectionForm(row)}>
-            编辑
-          </Button>
+            {tr("编辑")}</Button>
         ) : null,
     },
   ];
 
   const documentColumns: TableColumnsType<DocumentSummary> = [
-    { title: '集合', dataIndex: 'collectionKey', key: 'collectionKey', width: 120 },
-    { title: '标题', dataIndex: 'title', key: 'title', width: 220 },
+    { title: tr("集合"), dataIndex: 'collectionKey', key: 'collectionKey', width: 120 },
+    { title: tr("标题"), dataIndex: 'title', key: 'title', width: 220 },
     {
-      title: '可见性',
+      title: tr("可见性"),
       dataIndex: 'visibility',
       key: 'visibility',
       width: 110,
@@ -374,23 +374,23 @@ export function DocumentsPage() {
       },
     },
     {
-      title: '适用版本',
+      title: tr("适用版本"),
       dataIndex: 'applicableVersion',
       key: 'applicableVersion',
       width: 110,
       responsive: ['md'],
       render: (value: string | null) => value ?? '-',
     },
-    { title: '修订', dataIndex: 'revision', key: 'revision', width: 70 },
+    { title: tr("修订"), dataIndex: 'revision', key: 'revision', width: 70 },
     {
-      title: '文件名',
+      title: tr("文件名"),
       dataIndex: 'fileName',
       key: 'fileName',
       width: 180,
       responsive: ['md'],
     },
     {
-      title: '大小',
+      title: tr("大小"),
       dataIndex: 'sizeBytes',
       key: 'sizeBytes',
       width: 100,
@@ -398,37 +398,33 @@ export function DocumentsPage() {
       render: (value: number) => formatBytes(value),
     },
     {
-      title: '更新时间',
+      title: tr("更新时间"),
       dataIndex: 'updatedAt',
       key: 'updatedAt',
       width: 170,
       responsive: ['md'],
-      render: (value: string) => new Date(value).toLocaleString(),
+      render: (value: string) => formatDateTime(value),
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
-      width: 220,
+      width: 250,
       fixed: 'right',
       render: (_: unknown, row: DocumentSummary) => (
         <Space size="small">
           <Button type="link" size="small" onClick={() => setDetailId(row.id)}>
-            详情
-          </Button>
+            {tr("详情")}</Button>
           {canManage ? (
             <Button type="link" size="small" onClick={() => openRevisionForm(row)}>
-              新修订
-            </Button>
+              {tr("新修订")}</Button>
           ) : null}
           {canManage ? (
             <Button type="link" size="small" onClick={() => openEditForm(row)}>
-              编辑
-            </Button>
+              {tr("编辑")}</Button>
           ) : null}
           {canDelete ? (
             <Button type="link" size="small" danger onClick={() => handleDelete(row)}>
-              删除
-            </Button>
+              {tr("删除")}</Button>
           ) : null}
         </Space>
       ),
@@ -436,25 +432,25 @@ export function DocumentsPage() {
   ];
 
   const revisionColumns: TableColumnsType<DocumentDetail['revisions'][number]> = [
-    { title: '修订', dataIndex: 'revision', key: 'revision', width: 70 },
-    { title: '文件名', dataIndex: 'fileName', key: 'fileName' },
+    { title: tr("修订"), dataIndex: 'revision', key: 'revision', width: 70 },
+    { title: tr("文件名"), dataIndex: 'fileName', key: 'fileName' },
     {
-      title: '大小',
+      title: tr("大小"),
       dataIndex: 'sizeBytes',
       key: 'sizeBytes',
       width: 100,
       render: (value: number) => formatBytes(value),
     },
     {
-      title: '上传时间',
+      title: tr("上传时间"),
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 170,
       responsive: ['md'],
-      render: (value: string) => new Date(value).toLocaleString(),
+      render: (value: string) => formatDateTime(value),
     },
     {
-      title: '操作',
+      title: tr("操作"),
       key: 'actions',
       width: 80,
       fixed: 'right',
@@ -464,20 +460,19 @@ export function DocumentsPage() {
           size="small"
           onClick={() => void handleDownload(row.downloadUrl, row.fileName)}
         >
-          下载
-        </Button>
+          {tr("下载")}</Button>
       ),
     },
   ];
 
   if (appKey === null) {
     return (
-      <Card title="文档" size="small">
+      <Card title={tr("文档")} size="small">
         <Alert
           type="warning"
           showIcon
-          message="当前账号没有可用的应用上下文"
-          description="文档按应用隔离。请先在「应用接入」注册应用，并使用拥有该应用访问权的账号进入。"
+          message={tr("当前账号没有可用的应用上下文")}
+          description={tr("文档按应用隔离。请先在「应用接入」注册应用，并使用拥有该应用访问权的账号进入。")}
         />
       </Card>
     );
@@ -487,7 +482,7 @@ export function DocumentsPage() {
     <Space direction="vertical" size={16} style={{ display: 'flex' }}>
       <Card
         size="small"
-        title="集合"
+        title={tr("集合")}
         extra={
           canManageCollection ? (
             <Button
@@ -495,8 +490,7 @@ export function DocumentsPage() {
               icon={<PlusOutlined />}
               onClick={() => openCollectionForm(null)}
             >
-              新建集合
-            </Button>
+              {tr("新建集合")}</Button>
           ) : null
         }
       >
@@ -508,8 +502,7 @@ export function DocumentsPage() {
             message={(collections.error as Error).message}
             action={
               <Button size="small" onClick={() => void collections.refetch()}>
-                重试
-              </Button>
+                {tr("重试")}</Button>
             }
           />
         ) : null}
@@ -521,25 +514,24 @@ export function DocumentsPage() {
           dataSource={collections.data ?? []}
           columns={collectionColumns}
           pagination={false}
-          locale={{ emptyText: '尚未创建集合（如 manual / api / changelog）' }}
+          locale={{ emptyText: tr("尚未创建集合（如 manual / api / changelog）") }}
         />
       </Card>
 
       <Card
         size="small"
-        title="文档"
+        title={tr("文档")}
         extra={
           canManage ? (
             <Button type="primary" icon={<PlusOutlined />} onClick={openUploadForm}>
-              上传文档
-            </Button>
+              {tr("上传文档")}</Button>
           ) : null
         }
       >
         <Space wrap style={{ marginBottom: 12 }}>
           <Select
             allowClear
-            placeholder="全部集合"
+            placeholder={tr("全部集合")}
             style={{ width: 200, maxWidth: '100%' }}
             value={collectionFilter}
             onChange={(value) => {
@@ -551,7 +543,8 @@ export function DocumentsPage() {
               label: `${item.name}（${item.key}）`,
             }))}
           />
-          <Button onClick={() => void refresh()}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
+            {tr("刷新")}</Button>
         </Space>
 
         {documents.isError ? (
@@ -562,8 +555,7 @@ export function DocumentsPage() {
             message={(documents.error as Error).message}
             action={
               <Button size="small" onClick={() => void documents.refetch()}>
-                重试
-              </Button>
+                {tr("重试")}</Button>
             }
           />
         ) : null}
@@ -578,19 +570,19 @@ export function DocumentsPage() {
             current: documents.data?.page ?? page,
             pageSize: documents.data?.pageSize ?? pageSize,
             total: documents.data?.total ?? 0,
-            showTotal: (total: number) => `共 ${total} 篇文档`,
+            showTotal: (total: number) => tr("共 {{arg0}} 篇文档", { arg0: total }),
             onChange: (nextPage: number, nextPageSize: number) => {
               setPage(nextPageSize === pageSize ? nextPage : 1);
               setPageSize(nextPageSize);
             },
           })}
-          locale={{ emptyText: '尚无文档' }}
+          locale={{ emptyText: tr("尚无文档") }}
         />
       </Card>
 
       <Modal
         open={collectionOpen}
-        title={editingCollection ? '编辑集合' : '新建集合'}
+        title={editingCollection ? tr("编辑集合") : tr("新建集合")}
         confirmLoading={saving}
         onOk={() => void submitCollection()}
         onCancel={() => setCollectionOpen(false)}
@@ -598,19 +590,19 @@ export function DocumentsPage() {
         <Form form={collectionForm} layout="vertical">
           <Form.Item
             name="key"
-            label="键"
-            rules={[{ required: true, pattern: /^[a-z][a-z0-9-]{1,31}$/, message: '小写字母开头，2–32 位小写字母/数字/连字符' }]}
+            label={tr("键")}
+            rules={[{ required: true, pattern: /^[a-z][a-z0-9-]{1,31}$/, message: tr("小写字母开头，2–32 位小写字母/数字/连字符") }]}
           >
             <Input disabled={editingCollection !== null} placeholder="manual" />
           </Form.Item>
-          <Form.Item name="name" label="名称" rules={[{ required: true, max: 256 }]}>
+          <Form.Item name="name" label={tr("名称")} rules={[{ required: true, max: 256 }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="description" label="说明">
+          <Form.Item name="description" label={tr("说明")}>
             <Input.TextArea rows={2} />
           </Form.Item>
           {editingCollection ? (
-            <Form.Item name="isEnabled" label="启用" valuePropName="checked">
+            <Form.Item name="isEnabled" label={tr("启用")} valuePropName="checked">
               <Switch />
             </Form.Item>
           ) : null}
@@ -619,45 +611,45 @@ export function DocumentsPage() {
 
       <Modal
         open={uploadOpen}
-        title="上传文档"
+        title={tr("上传文档")}
         confirmLoading={saving}
         onOk={() => void submitUpload()}
         onCancel={() => setUploadOpen(false)}
       >
         <Form form={uploadForm} layout="vertical">
-          <Form.Item name="collectionKey" label="集合" rules={[{ required: true }]}>
+          <Form.Item name="collectionKey" label={tr("集合")} rules={[{ required: true }]}>
             <Select
               options={(collections.data ?? [])
                 .filter((item) => item.isEnabled)
                 .map((item) => ({ value: item.key, label: `${item.name}（${item.key}）` }))}
             />
           </Form.Item>
-          <Form.Item name="title" label="标题（缺省用文件名）">
+          <Form.Item name="title" label={tr("标题（缺省用文件名）")}>
             <Input />
           </Form.Item>
-          <Form.Item name="visibility" label="可见性" rules={[{ required: true }]}>
+          <Form.Item name="visibility" label={tr("可见性")} rules={[{ required: true }]}>
             <Select
               options={[
-                { value: 'internal', label: '仅内部（默认）' },
-                { value: 'client', label: '客户端可见' },
+                { value: 'internal', label: tr("仅内部（默认）") },
+                { value: 'client', label: tr("客户端可见") },
               ]}
             />
           </Form.Item>
           <Form.Item
             name="applicableVersion"
-            label="适用版本（可选）"
-            rules={[{ max: 64, message: '适用版本不超过 64 个字符' }]}
+            label={tr("适用版本（可选）")}
+            rules={[{ max: 64, message: tr("适用版本不超过 64 个字符") }]}
           >
             <Input placeholder="3.2.0" />
           </Form.Item>
-          <Form.Item label="文件" required>
+          <Form.Item label={tr("文件")} required>
             <Upload
               fileList={uploadFiles}
               maxCount={1}
               beforeUpload={() => false}
               onChange={({ fileList }) => setUploadFiles(fileList)}
             >
-              <Button icon={<UploadOutlined />}>选择文件</Button>
+              <Button icon={<UploadOutlined />}>{tr("选择文件")}</Button>
             </Upload>
           </Form.Item>
         </Form>
@@ -665,7 +657,7 @@ export function DocumentsPage() {
 
       <Modal
         open={revisionTarget !== null}
-        title={revisionTarget ? `追加修订：${revisionTarget.title}` : '追加修订'}
+        title={revisionTarget ? tr("追加修订：{{arg0}}", { arg0: revisionTarget.title }) : tr("追加修订")}
         confirmLoading={saving}
         onOk={() => void submitRevision()}
         onCancel={() => setRevisionTarget(null)}
@@ -677,36 +669,35 @@ export function DocumentsPage() {
           beforeUpload={() => false}
           onChange={({ fileList }) => setRevisionFiles(fileList)}
         >
-          <Button icon={<UploadOutlined />}>选择文件</Button>
+          <Button icon={<UploadOutlined />}>{tr("选择文件")}</Button>
         </Upload>
         <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
-          新修订会替换文档的当前文件，旧修订仍可下载追溯。
-        </Typography.Paragraph>
+          {tr("新修订会替换文档的当前文件，旧修订仍可下载追溯。")}</Typography.Paragraph>
       </Modal>
 
       <Modal
         open={editTarget !== null}
-        title="编辑文档"
+        title={tr("编辑文档")}
         confirmLoading={saving}
         onOk={() => void submitEdit()}
         onCancel={() => setEditTarget(null)}
       >
         <Form form={editForm} layout="vertical">
-          <Form.Item name="title" label="标题" rules={[{ required: true, max: 256 }]}>
+          <Form.Item name="title" label={tr("标题")} rules={[{ required: true, max: 256 }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="visibility" label="可见性" rules={[{ required: true }]}>
+          <Form.Item name="visibility" label={tr("可见性")} rules={[{ required: true }]}>
             <Select
               options={[
-                { value: 'internal', label: '仅内部' },
-                { value: 'client', label: '客户端可见' },
+                { value: 'internal', label: tr("仅内部") },
+                { value: 'client', label: tr("客户端可见") },
               ]}
             />
           </Form.Item>
           <Form.Item
             name="applicableVersion"
-            label="适用版本（留空清除）"
-            rules={[{ max: 64, message: '适用版本不超过 64 个字符' }]}
+            label={tr("适用版本（留空清除）")}
+            rules={[{ max: 64, message: tr("适用版本不超过 64 个字符") }]}
           >
             <Input placeholder="3.2.0" />
           </Form.Item>
@@ -716,7 +707,7 @@ export function DocumentsPage() {
       <Drawer
         open={detailId !== null}
         width={responsiveWidth(isMobile, 760)}
-        title={detail.data ? detail.data.title : '文档详情'}
+        title={detail.data ? detail.data.title : tr("文档详情")}
         onClose={() => setDetailId(null)}
         styles={{ body: { padding: isMobile ? 12 : 24 } }}
       >
@@ -728,8 +719,7 @@ export function DocumentsPage() {
             message={(detail.error as Error).message}
             action={
               <Button size="small" onClick={() => void detail.refetch()}>
-                重试
-              </Button>
+                {tr("重试")}</Button>
             }
           />
         ) : null}
@@ -740,10 +730,10 @@ export function DocumentsPage() {
               column={{ xs: 1, md: 2 }}
               bordered
               items={[
-                { key: 'collection', label: '集合', children: detail.data.collectionKey },
+                { key: 'collection', label: tr("集合"), children: detail.data.collectionKey },
                 {
                   key: 'visibility',
-                  label: '可见性',
+                  label: tr("可见性"),
                   children: (
                     <Tag color={VISIBILITY_META[detail.data.visibility].color}>
                       {VISIBILITY_META[detail.data.visibility].label}
@@ -752,12 +742,12 @@ export function DocumentsPage() {
                 },
                 {
                   key: 'applicableVersion',
-                  label: '适用版本',
+                  label: tr("适用版本"),
                   children: detail.data.applicableVersion ?? '-',
                 },
-                { key: 'revision', label: '当前修订', children: detail.data.revision },
-                { key: 'fileName', label: '文件名', children: detail.data.fileName },
-                { key: 'size', label: '大小', children: formatBytes(detail.data.sizeBytes) },
+                { key: 'revision', label: tr("当前修订"), children: detail.data.revision },
+                { key: 'fileName', label: tr("文件名"), children: detail.data.fileName },
+                { key: 'size', label: tr("大小"), children: formatBytes(detail.data.sizeBytes) },
                 {
                   key: 'sha',
                   label: 'SHA-256',
@@ -769,15 +759,14 @@ export function DocumentsPage() {
                 },
                 {
                   key: 'updated',
-                  label: '更新时间',
-                  children: new Date(detail.data.updatedAt).toLocaleString(),
+                  label: tr("更新时间"),
+                  children: formatDateTime(detail.data.updatedAt),
                 },
               ]}
             />
 
             <Typography.Title level={5} style={{ marginTop: 24 }}>
-              修订历史
-            </Typography.Title>
+              {tr("修订历史")}</Typography.Title>
             <Table<DocumentDetail['revisions'][number]>
               scroll={{ x: 'max-content' }}
               rowKey="id"

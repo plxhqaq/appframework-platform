@@ -1,7 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App as AntdApp, ConfigProvider, theme as antdTheme } from 'antd';
+import enUS from 'antd/locale/en_US';
 import zhCN from 'antd/locale/zh_CN';
 import { useLayoutEffect, useMemo, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { getThemeTokens, isDarkMode } from '../styles/antd-theme';
 import { ThemeProvider, useTheme } from './theme-context';
 
@@ -53,20 +55,26 @@ function ThemeSurface() {
 
 function ThemedShell({ children }: { children: ReactNode }) {
   const { family, mode } = useTheme();
+  const { i18n } = useTranslation();
 
   // 每次渲染都新建 theme 对象会让 antd 重算整棵 token 树，按选择缓存住
   const theme = useMemo(
     () => ({
       algorithm: isDarkMode(mode) ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
       token: getThemeTokens(family, mode),
+      components: {
+        // 小号卡片默认 12px 内边距，标题栏的操作按钮几乎贴边；统一放宽到 20px
+        Card: { bodyPaddingSM: 20, headerPaddingSM: 20 },
+      },
     }),
     [family, mode],
   );
 
   return (
-    <ConfigProvider locale={zhCN} theme={theme}>
+    <ConfigProvider locale={i18n.resolvedLanguage === 'en-US' ? enUS : zhCN} theme={theme}>
       <ThemeSurface />
-      <AntdApp>{children}</AntdApp>
+      {/* 页面里大量 tr() 取值在模块作用域之外、不订阅 i18n，切语言时整体重挂一次 */}
+      <AntdApp key={i18n.resolvedLanguage}>{children}</AntdApp>
     </ConfigProvider>
   );
 }

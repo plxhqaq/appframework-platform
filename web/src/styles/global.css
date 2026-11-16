@@ -57,12 +57,18 @@ body {
   border-block-end: 1px solid var(--app-split, transparent);
 }
 
+/* 展开/收起按钮左边只有 header 的 16px 内边距，右侧 Space 只给 8px；
+   补到 16px，按钮两侧留白才对称。 */
+.app-shell__nav-toggle {
+  margin-inline-end: 8px;
+}
+
+/* 内容区跟着视口走，不设上限：宽屏下表格和仪表盘都还有横向空间可用。
+   左右留白按 24px 给操作按钮和表格边缘留出呼吸位；窄屏在媒体查询里收到 12px。 */
 .app-shell__content {
   box-sizing: border-box;
   width: 100%;
-  max-width: 1320px;
-  margin-inline: auto;
-  padding: 16px;
+  padding: 24px;
 }
 
 .login-page {
@@ -197,6 +203,18 @@ body {
   padding: 32px 0;
 }
 
+/* 密钥登录宽屏两栏：卡片拉齐高度，空态在预览卡里居中。 */
+.key-panel {
+  height: 100%;
+}
+
+.key-panel--empty .ant-card-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+}
+
 /* 6 位口令是这一页的主角：等宽加字距，肉眼分段，念出来不会串位。 */
 .key-card__code {
   display: flex;
@@ -265,4 +283,110 @@ body {
    antd 只给 Modal 兜了 max-width，抽屉没有，这里统一封顶到视口。 */
 .ant-drawer-content-wrapper {
   max-width: 100vw;
+}
+/* 仪表盘：系统运行时间每秒推进，等宽数字避免宽度抖动。 */
+.dashboard-uptime {
+  display: inline-block;
+  font-family: 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  font-size: clamp(17px, 2.3vw, 21px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+}
+
+.dashboard-caption {
+  font-size: 12px;
+}
+
+/* 百分比仪表盘：antd dashboard 进度条居中，数值用等宽数字避免轮询时宽度抖动。 */
+.dash-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dash-gauge__label {
+  font-size: 13px;
+}
+
+.dash-gauge__caption {
+  font-size: 12px;
+  text-align: center;
+}
+
+.dash-gauge .ant-progress-text {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 彩色信息块：用浅底 + 同色系文字把数量/时长类指标和周围的灰白文字区分开。 */
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  height: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.stat-tile__label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.stat-tile__body {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stat-tile__value {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* 补充说明跟着数值放在同一行右侧：色块保持两行，和设备连接卡的色块等高。 */
+.stat-tile__hint {
+  font-size: 12px;
+  white-space: nowrap;
+  margin-inline-start: auto;
+}
+
+/* 展开指示器：右向箭头，展开时旋转 90° 朝下。
+   antd 默认的 ± 是两条 1px 伪元素线叠加，缩放后长短粗细不一致，改用单线图标。 */
+.table-expand-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.table-expand-icon:hover,
+.table-expand-icon:focus-visible {
+  color: var(--app-primary);
+}
+
+.table-expand-icon svg {
+  transition: transform 0.2s ease;
+}
+
+.table-expand-icon--spacer {
+  visibility: hidden;
+  cursor: default;
 }

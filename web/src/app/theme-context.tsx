@@ -1,3 +1,4 @@
+import { tr } from '../i18n/translate';
 /* eslint-disable react-refresh/only-export-components -- 上下文对象与读取钩子必须同文件：上下文刻意不对外暴露，否则任何组件都能绕过主题白名单 */
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import {
@@ -79,7 +80,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 export function useTheme(): ThemeContextValue {
   const value = useContext(ThemeContext);
   if (value === EMPTY) {
-    throw new Error('useTheme 必须在 ThemeProvider 内使用');
+    throw new Error(tr("useTheme 必须在 ThemeProvider 内使用"));
   }
   return value;
 }
