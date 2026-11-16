@@ -54,12 +54,12 @@
 ```bash
 curl -s -X POST http://localhost:5080/api/v1/apps/token \
   -H 'X-App-Key: demo' -H 'X-Api-Key: <API Key 明文>' -H 'Content-Type: application/json' \
-  -d '{"scopes":["client.station.operate","client.config.sync"]}'
+  -d '{"scopes":["inspect.page.read","inspect.panel.operate"]}'
 ```
 
 - `M2MTokenRequest.scopes` 可为 `null`（取该 Key 的全部 scope）；**只减不增**——请求了 Key 未被授予的 scope 返回 `606`（403），缺任一请求头返回 `603`（401）。
 - Key 由管理台 `POST /api/v1/admin/apps/{id}/keys` 签发：每个 scope 必须是签发人**自己已持有**的权限（否则 `606`，403），不得使用通配符 `*`；未知权限码返回 `608`。
-- 响应 `M2MTokenResponse`：`accessToken` / `tokenType`（固定 `Bearer`）/ `expiresAt` / `appKey` / `scopes`。
+- 响应 `M2MTokenResponse`：`accessToken` / `tokenType`（固定 `Bearer`）/ `expiresAt` / `appKey` / `scopes` / `permissionsLocked`。`permissionsLocked=true` 表示该应用的权限清单已锁定，客户端连接成功后可直接跳过清单上传，不必重复调用。
 - 令牌声明：`sub` = `apikey:{密钥id:N}`、`name` = `应用名 (密钥名)`、`role` = `service`、`perms` = 生效 scope、`app` = 该应用键、`pkind` = `service`。
 - **没有刷新令牌**：到期只能再换一次；`/admin/auth/context` 明确拒绝服务主体（`4`，403）。
 
@@ -74,7 +74,7 @@ curl -s -X POST http://localhost:5080/api/v1/identity/login \
 
 - `userName` 大小写不敏感（服务端 `Trim().ToLowerInvariant()`）；空用户名或空口令统一返回 `101`。
 - `appKey` 可选：期望进入的应用，不在可访问集合内返回 `118`（403）。`deviceFingerprint` 与 `machineCode` 可选，前者写入刷新令牌记录供按设备排查/吊销，后者同时写入访问令牌 `machine` 声明与刷新令牌记录，供授权绑定。
-- 响应 `LoginResponse`：`accessToken` / `expiresAt` / `refreshToken` / `refreshExpiresAt` / `user`；`user` 即 `UserSessionDto`：`userId` / `userName` / `displayName` / `roles` / `permissions` / `appKeys` / `mustChangePassword` / `appKey`。
+- 响应 `LoginResponse`：`accessToken` / `expiresAt` / `refreshToken` / `refreshExpiresAt` / `user`；`user` 即 `UserSessionDto`：`userId` / `userName` / `displayName` / `roles` / `permissions` / `appKeys` / `mustChangePassword` / `appKey` / `permissionsLocked`。`permissionsLocked` 仅在进入应用上下文时有意义，客户端据此决定是否还需要上传权限清单。
 - 管理端 `/api/v1/admin/auth/login` 用同一个 `LoginRequest`，但返回 `AdminSessionResponse`（只有 `accessToken` / `expiresAt` / `user`）：刷新令牌改由 httpOnly + SameSite=Strict 的 Cookie `af_refresh` 承载，`Path` 固定 `/api/v1/admin/auth`，`Secure` 跟随请求是否 HTTPS（`AdminAuthEndpoints.cs:200`）。
 
 ### 2.4 刷新（一次性 + 复用检测）
@@ -155,7 +155,7 @@ curl -s -X POST http://localhost:5080/api/v1/identity/singlekey/redeem \
 - **原子单次**：消费靠一条带条件的 UPDATE（`used_at IS NULL AND expires_at > now AND attempt_count < maxAttempts AND 指纹匹配`），受影响行数为 1 才算赢，多副本并发只有一个成功（`SingleLoginKeyService.cs:136`）。尝试上限 `SingleLogin:MaxAttempts`（默认 5）；指纹不匹配同样累计一次尝试，累计到上限后密钥作废。
 - 临时令牌有效期 = **密钥剩余时间**（`record.ExpiresAt - now`），不是重新计 30 分钟；已过期返回 `106`。响应 `TemporarySessionResponse{accessToken, expiresAt, user}`，**没有刷新令牌**，过期即失去访问。错误码 `105`/`107`/`108` 见第 7 节。
 - 临时主体：`sub` 为随机 v7 guid（不落用户表）、`name` = `temp-user`、`displayName` = `临时用户`、`role` = `engineer`、`is_temporary` = `true`、`app` = 全部启用应用、`machine` = 请求里的 `machineCode`（只写入声明，不与密钥记录比对）。
-- 权限取自内置 `engineer` 角色（`IdentitySeeder.cs`），但**摘掉 `identity.singlekey.issue` 与 `identity.qr.approve`**：剩下 `apps.read`、`versions.*` 的读与下载、`license.product.read`/`license.read`、`backup.*`、`device.read`、`document.*` 与全部 `client.*` 码，不含任何其它 `identity.*` 管理码。`device.read` 是备份下发的前置条件：下发改成必须选设备后，没有设备读取权限的账号无法完成下发。
+- 权限取自内置 `engineer` 角色（`IdentitySeeder.cs`），但**摘掉 `identity.singlekey.issue` 与 `identity.qr.approve`**：剩下 `apps.read`、`versions.*` 的读与下载、`license.product.read`/`license.read`、`backup.*`、`device.read`、`document.*`，不含任何其它 `identity.*` 管理码。`device.read` 是备份下发的前置条件：下发改成必须选设备后，没有设备读取权限的账号无法完成下发。客户端专属权限不再由平台内置，临时会话只并入第一个启用应用通过权限清单声明的码。
 - 这个内置角色同时给**真人现场工程师账号**用，那份是带签发/审批两个入口码的（否则工程师登录后两个页面都用不了）。两者的边界靠身份种类而不是权限集合：四个管理端点都挂了 `RequireNonTemporaryPrincipal()`，临时令牌即便被管理员手工改开的角色喂饱了权限，也仍然返回 `102`（403），无法自我续期。
 
 ---

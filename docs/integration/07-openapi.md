@@ -74,7 +74,7 @@ dotnet pack src/Platform.Contracts/Platform.Contracts.csproj -c Release \
 | 各模块 DTO / 请求记录 | `Platform.Contracts.{Apps,Identity,Versions,Licensing,Devices,Backups,Documents,Webhooks,Audit}` |
 | 错误码分段枚举 | `ApiErrorCode`（0–99 通用 / 100 身份 / 200 版本 / 300 授权 / 400 备份 / 500 文档 / 600 应用 / 700 Webhook / 800 设备） |
 | 统一返回信封 | `ApiResult` / `ApiResult<T>` |
-| 权限码目录 | `PermissionCatalog`（含 `Wildcard`）、`ClientPermissionCatalog`、`PermissionDescriptor` |
+| 权限码目录 | `PermissionCatalog`（平台权限，含 `Wildcard`）、`PermissionDescriptor`；客户端权限由各应用通过权限清单自行声明 |
 | SignalR 契约 | `PlatformHubPaths.Root = "/hubs/platform"`、`DeviceHubPaths.Root = "/hubs/devices"`、分组 `app:{appKey}` / `device:{deviceId}`、事件名 `LicenseChanged` / `ConfigPush` / `ConfigPushAck` / `QrLoginApproved` / `ReleasePublished` / `DocumentChanged` / `Restart` / `SessionReplaced` 及通知记录类型 |
 | 设备身份 | `DeviceIdentityHasher`（稳定键/机器码，客户端与服务端必须同结果）、`DeviceNaming` 与状态词表 |
 | 分页 | `PageQuery` / `PageResult<T>` |
@@ -138,12 +138,22 @@ PLATFORM_PASSWORD='<管理台种子口令，只走环境变量>' \
 ```bash
 curl -s http://localhost:5080/api/v1/platform/modules     # 模块键、路由前缀、所需权限码
 curl -s http://localhost:5080/api/v1/platform/dashboard   # 仪表盘：系统状态、资源占用、设备统计（需登录）
-curl -s http://localhost:5080/api/v1/platform/permissions # 全部权限码描述符（code/moduleKey/displayNameKey/sort/platformAdminOnly）
+curl -s http://localhost:5080/api/v1/platform/permissions # 平台权限描述符
+curl -s 'http://localhost:5080/api/v1/platform/permissions?appKey=demo' # 平台 + 该应用清单声明的权限
+curl -s http://localhost:5080/api/v1/apps/demo/permissions    # 应用权限清单（权限 + 常用组合 + 锁定状态）
 curl -s http://localhost:5080/api/v1/webhooks/info        # 单模块自述（匿名）
 ```
 
 `/api/v1/platform/modules` 是「新增模块时 CI 校验权限码都已登记」的同一份数据；
-管理台的权限树和客户端的 `PermissionType` 映射都从 `/permissions` 出发，**不要在前端硬编码权限码清单**。
+管理台的权限树与 API Key 选择器都从 `/permissions` 出发，**不要在前端硬编码权限码清单**。
+
+应用权限清单由应用自助上传（`PUT /api/v1/apps/{appKey}/permissions`，own service principal
+或持 `apps.manage` 的用户）：整表替换权限与常用组合。**首次上传成功后清单自动锁定**，
+之后必须由管理端调用 `POST /api/v1/admin/apps/{id}/permissions/unlock` 人工解锁才能再次上传；
+下一次上传成功会重新锁定。未锁定时也可调用 `POST /api/v1/admin/apps/{id}/permissions/lock`
+手动锁定。锁定/解锁都要求 `apps.permissions.manage`（内置 `platform-admin`、`app-admin`
+与 `engineer` 角色持有）。登录响应 `user.permissionsLocked` 与 M2M 换令牌响应
+`permissionsLocked` 会直接告知客户端当前状态，避免重复调用上传接口。
 
 ---
 

@@ -172,7 +172,12 @@ curl -s http://localhost:5080/api/v1/platform/modules
 - `requiredPermissions`：该模块声明的权限码（新增模块时 CI 会校验它们都已登记）
 
 `apps` 永远排在首位 —— 其余七个模块的 `app_id` 隔离轴由它产生。
-`version` 里的 `+<40 位>` 是构建提交号（Source Link 同一条链），排查线上版本时直接读它。
+`version` 的四段式 `1.0.0.<提交数>` 里，最后一段是构建时 `git rev-list --count HEAD` 的提交总数
+（`Platform.Api.csproj` 的 `ApplyGitCommitVersion` 目标写入 `Version` / `FileVersion` /
+`InformationalVersion`），排查线上版本时直接读它。容器构建上下文不含 `.git`，
+`deploy.sh` 会把提交数通过 `GIT_COMMIT_COUNT` 构建参数传给 `Dockerfile.api`；
+直接跑 compose 时可用 `GIT_COMMIT_COUNT=$(git rev-list --count HEAD) docker compose ...` 指定，
+未提供则退化为 `1.0.0.0`。
 
 ---
 
@@ -713,8 +718,11 @@ curl -s http://localhost:5080/api/v1/platform/whoami -H "Authorization: Bearer $
 curl -s http://localhost:5080/api/v1/platform/permissions
 ```
 
-返回全部权限码描述符（`code` / `moduleKey` / `displayNameKey` / `sort` / `platformAdminOnly`）。
-两端共用同一份：管理台用它渲染权限树，Avalonia 客户端用 `client.*` 段的码对应 `PermissionType` 枚举成员。
+返回平台权限码描述符（`code` / `moduleKey` / `displayNameKey` / `sort` / `platformAdminOnly` / `description` / `moduleLabel`）。
+带 `?appKey=xxx` 时并入该应用通过权限清单声明的权限；客户端专属权限不再由平台硬编码，由各应用自行声明。
+管理台权限树、角色编辑与 API Key 选择器都消费这份合并目录。
+应用权限清单的锁定/解锁需要 `apps.permissions.manage`；内置 `platform-admin`、`app-admin`
+（应用管理员）与 `engineer`（现场工程师）角色持有该码。
 
 错误码是**分段枚举**（见 `src/Platform.Contracts/ApiErrorCode.cs`）：
 
