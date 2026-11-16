@@ -93,10 +93,17 @@ public static class PlatformEndpoints
                     var devices = await ResolveDeviceStatisticsAsync(deviceStatistics, cancellationToken);
                     var availableStorage = await ResolveAvailableStorageAsync(storageCapacity, cancellationToken);
 
+                    // TickCount64 自系统开机起单调递增，用它同时给出开机时间与系统运行时长；
+                    // 容器内读到的通常是宿主 uptime，正好对应「服务器开机时间」。
+                    var serverTime = DateTimeOffset.UtcNow;
+                    var systemUptimeMilliseconds = Math.Max(0, Environment.TickCount64);
+
                     return ApiResults.Ok(context, new PlatformDashboardDto(
-                        DateTimeOffset.UtcNow,
+                        serverTime,
                         system.StartedAt,
-                        (long)Math.Max(0, (DateTimeOffset.UtcNow - system.StartedAt).TotalSeconds),
+                        (long)Math.Max(0, (serverTime - system.StartedAt).TotalSeconds),
+                        serverTime.AddMilliseconds(-systemUptimeMilliseconds),
+                        systemUptimeMilliseconds / 1000,
                         new SystemStatusDto(
                             "ok",
                             system.CpuUsagePercent,
@@ -105,7 +112,11 @@ public static class PlatformEndpoints
                             system.ManagedMemoryBytes,
                             system.TotalMemoryBytes,
                             availableStorage,
-                            Environment.ProcessorCount),
+                            Environment.ProcessorCount,
+                            system.ServerCpuUsagePercent,
+                            system.ServerMemoryUsagePercent,
+                            system.ServerTotalMemoryBytes,
+                            system.ServerAvailableMemoryBytes),
                         new DeviceStatisticsDto(
                             devices.Total,
                             devices.Online,

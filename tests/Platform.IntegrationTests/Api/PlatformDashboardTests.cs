@@ -37,8 +37,23 @@ public sealed class PlatformDashboardTests : IClassFixture<PlatformApiFactory>
         Assert.True(board.System.ProcessorCount >= 1);
         Assert.True(board.System.WorkingSetBytes > 0);
         Assert.True(board.System.TotalMemoryBytes > 0);
+        if (board.System.ServerCpuUsagePercent is { } serverCpu)
+        {
+            Assert.InRange(serverCpu, 0, 100);
+        }
+
+        if (board.System is
+            { ServerTotalMemoryBytes: { } serverTotal, ServerAvailableMemoryBytes: { } serverAvailable })
+        {
+            Assert.True(serverTotal > 0);
+            Assert.InRange(serverAvailable, 0, serverTotal);
+            Assert.InRange(board.System.ServerMemoryUsagePercent!.Value, 0, 100);
+        }
         Assert.True(board.UptimeSeconds >= 0);
         Assert.True(board.StartedAt <= board.ServerTime);
+        Assert.True(board.BootTime <= board.ServerTime);
+        Assert.True(board.SystemUptimeSeconds >= 0);
+        Assert.True(board.SystemUptimeSeconds >= board.UptimeSeconds);
 
         Assert.True(board.Devices.Total >= 0);
         Assert.True(board.Devices.Online <= board.Devices.Total);
@@ -48,6 +63,8 @@ public sealed class PlatformDashboardTests : IClassFixture<PlatformApiFactory>
         Assert.False(string.IsNullOrWhiteSpace(board.Platform.OsDescription));
         Assert.False(string.IsNullOrWhiteSpace(board.Platform.RuntimeVersion));
         Assert.False(string.IsNullOrWhiteSpace(board.Platform.PlatformVersion));
+        Assert.StartsWith("1.0.0.", board.Platform.PlatformVersion, StringComparison.Ordinal);
+        Assert.Equal(4, board.Platform.PlatformVersion.Split('.').Length);
         Assert.True(board.Platform.ModuleCount >= 8);
     }
 }

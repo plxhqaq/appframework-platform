@@ -1,3 +1,4 @@
+import { tr } from '../../i18n/translate';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -8,124 +9,309 @@ import {
   Col,
   Descriptions,
   Flex,
+  InputNumber,
   Progress,
   Row,
   Space,
-  Statistic,
+  Switch,
   Table,
   Tag,
-  Tooltip,
   Typography,
+  theme as antdTheme,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { PageHeading } from '../../app/PageHeading';
 import { platformApi } from '../../shared/api/platform';
 import type { ModuleInfo } from '../../shared/api/types';
-import { formatBytes } from '../../shared/format';
-import { useAuthStore } from '../../stores/auth';
+import { formatBytes, formatDateTime } from '../../shared/format';
+import { renderTableExpandIcon } from '../../shared/ui/TableExpandIcon';
 
-const HISTORY_SIZE = 30;
-const REFRESH_INTERVAL_MS = 10000;
+const DEFAULT_INTERVAL_SECONDS = 10;
+const MIN_INTERVAL_SECONDS = 1;
+const MAX_INTERVAL_SECONDS = 3600;
+
+interface UptimeAnchor {
+  sampledAt: number;
+  systemUptimeSeconds: number;
+  platformUptimeSeconds: number;
+}
 
 const moduleColumns: TableColumnsType<ModuleInfo> = [
-  { title: '模块键', dataIndex: 'key', key: 'key', width: 140 },
-  { title: '显示名键', dataIndex: 'displayNameKey', key: 'displayNameKey', width: 200 },
+  { get title() { return tr("模块键"); }, dataIndex: 'key', key: 'key', width: 170 },
   {
-    title: '阶段',
+    get title() { return tr("显示名键"); },
+    dataIndex: 'displayNameKey',
+    key: 'displayNameKey',
+    width: 220,
+    responsive: ['md'],
+  },
+  {
+    get title() { return tr("阶段"); },
     dataIndex: 'stage',
     key: 'stage',
-    width: 90,
+    width: 80,
     render: (stage: string) => <Tag color={stage === 'S0' ? 'default' : 'green'}>{stage}</Tag>,
   },
-  { title: '版本', dataIndex: 'version', key: 'version', width: 160 },
   {
-    title: '路由',
-    dataIndex: 'routes',
-    key: 'routes',
-    render: (routes: string[]) => routes.map((route) => <Tag key={route}>{route}</Tag>),
+    get title() { return tr("版本"); },
+    dataIndex: 'version',
+    key: 'version',
+    width: 180,
+    responsive: ['lg'],
   },
   {
-    title: '声明权限',
+    get title() { return tr("路由"); },
+    dataIndex: 'routes',
+    key: 'routes',
+    width: 70,
+    align: 'center',
+    render: (routes: string[]) => routes.length,
+  },
+  {
+    get title() { return tr("权限"); },
     dataIndex: 'requiredPermissions',
     key: 'requiredPermissions',
-    render: (codes: string[]) => (
-      <Space size={[4, 4]} wrap>
-        {codes.map((code) => (
-          <Tag key={code} color="blue">
-            {code}
-          </Tag>
-        ))}
-      </Space>
-    ),
+    width: 70,
+    align: 'center',
+    render: (codes: string[]) => codes.length,
   },
 ];
 
-function formatUptime(totalSeconds: number): string {
+function formatDuration(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds));
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  if (days > 0) {
-    return `${days} 天 ${hours} 小时`;
-  }
-  if (hours > 0) {
-    return `${hours} 小时 ${minutes} 分`;
-  }
-  if (minutes > 0) {
-    return `${minutes} 分 ${seconds % 60} 秒`;
-  }
-  return `${seconds} 秒`;
+  const clock = [hours, minutes, seconds % 60]
+    .map((part) => String(part).padStart(2, '0'))
+    .join(':');
+  return days > 0 ? tr('{{days}} 天 {{clock}}', { days, clock }) : clock;
 }
 
 function percentText(value: number): string {
   return `${value.toFixed(1)}%`;
 }
 
-/** 迷你趋势线：只画最近若干次采样，不引入图表依赖。 */
-function Sparkline({ values, color }: { values: number[]; color: string }) {
-  if (values.length < 2) {
-    return <div style={{ height: 36 }} />;
-  }
+/** 用主色派生 12% 浅底：token 的 *Bg 由主色推导，湖青等深主色会得到发闷的中灰底。 */
+function tileBackground(accent: string): { background: string } {
+  return { background: `color-mix(in srgb, ${accent} 12%, transparent)` };
+}
 
-  const width = 100;
-  const height = 36;
-  const points = values
-    .map((value, index) => {
-      const x = (index / (values.length - 1)) * width;
-      const y = height - (Math.min(100, Math.max(0, value)) / 100) * height;
-      return `${x.toFixed(2)},${y.toFixed(2)}`;
-    })
-    .join(' ');
+function UptimeBlock({
+  label,
+  seconds,
+  hint,
+  accent,
+}: {
+  label: string;
+  seconds?: number;
+  hint: string;
+  accent: string;
+}) {
+  return (
+    <div className="stat-tile" style={tileBackground(accent)}>
+      <Typography.Text className="stat-tile__label" style={{ color: accent }}>
+        {label}
+      </Typography.Text>
+      <div>
+        <Typography.Text className="dashboard-uptime" strong>
+          {seconds != null ? formatDuration(seconds) : '--'}
+        </Typography.Text>
+      </div>
+      <Typography.Text type="secondary" className="dashboard-caption">
+        {hint}
+      </Typography.Text>
+    </div>
+  );
+}
+
+/** 两个已运行时长共用一只本地秒表：轮询只校准锚点，自动刷新开关不影响它们继续走。 */
+function UptimeStats({
+  anchor,
+  systemUptimeSeconds,
+  platformUptimeSeconds,
+  bootTime,
+  startedAt,
+}: {
+  anchor: UptimeAnchor | null;
+  systemUptimeSeconds?: number;
+  platformUptimeSeconds?: number;
+  bootTime?: string;
+  startedAt?: string;
+}) {
+  const [now, setNow] = useState(() => performance.now());
+  const { token } = antdTheme.useToken();
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(performance.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const elapsed = anchor ? Math.max(0, Math.floor((now - anchor.sampledAt) / 1000)) : 0;
+  const systemSeconds = anchor
+    ? anchor.systemUptimeSeconds + elapsed
+    : systemUptimeSeconds;
+  const platformSeconds = anchor
+    ? anchor.platformUptimeSeconds + elapsed
+    : platformUptimeSeconds;
 
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
-      role="img"
-      aria-label="资源占用趋势"
-      style={{ width: '100%', height: 36 }}
-    >
-      <polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth="2"
-        vectorEffect="non-scaling-stroke"
+    <Row gutter={[16, 8]}>
+      <Col xs={24} sm={12}>
+        <UptimeBlock
+          label={tr("服务器开机时间")}
+          seconds={systemSeconds}
+          hint={bootTime ? tr("开机于 {{arg0}}", { arg0: formatDateTime(bootTime) }) : tr("开机时间未知")}
+          accent={token.colorPrimary}
+        />
+      </Col>
+      <Col xs={24} sm={12}>
+        <UptimeBlock
+          label={tr("系统运行时间")}
+          seconds={platformSeconds}
+          hint={startedAt ? tr("启动于 {{arg0}}", { arg0: formatDateTime(startedAt) }) : tr("启动时间未知")}
+          accent={token.colorSuccess}
+        />
+      </Col>
+    </Row>
+  );
+}
+
+/** 百分比仪表盘：antd dashboard 形态（底部开口的环形进度），不引入额外依赖。 */
+function DashGauge({
+  value,
+  label,
+  color,
+  caption,
+  segment,
+}: {
+  value: number;
+  label: string;
+  color: string;
+  caption?: ReactNode;
+  /** 环内分段：表示总量中属于某一子项的部分（如平台进程占用）。 */
+  segment?: { value: number; color: string };
+}) {
+  const { token } = antdTheme.useToken();
+  const clamped = Math.max(0, Math.min(100, Number(value.toFixed(1))));
+  const segmentPercent = segment
+    ? Math.max(0, Math.min(clamped, Number(segment.value.toFixed(1))))
+    : null;
+
+  return (
+    <div className="dash-gauge">
+      <Typography.Text type="secondary" className="dash-gauge__label">
+        {label}
+      </Typography.Text>
+      <Progress
+        type="dashboard"
+        percent={clamped}
+        success={
+          segmentPercent != null
+            ? { percent: segmentPercent, strokeColor: segment?.color }
+            : undefined
+        }
+        gapDegree={100}
+        gapPosition="bottom"
+        strokeColor={color}
+        trailColor={token.colorFillSecondary}
+        size={132}
+        format={() => percentText(clamped)}
+        aria-label={
+          segmentPercent != null
+            ? tr('{{label}} 总计 {{total}}，其中 {{segment}}', {
+                label,
+                total: percentText(clamped),
+                segment: percentText(segmentPercent),
+              })
+            : `${label} ${percentText(clamped)}`
+        }
       />
-    </svg>
+      {caption ? (
+        <Typography.Text type="secondary" className="dash-gauge__caption">
+          {caption}
+        </Typography.Text>
+      ) : null}
+    </div>
+  );
+}
+
+/** 彩色信息块：数字型指标用底色和强调色区分，避免整页只有灰白两色。 */
+function StatTile({
+  label,
+  value,
+  hint,
+  accent,
+}: {
+  label: string;
+  value: ReactNode;
+  hint?: string;
+  accent: string;
+}) {
+  return (
+    <div className="stat-tile" style={tileBackground(accent)}>
+      <Typography.Text className="stat-tile__label" style={{ color: accent }}>
+        {label}
+      </Typography.Text>
+      <div className="stat-tile__body">
+        <div className="stat-tile__value" style={{ color: accent }}>
+          {value}
+        </div>
+        {hint ? (
+          <Typography.Text type="secondary" className="stat-tile__hint">
+            {hint}
+          </Typography.Text>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function renderModuleDetails(module: ModuleInfo) {
+  return (
+    <Flex vertical gap={10}>
+      <div>
+        <Typography.Text type="secondary">{tr("路由")}</Typography.Text>
+        <Flex wrap gap={4} style={{ marginTop: 4 }}>
+          {module.routes.length > 0 ? (
+            module.routes.map((route) => <Tag key={route}>{route}</Tag>)
+          ) : (
+            <Typography.Text type="secondary">{tr("未声明")}</Typography.Text>
+          )}
+        </Flex>
+      </div>
+      <div>
+        <Typography.Text type="secondary">{tr("声明权限")}</Typography.Text>
+        <Flex wrap gap={4} style={{ marginTop: 4 }}>
+          {module.requiredPermissions.length > 0 ? (
+            module.requiredPermissions.map((code) => (
+              <Tag key={code} color="blue">
+                {code}
+              </Tag>
+            ))
+          ) : (
+            <Typography.Text type="secondary">{tr("未声明")}</Typography.Text>
+          )}
+        </Flex>
+      </div>
+    </Flex>
   );
 }
 
 /**
- * 总览仪表盘：系统状态、运行平台、资源占用、设备统计与平台信息。
+ * 总览仪表盘：运行状态、进程资源、服务器资源监控、设备连接与平台信息。
  *
- * 数据来自 `GET /api/v1/platform/dashboard`，10 秒轮询一次；
- * 趋势线只保留本页打开期间的采样，不落任何存储。
+ * - 服务器运行时间由本地秒表推进（每秒一次），轮询只校准锚点，和自动刷新开关解耦；
+ * - 其余内容的自动刷新默认开启、间隔可调（最小 1s），切换路由时组件卸载即暂停；
+ * - 百分比一律用 antd dashboard 仪表盘：CPU/内存环内分段同时显示整机总量与平台进程占用，
+ *   数量类指标用彩色信息块区分语义，避免整页灰白。
  */
 export function OverviewPage() {
-  const session = useAuthStore((state) => state.session);
-  const [cpuHistory, setCpuHistory] = useState<number[]>([]);
-  const [memoryHistory, setMemoryHistory] = useState<number[]>([]);
+  const { token } = antdTheme.useToken();
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [intervalSeconds, setIntervalSeconds] = useState(DEFAULT_INTERVAL_SECONDS);
+  const [uptimeAnchor, setUptimeAnchor] = useState<UptimeAnchor | null>(null);
 
   const modules = useQuery({
     queryKey: ['platform', 'modules'],
@@ -135,21 +321,20 @@ export function OverviewPage() {
   const dashboard = useQuery({
     queryKey: ['platform', 'dashboard'],
     queryFn: ({ signal }) => platformApi.dashboard(signal),
-    refetchInterval: REFRESH_INTERVAL_MS,
+    refetchInterval: autoRefresh ? intervalSeconds * 1000 : false,
   });
 
   useEffect(() => {
-    if (!dashboard.data) {
+    const board = dashboard.data;
+    if (!board) {
       return;
     }
 
-    const { system } = dashboard.data;
-    setCpuHistory((previous) =>
-      [...previous, system.cpuUsagePercent].slice(-HISTORY_SIZE),
-    );
-    setMemoryHistory((previous) =>
-      [...previous, system.memoryUsagePercent].slice(-HISTORY_SIZE),
-    );
+    setUptimeAnchor({
+      sampledAt: performance.now(),
+      systemUptimeSeconds: board.systemUptimeSeconds,
+      platformUptimeSeconds: board.uptimeSeconds,
+    });
   }, [dashboard.data]);
 
   const data = dashboard.data;
@@ -158,27 +343,66 @@ export function OverviewPage() {
   const platform = data?.platform;
   const healthy = dashboard.isSuccess && system?.status === 'ok';
 
+  const usageColor = (value: number, normal: string) =>
+    value >= 85 ? token.colorError : value >= 70 ? token.colorWarning : normal;
+
+  const serverCpu = system?.serverCpuUsagePercent ?? null;
+  const serverMemory = system?.serverMemoryUsagePercent ?? null;
+
+  const onlineRate =
+    devices && devices.total > 0 ? (devices.online / devices.total) * 100 : 0;
+
+  const intervalLabel = autoRefresh
+    ? tr("每 {{arg0}} 秒自动刷新", { arg0: intervalSeconds })
+    : tr("自动刷新已暂停");
+
   return (
     <Flex vertical gap={16}>
-      <Flex wrap justify="space-between" align="center" gap={8}>
-        <div>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            仪表盘
-          </Typography.Title>
-          <Typography.Text type="secondary">
-            {data
-              ? `数据时间 ${new Date(data.serverTime).toLocaleString()}`
-              : '正在读取平台状态…'}
-          </Typography.Text>
-        </div>
-        <Button
-          icon={<ReloadOutlined />}
-          loading={dashboard.isFetching}
-          onClick={() => void dashboard.refetch()}
-        >
-          刷新
-        </Button>
-      </Flex>
+      <PageHeading
+        title={tr("仪表盘")}
+        description={
+          data
+            ? tr("服务端时间 {{arg0}} · {{arg1}}", { arg0: formatDateTime(data.serverTime), arg1: intervalLabel })
+            : tr("正在读取平台状态…")
+        }
+        extra={
+          <Space size={8} wrap>
+            <Space size={6} align="center">
+              <Switch size="small" checked={autoRefresh} onChange={setAutoRefresh} />
+              <Typography.Text>{tr("自动刷新")}</Typography.Text>
+            </Space>
+            <Space size={4} align="center">
+              <InputNumber
+                size="small"
+                min={MIN_INTERVAL_SECONDS}
+                max={MAX_INTERVAL_SECONDS}
+                precision={0}
+                value={intervalSeconds}
+                disabled={!autoRefresh}
+                onChange={(value) => {
+                  if (typeof value === 'number' && Number.isFinite(value)) {
+                    setIntervalSeconds(
+                      Math.min(
+                        MAX_INTERVAL_SECONDS,
+                        Math.max(MIN_INTERVAL_SECONDS, Math.round(value)),
+                      ),
+                    );
+                  }
+                }}
+                style={{ width: 84 }}
+                aria-label={tr("自动刷新间隔（秒）")}
+              />
+              <Typography.Text type={autoRefresh ? undefined : 'secondary'}>{tr("秒")}</Typography.Text>
+            </Space>
+            <Button
+              icon={<ReloadOutlined />}
+              loading={dashboard.isFetching}
+              onClick={() => void dashboard.refetch()}
+            >
+              {tr("刷新")}</Button>
+          </Space>
+        }
+      />
 
       {dashboard.isError ? (
         <Alert
@@ -187,283 +411,257 @@ export function OverviewPage() {
           message={(dashboard.error as Error).message}
           action={
             <Button size="small" onClick={() => void dashboard.refetch()}>
-              重试
-            </Button>
+              {tr("重试")}</Button>
           }
         />
       ) : null}
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} md={12} xl={8}>
-          <Card size="small" title="系统状态" loading={dashboard.isPending} style={{ height: '100%' }}>
-            <Flex vertical gap={12}>
-              <Badge
-                status={healthy ? 'success' : 'error'}
-                text={healthy ? '运行正常' : '状态异常'}
-              />
-              <Statistic
-                title="已运行"
-                value={data ? formatUptime(data.uptimeSeconds) : '-'}
-                valueStyle={{ fontSize: 26 }}
-              />
-              <Descriptions
-                column={1}
-                size="small"
-                items={[
-                  {
-                    key: 'startedAt',
-                    label: '启动时间',
-                    children: data ? new Date(data.startedAt).toLocaleString() : '-',
-                  },
-                  {
-                    key: 'environment',
-                    label: '运行环境',
-                    children: platform ? <Tag>{platform.environmentName}</Tag> : '-',
-                  },
-                  {
-                    key: 'trace',
-                    label: '探测端点',
-                    children: <Typography.Text code>/healthz</Typography.Text>,
-                  },
-                ]}
-              />
-            </Flex>
-          </Card>
-        </Col>
-
-        <Col xs={24} md={12} xl={8}>
-          <Card size="small" title="运行平台" loading={dashboard.isPending} style={{ height: '100%' }}>
-            {platform ? (
-              <Descriptions
-                column={1}
-                size="small"
-                items={[
-                  { key: 'os', label: '操作系统', children: platform.osDescription },
-                  { key: 'arch', label: '系统架构', children: platform.osArchitecture },
-                  { key: 'runtime', label: '运行时', children: platform.runtimeVersion },
-                  { key: 'machine', label: '主机名', children: platform.machineName },
-                  {
-                    key: 'cpuCount',
-                    label: '逻辑处理器',
-                    children: `${system?.processorCount ?? '-'} 核`,
-                  },
-                ]}
-              />
-            ) : (
-              <Typography.Text type="secondary">暂无数据</Typography.Text>
-            )}
-          </Card>
-        </Col>
-
-        <Col xs={24} md={12} xl={8}>
-          <Card size="small" title="资源占用" loading={dashboard.isPending} style={{ height: '100%' }}>
-            {system ? (
-              <Flex vertical gap={14}>
-                <div>
-                  <Flex justify="space-between" align="center">
-                    <Typography.Text>CPU</Typography.Text>
-                    <Typography.Text strong>{percentText(system.cpuUsagePercent)}</Typography.Text>
-                  </Flex>
-                  <Progress
-                    percent={Math.round(system.cpuUsagePercent)}
-                    showInfo={false}
-                    size="small"
-                    status={system.cpuUsagePercent >= 85 ? 'exception' : 'normal'}
-                  />
-                  <Sparkline
-                    values={cpuHistory}
-                    color={system.cpuUsagePercent >= 85 ? '#ff4d4f' : '#1677ff'}
-                  />
-                </div>
-                <div>
-                  <Flex justify="space-between" align="center">
-                    <Typography.Text>内存</Typography.Text>
-                    <Typography.Text strong>
-                      {percentText(system.memoryUsagePercent)}
-                    </Typography.Text>
-                  </Flex>
-                  <Progress
-                    percent={Math.round(system.memoryUsagePercent)}
-                    showInfo={false}
-                    size="small"
-                    status={system.memoryUsagePercent >= 85 ? 'exception' : 'normal'}
-                  />
-                  <Sparkline
-                    values={memoryHistory}
-                    color={system.memoryUsagePercent >= 85 ? '#ff4d4f' : '#52c41a'}
-                  />
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {formatBytes(system.workingSetBytes)} / {formatBytes(system.totalMemoryBytes)}
-                    （托管堆 {formatBytes(system.managedMemoryBytes)}）
-                  </Typography.Text>
-                </div>
-                <Descriptions
-                  column={1}
-                  size="small"
-                  items={[
-                    {
-                      key: 'storage',
-                      label: '可用存储',
-                      children:
-                        system.availableStorageBytes != null
-                          ? formatBytes(system.availableStorageBytes)
-                          : '未知',
-                    },
-                  ]}
-                />
-              </Flex>
-            ) : (
-              <Typography.Text type="secondary">暂无数据</Typography.Text>
-            )}
-          </Card>
-        </Col>
-
-        <Col xs={24} md={12} xl={8}>
-          <Card size="small" title="已连接设备" loading={dashboard.isPending} style={{ height: '100%' }}>
-            {devices ? (
-              <Flex vertical gap={10}>
-                <Statistic title="实时连接" value={devices.connected} suffix="台" />
-                <Flex wrap gap={8}>
-                  <Tooltip title="数据库在线标记（含待机与运行）">
-                    <Tag color="green">在线 {devices.online}</Tag>
-                  </Tooltip>
-                  <Tag color="blue">待机 {devices.idle}</Tag>
-                  <Tag color="orange">运行 {devices.running}</Tag>
-                  <Tag>离线 {devices.offline}</Tag>
-                  <Tag color="red">停用 {devices.disabled}</Tag>
-                  <Tag color="purple">总计 {devices.total}</Tag>
-                </Flex>
-                <Progress
-                  percent={
-                    devices.total > 0 ? Math.round((devices.online / devices.total) * 100) : 0
-                  }
-                  size="small"
-                  format={(percent) => `在线率 ${percent}%`}
-                />
-              </Flex>
-            ) : (
-              <Typography.Text type="secondary">暂无数据</Typography.Text>
-            )}
-          </Card>
-        </Col>
-
-        <Col xs={24} md={12} xl={8}>
-          <Card size="small" title="平台信息" loading={dashboard.isPending} style={{ height: '100%' }}>
-            {platform ? (
-              <Descriptions
-                column={1}
-                size="small"
-                items={[
-                  { key: 'version', label: '平台版本', children: platform.platformVersion },
-                  {
-                    key: 'modules',
-                    label: '已装配模块',
-                    children: `${platform.moduleCount} 个`,
-                  },
-                  {
-                    key: 'environment',
-                    label: '运行环境',
-                    children: <Tag>{platform.environmentName}</Tag>,
-                  },
-                  {
-                    key: 'storage',
-                    label: '可用存储',
-                    children:
-                      system?.availableStorageBytes != null
-                        ? formatBytes(system.availableStorageBytes)
-                        : '未知',
-                  },
-                  {
-                    key: 'serverTime',
-                    label: '服务器时间',
-                    children: data ? new Date(data.serverTime).toLocaleString() : '-',
-                  },
-                ]}
-              />
-            ) : (
-              <Typography.Text type="secondary">暂无数据</Typography.Text>
-            )}
-          </Card>
-        </Col>
-
-        <Col xs={24} md={12} xl={8}>
+        <Col span={24}>
           <Card
             size="small"
-            title="平台模块"
-            extra={<Tag>{modules.data?.length ?? 0} 个</Tag>}
+            title={tr("运行状态")}
+            loading={dashboard.isPending}
+            extra={
+              <Badge
+                status={healthy ? 'success' : 'error'}
+                text={healthy ? tr("运行正常") : tr("状态异常")}
+              />
+            }
             style={{ height: '100%' }}
           >
-            {modules.isError ? (
-              <Alert type="error" showIcon message={(modules.error as Error).message} />
-            ) : (
-              <Flex wrap gap={8}>
-                {(modules.data ?? []).map((module) => (
-                  <Tag key={module.key} color="geekblue">
-                    {module.key} · {module.version}
-                  </Tag>
-                ))}
-                {modules.isPending ? <Typography.Text type="secondary">加载中…</Typography.Text> : null}
-              </Flex>
-            )}
+            <UptimeStats
+              anchor={uptimeAnchor}
+              systemUptimeSeconds={data?.systemUptimeSeconds}
+              platformUptimeSeconds={data?.uptimeSeconds}
+              bootTime={data?.bootTime}
+              startedAt={data?.startedAt}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]}>
+        <Col xs={24} xl={12}>
+          <Card
+            size="small"
+            title={tr("资源占用")}
+            loading={dashboard.isPending}
+            extra={system ? <Tag color="blue">{system.processorCount} {tr("核")}</Tag> : null}
+            style={{ height: '100%' }}
+          >
+            <Row gutter={[8, 8]}>
+              <Col span={12}>
+                <DashGauge
+                  value={serverCpu ?? system?.cpuUsagePercent ?? 0}
+                  label={tr("整机 CPU")}
+                  color={usageColor(serverCpu ?? system?.cpuUsagePercent ?? 0, token.colorPrimary)}
+                  segment={
+                    serverCpu != null
+                      ? { value: system?.cpuUsagePercent ?? 0, color: token.colorSuccess }
+                      : undefined
+                  }
+                  caption={
+                    serverCpu != null
+                      ? tr("平台进程 {{arg0}}", { arg0: percentText(system?.cpuUsagePercent ?? 0) })
+                      : tr("整机数据暂不可用")
+                  }
+                />
+              </Col>
+              <Col span={12}>
+                <DashGauge
+                  value={serverMemory ?? system?.memoryUsagePercent ?? 0}
+                  label={tr("整机内存")}
+                  color={usageColor(serverMemory ?? system?.memoryUsagePercent ?? 0, token.colorPrimary)}
+                  segment={
+                    serverMemory != null
+                      ? { value: system?.memoryUsagePercent ?? 0, color: token.colorSuccess }
+                      : undefined
+                  }
+                  caption={
+                    serverMemory != null
+                      ? tr("平台进程 {{arg0}}", { arg0: percentText(system?.memoryUsagePercent ?? 0) })
+                      : tr("整机数据暂不可用")
+                  }
+                />
+              </Col>
+            </Row>
+            {/* 与「设备连接」卡同距：色块行独立成行并留 8px，两卡色块顶边才对得齐。 */}
+            <Row gutter={[8, 8]} style={{ marginTop: 8 }}>
+              <Col span={12}>
+                <StatTile
+                  label={tr("工作集")}
+                  value={system ? formatBytes(system.workingSetBytes) : '-'}
+                  hint={system ? tr("总计 {{arg0}}", { arg0: formatBytes(system.totalMemoryBytes) }) : undefined}
+                  accent={token.colorPrimary}
+                />
+              </Col>
+              <Col span={12}>
+                <StatTile
+                  label={tr("托管堆")}
+                  value={system ? formatBytes(system.managedMemoryBytes) : '-'}
+                  hint={
+                    system && system.workingSetBytes > 0
+                      ? tr("占工作集 {{arg0}}", { arg0: percentText(
+                          (system.managedMemoryBytes / system.workingSetBytes) * 100,
+                        ) })
+                      : undefined
+                  }
+                  accent={token.colorSuccess}
+                />
+              </Col>
+            </Row>
           </Card>
         </Col>
 
-        <Col xs={24}>
-          <Card size="small" title="当前主体">
-            {session ? (
-              <Descriptions
-                column={{ xs: 1, sm: 2 }}
-                size="small"
-                items={[
-                  { key: 'userName', label: '用户名', children: session.userName },
-                  {
-                    key: 'displayName',
-                    label: '显示名',
-                    children: session.displayName ?? '-',
-                  },
-                  { key: 'userId', label: '用户 ID', children: session.userId },
-                  {
-                    key: 'appKeys',
-                    label: '可访问应用',
-                    children: session.appKeys.join(', ') || '-',
-                  },
-                  {
-                    key: 'roles',
-                    label: '角色',
-                    children: session.roles.join(', ') || '-',
-                  },
-                  {
-                    key: 'permissions',
-                    label: '权限',
-                    children:
-                      session.permissions.length > 6
-                        ? `${session.permissions.slice(0, 6).join(', ')} 等 ${session.permissions.length} 项`
-                        : session.permissions.join(', ') || '-',
-                  },
-                ]}
-              />
-            ) : (
-              <Typography.Text type="secondary">尚未获取主体信息</Typography.Text>
-            )}
+        <Col xs={24} xl={12}>
+          <Card
+            size="small"
+            title={tr("设备连接")}
+            loading={dashboard.isPending}
+            extra={
+              devices ? (
+                <Tag color={devices.connected > 0 ? 'green' : undefined}>
+                  {tr("实时连接")}{devices.connected} {tr("台")}</Tag>
+              ) : null
+            }
+            style={{ height: '100%' }}
+          >
+            <DashGauge
+              value={onlineRate}
+              label={tr("在线率")}
+              color={token.colorSuccess}
+              caption={tr("在线 {{arg0}} / 总计 {{arg1}} 台", { arg0: devices?.online ?? 0, arg1: devices?.total ?? 0 })}
+            />
+            <Row gutter={[8, 8]} style={{ marginTop: 8 }}>
+              <Col xs={12} sm={6}>
+                <StatTile
+                  label={tr("待机")}
+                  value={devices?.idle ?? '-'}
+                  accent={token.colorInfo}
+                />
+              </Col>
+              <Col xs={12} sm={6}>
+                <StatTile
+                  label={tr("运行")}
+                  value={devices?.running ?? '-'}
+                  accent={token.colorWarning}
+                />
+              </Col>
+              <Col xs={12} sm={6}>
+                <StatTile
+                  label={tr("离线")}
+                  value={devices?.offline ?? '-'}
+                  accent={token.colorTextSecondary}
+                />
+              </Col>
+              <Col xs={12} sm={6}>
+                <StatTile
+                  label={tr("停用")}
+                  value={devices?.disabled ?? '-'}
+                  accent={token.colorError}
+                />
+              </Col>
+            </Row>
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]}>
+        <Col xs={24} xl={12}>
+          <Card
+            size="small"
+            title={tr("运行平台")}
+            loading={dashboard.isPending}
+            extra={platform ? <Tag color="geekblue">{platform.osArchitecture}</Tag> : null}
+            style={{ height: '100%' }}
+          >
+            <Descriptions
+              column={{ xs: 1, sm: 2 }}
+              size="small"
+              items={[
+                { key: 'os', label: tr("操作系统"), children: platform?.osDescription ?? '-' },
+                { key: 'arch', label: tr("系统架构"), children: platform?.osArchitecture ?? '-' },
+                { key: 'runtime', label: tr("运行时"), children: platform?.runtimeVersion ?? '-' },
+                { key: 'machine', label: tr("主机名"), children: platform?.machineName ?? '-' },
+                {
+                  key: 'cpuCount',
+                  label: tr("逻辑处理器"),
+                  children: system ? tr('{{count}} 核', { count: system.processorCount }) : '-',
+                },
+              ]}
+            />
           </Card>
         </Col>
 
+        <Col xs={24} xl={12}>
+          <Card
+            size="small"
+            title={tr("平台信息")}
+            loading={dashboard.isPending}
+            extra={platform ? <Tag color="purple">v{platform.platformVersion}</Tag> : null}
+            style={{ height: '100%' }}
+          >
+            <Descriptions
+              column={{ xs: 1, sm: 2 }}
+              size="small"
+              items={[
+                { key: 'version', label: tr("平台版本"), children: platform?.platformVersion ?? '-' },
+                {
+                  key: 'modules',
+                  label: tr("已装配模块"),
+                  children: platform
+                    ? tr('{{count}} 个', { count: platform.moduleCount })
+                    : '-',
+                },
+                {
+                  key: 'environment',
+                  label: tr("运行环境"),
+                  children: platform ? <Tag>{platform.environmentName}</Tag> : '-',
+                },
+                {
+                  key: 'storage',
+                  label: tr("可用存储"),
+                  children:
+                    system?.availableStorageBytes != null
+                      ? formatBytes(system.availableStorageBytes)
+                      : tr("未知"),
+                },
+                {
+                  key: 'serverTime',
+                  label: tr("服务器时间"),
+                  children: data ? formatDateTime(data.serverTime) : '-',
+                },
+              ]}
+            />
+          </Card>
+        </Col>
       </Row>
 
       <Card
         size="small"
-        title="模块明细"
-        extra={<Typography.Text type="secondary">GET /api/v1/platform/modules</Typography.Text>}
+        title={tr("模块明细")}
+        extra={<Tag color="blue">{modules.data?.length ?? 0} {tr("个")}</Tag>}
       >
-        <Table<ModuleInfo>
-          rowKey="key"
-          size="small"
-          pagination={false}
-          scroll={{ x: 'max-content' }}
-          loading={modules.isPending}
-          dataSource={modules.data ?? []}
-          columns={moduleColumns}
-        />
+        {modules.isError ? (
+          <Alert type="error" showIcon message={(modules.error as Error).message} />
+        ) : (
+          <Table<ModuleInfo>
+            rowKey="key"
+            size="small"
+            pagination={false}
+            scroll={{ x: 'max-content' }}
+            loading={modules.isPending}
+            dataSource={modules.data ?? []}
+            columns={moduleColumns}
+            expandable={{
+              expandIcon: renderTableExpandIcon,
+              expandedRowRender: renderModuleDetails,
+              rowExpandable: (module) =>
+                module.routes.length > 0 || module.requiredPermissions.length > 0,
+            }}
+          />
+        )}
       </Card>
     </Flex>
   );

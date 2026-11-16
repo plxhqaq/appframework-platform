@@ -21,6 +21,7 @@ public sealed class SystemMetricsSampler : BackgroundService
     public SystemMetricsSampler()
     {
         using var process = Process.GetCurrentProcess();
+        var serverMemory = ServerResourceProbe.TryReadMemory();
         _current = new SystemMetricsSnapshot(
             DateTimeOffset.UtcNow,
             GetStartTime(process),
@@ -28,7 +29,11 @@ public sealed class SystemMetricsSampler : BackgroundService
             MemoryUsagePercent: Percent(process.WorkingSet64, _totalMemoryBytes),
             process.WorkingSet64,
             GC.GetTotalMemory(forceFullCollection: false),
-            _totalMemoryBytes);
+            _totalMemoryBytes,
+            ServerCpuUsagePercent: null,
+            ServerMemoryUsagePercent: ServerMemoryPercent(serverMemory),
+            serverMemory?.TotalBytes,
+            serverMemory?.AvailableBytes);
     }
 
     /// <summary>最近一次采样。</summary>
@@ -49,6 +54,7 @@ public sealed class SystemMetricsSampler : BackgroundService
         using var process = Process.GetCurrentProcess();
         var previousCpu = process.TotalProcessorTime;
         var previousAt = DateTimeOffset.UtcNow;
+        var previousServerCpu = ServerResourceProbe.TryReadCpuTimes();
 
         using var timer = new PeriodicTimer(SampleInterval);
         try
@@ -71,6 +77,15 @@ public sealed class SystemMetricsSampler : BackgroundService
                 previousCpu = cpu;
                 previousAt = now;
 
+                // 整机 CPU 用同一采样窗口的累计时间增量；首次采样只有锚点，给出 null 等下一拍。
+                var serverCpu = ServerResourceProbe.TryReadCpuTimes();
+                var serverCpuPercent = serverCpu is { } currentServerCpu
+                                       && previousServerCpu is { } priorServerCpu
+                    ? ServerResourceProbe.CpuUsagePercent(priorServerCpu, currentServerCpu)
+                    : null;
+                previousServerCpu = serverCpu ?? previousServerCpu;
+                var serverMemory = ServerResourceProbe.TryReadMemory();
+
                 var workingSet = process.WorkingSet64;
                 var snapshot = new SystemMetricsSnapshot(
                     now,
@@ -79,7 +94,11 @@ public sealed class SystemMetricsSampler : BackgroundService
                     Percent(workingSet, _totalMemoryBytes),
                     workingSet,
                     GC.GetTotalMemory(forceFullCollection: false),
-                    _totalMemoryBytes);
+                    _totalMemoryBytes,
+                    serverCpuPercent,
+                    ServerMemoryPercent(serverMemory),
+                    serverMemory?.TotalBytes,
+                    serverMemory?.AvailableBytes);
 
                 lock (_gate)
                 {
@@ -108,9 +127,14 @@ public sealed class SystemMetricsSampler : BackgroundService
 
     private static double Percent(long used, long total) =>
         Math.Round(Math.Clamp(used * 100d / total, 0, 100), 1);
+
+    private static double? ServerMemoryPercent(ServerMemoryInfo? memory) =>
+        memory is { TotalBytes: > 0 } info
+            ? Percent(info.TotalBytes - info.AvailableBytes, info.TotalBytes)
+            : null;
 }
 
-/// <summary>一次进程指标采样。</summary>
+/// <summary>一次进程指标采样；整机指标在不支持的平台上为 null。</summary>
 public sealed record SystemMetricsSnapshot(
     DateTimeOffset SampledAt,
     DateTimeOffset StartedAt,
@@ -118,4 +142,8 @@ public sealed record SystemMetricsSnapshot(
     double MemoryUsagePercent,
     long WorkingSetBytes,
     long ManagedMemoryBytes,
-    long TotalMemoryBytes);
+    long TotalMemoryBytes,
+    double? ServerCpuUsagePercent,
+    double? ServerMemoryUsagePercent,
+    long? ServerTotalMemoryBytes,
+    long? ServerAvailableMemoryBytes);
