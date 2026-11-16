@@ -20,7 +20,7 @@ AppFramework 通用服务平台的**跨端契约包**。服务端各模块与客
 ## 使用
 
 ```xml
-<PackageReference Include="AppFramework.Platform.Contracts" Version="0.2.0-preview.2" />
+<PackageReference Include="AppFramework.Platform.Contracts" Version="0.3.0-preview.1" />
 ```
 
 ## 发布
