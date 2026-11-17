@@ -12,6 +12,7 @@ export const navEn = {
   licensing: 'Licensing',
   webhooks: 'Webhooks',
   audit: 'Audit log',
+  apiDocs: 'API docs',
   brand: 'Admin console',
   brandCompact: 'AppFramework admin console',
   openNav: 'Open navigation',

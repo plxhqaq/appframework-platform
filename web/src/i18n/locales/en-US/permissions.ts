@@ -101,6 +101,7 @@ export const permissionsEn = {
     platform: {
       admin:
         'Platform administrator marker used by the built-in admin role; actual access relies on the wildcard',
+      apidocs: { read: 'View the Scalar API documentation entry at the bottom of the admin navigation' },
     },
   },
 };

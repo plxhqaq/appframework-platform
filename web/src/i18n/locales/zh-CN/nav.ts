@@ -12,6 +12,7 @@ export const navZh = {
   licensing: '授权',
   webhooks: 'Webhook',
   audit: '审计日志',
+  apiDocs: 'API 文档',
   brand: '平台管理台',
   brandCompact: 'AppFramework 平台管理台',
   openNav: '打开导航',

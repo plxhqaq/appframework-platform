@@ -20,6 +20,9 @@ export default defineConfig({
       '/api': { target: apiTarget, changeOrigin: true },
       '/healthz': { target: apiTarget, changeOrigin: true },
       '/ready': { target: apiTarget, changeOrigin: true },
+      // 侧栏底部的 Scalar 入口在开发期也要能直接打开，文档页自己再去取 /openapi。
+      '/scalar': { target: apiTarget, changeOrigin: true },
+      '/openapi': { target: apiTarget, changeOrigin: true },
     },
   },
   build: {

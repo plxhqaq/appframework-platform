@@ -49,6 +49,7 @@ export const PERMISSIONS = {
   webhookRead: 'webhook.read',
   webhookManage: 'webhook.manage',
   auditRead: 'audit.read',
+  platformApiDocsRead: 'platform.apidocs.read',
 } as const;
 
 /** `*` 是平台管理员通配，命中即全放行。 */

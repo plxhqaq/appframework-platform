@@ -32,6 +32,40 @@ body {
   border-inline-end: 1px solid var(--app-split, transparent);
 }
 
+/* 侧栏内部改成纵向弹性布局：菜单占满剩余高度，文档入口压到底部。
+   antd 的 Sider 子容器默认不是 flex，不接管的话底部入口会紧贴菜单最后一项。 */
+.app-shell__sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell__nav {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.app-shell__nav-menu {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app-shell__nav-footer {
+  flex: 0 0 auto;
+  padding: 8px;
+  border-block-start: 1px solid var(--app-split, transparent);
+}
+
+.app-shell__nav-footer-link.ant-btn {
+  justify-content: flex-start;
+}
+
+.app-shell__nav-footer-link--compact.ant-btn {
+  justify-content: center;
+}
+
 .app-shell__brand {
   display: flex;
   flex-direction: column;
@@ -141,6 +175,12 @@ body {
 /* 手机侧栏抽屉按视口 86% 展开，但宽屏手机也不该超过 244px。 */
 .app-shell__nav-drawer .ant-drawer-content-wrapper {
   max-width: 244px;
+}
+
+/* 抽屉正文同样是纵向弹性：手机上也把文档入口压到底部。 */
+.app-shell__nav-drawer .ant-drawer-body {
+  display: flex;
+  flex-direction: column;
 }
 
 /* flex 子项默认 min-width:auto，一张宽表格就能把整页撑出横向滚动条。 */

@@ -72,6 +72,9 @@ export const permissionsZh = {
       restart: '向在线设备下发重启命令（离线或停用会被拒绝）',
     },
     audit: { read: '查看审计日志与操作记录' },
-    platform: { admin: '平台管理员标记位，仅内置管理员角色使用；实际放行依靠通配符' },
+    platform: {
+      admin: '平台管理员标记位，仅内置管理员角色使用；实际放行依靠通配符',
+      apidocs: { read: '查看管理台菜单底部的 Scalar API 文档入口' },
+    },
   },
 };

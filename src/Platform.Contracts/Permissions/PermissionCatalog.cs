@@ -75,6 +75,7 @@ public static class PermissionCatalog
 
     // ━━━ 平台级 ━━━
     public const string AuditRead = "audit.read";
+    public const string PlatformApiDocsRead = "platform.apidocs.read";
     public const string PlatformAdmin = "platform.admin";
 
     /// <summary>平台侧全部权限（管理端可授予的集合；不含客户端权限）。</summary>
@@ -132,6 +133,7 @@ public static class PermissionCatalog
         new(DeviceRestart, PlatformModuleKeys.Devices, "perm.device.restart", 820),
 
         new(AuditRead, "platform", "perm.audit.read", 900, PlatformAdminOnly: true),
+        new(PlatformApiDocsRead, "platform", "perm.platform.apidocs.read", 905, PlatformAdminOnly: true),
         new(PlatformAdmin, "platform", "perm.platform.admin", 910, PlatformAdminOnly: true),
     ];
 

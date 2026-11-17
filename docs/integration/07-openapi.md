@@ -19,6 +19,14 @@
 - 在反向代理只放内网/办公网访问这两个路径；
 - 或者接受「路由结构对外可见」——它们不含任何凭据，但会泄露内部端点命名。
 
+管理台侧栏底部有一个 **API 文档** 入口，直接新窗口打开 `/scalar/v1`。
+它由权限码 `platform.apidocs.read`（`PermissionCatalog.PlatformApiDocsRead`，`PlatformAdminOnly`）控制：
+内置角色里只有 `platform-admin` 通过通配符持有，其他内置角色默认看不到。
+
+> 这只是**菜单可见性**门禁，不是接口门禁：`/scalar/v1` 与 `/openapi/v1.json` 仍然匿名可直接访问。
+> 想让文档真正不对外，只能按上面两条在反向代理或环境层面处理。
+> 开发期 Vite 已代理 `/scalar` 与 `/openapi`，`http://localhost:5173` 下该入口同样可用。
+
 `info.version` 是文档版本，**不等于包版本**（包版本见 §2）。
 
 当前这份文档的规模可以自查：

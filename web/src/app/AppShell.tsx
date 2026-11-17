@@ -1,4 +1,5 @@
 import {
+  ApiOutlined,
   EditOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
@@ -16,11 +17,13 @@ import {
   Select,
   Space,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { PERMISSIONS } from '../shared/permissions';
 import { resolveNavLayout, SIDER_COLLAPSED_WIDTH, SIDER_WIDTH } from '../shared/responsive';
 import { useResponsive } from '../shared/useResponsive';
 import { THEME_FAMILIES, THEME_MODES, isThemeMode, type ThemeFamily } from '../styles/antd-theme';
@@ -79,6 +82,9 @@ export function AppShell() {
   const [navCollapsed, setNavCollapsed] = useState(false);
   const session = useAuthStore((state) => state.session);
   const signOut = useAuthStore((state) => state.signOut);
+  const canViewApiDocs = useAuthStore((state) =>
+    state.hasPermission(PERMISSIONS.platformApiDocsRead),
+  );
 
   const hasAppContext = (session?.appKeys?.length ?? 0) > 0;
   const navItems = useMemo(
@@ -110,6 +116,34 @@ export function AppShell() {
       onClick={({ key }) => navigate(key)}
       items={navItems.map((item) => ({ key: item.key, icon: item.icon, label: t(`nav:${item.labelKey}`) }))}
     />
+  );
+
+  const navCompact = navLayout !== 'drawer' && navCollapsed;
+  const nav = (
+    <div className="app-shell__nav">
+      <div className="app-shell__nav-menu">{menu}</div>
+      {canViewApiDocs ? (
+        <div className="app-shell__nav-footer">
+          <Tooltip title={navCompact ? t('nav:apiDocs') : undefined} placement="right">
+            <Button
+              type="text"
+              block
+              href="/scalar/v1"
+              target="_blank"
+              rel="noreferrer"
+              icon={<ApiOutlined />}
+              className={
+                navCompact
+                  ? 'app-shell__nav-footer-link app-shell__nav-footer-link--compact'
+                  : 'app-shell__nav-footer-link'
+              }
+            >
+              {navCompact ? null : t('nav:apiDocs')}
+            </Button>
+          </Tooltip>
+        </div>
+      ) : null}
+    </div>
   );
 
   const brand = (
@@ -154,7 +188,7 @@ export function AppShell() {
           className="app-shell__sider"
         >
           {navCollapsed ? collapsedBrand : brand}
-          {menu}
+          {nav}
         </Sider>
       ) : null}
 
@@ -167,7 +201,7 @@ export function AppShell() {
         title={t('nav:brand')}
         styles={{ body: { padding: 0 } }}
       >
-        {menu}
+        {nav}
       </Drawer>
 
       <Layout>
