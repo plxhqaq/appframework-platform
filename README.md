@@ -204,6 +204,39 @@ bash deploy/deploy.sh up --use-existing-pg "Host=host.docker.internal;Port=5432;
   复用现有镜像，或 `docker save appframework-platform-web | docker load` 把镜像搬过去。
   改前端代码要重新构建（`pnpm install` 那一层只在 lockfile 变化时才重装依赖）；只换证书不需要构建。
 
+### HTTP ↔ HTTPS 切换与登录 Cookie（排障必读）
+
+**症状**：管理台从 https 改成 http 部署后，部分浏览器（典型是 Edge/Chrome）能登录，但刷新页面就回登录页；
+同一台机器换个没访问过 https 版本的浏览器却正常。网络面板里 `/api/v1/admin/auth/refresh` 返回 401，
+且登录响应中的 `Set-Cookie` 在浏览器里没有落成 Cookie。
+
+**原因**：刷新令牌是 httpOnly Cookie（当前名 `af_refresh_v2`，历史名 `af_refresh`），https 下带 `Secure` 标记。
+Chromium 内核（含 Edge）实现了 “Leave Secure Cookies Alone” 保护：**非安全来源的响应不能覆盖、也不能删除同名的
+Secure Cookie**（[RFC 6265bis 草案](https://datatracker.ietf.org/doc/draft-ietf-httpbis-cookie-alone/)；Cookie 按 host
+匹配，与端口无关）。于是 http 下登录/登出/刷新返回的 `Set-Cookie` 都被静默丢弃，浏览器里的旧 Secure Cookie 又不会
+随 http 请求发送 —— 服务端拿不到刷新令牌，access token 一过期就只能重登。
+
+**为什么只有个别浏览器**：只有曾用该 host 打开过 https 版本、且 Cookie 仍在有效期内的浏览器才残留这条 Secure
+Cookie。换浏览器或开无痕窗口正常，**不能证明服务端没问题**。
+
+**定位**：
+
+1. DevTools → Application → Cookies → 该 host，确认是否还有 `af_refresh` / `af_refresh_v2` 且 `Secure` 打勾；
+2. `curl -si -X POST http://<host>/api/v1/admin/auth/login -H 'Content-Type: application/json' -d '...'`
+   看响应有没有 `Set-Cookie`；再对照浏览器 Network 面板，若响应有而 Cookies 列表没有，即为被 Secure 保护挡掉；
+3. 服务端访问日志里 `/api/v1/admin/auth/refresh` 的请求没有刷新 Cookie、返回 401。
+
+**处置**：
+
+- 当前版本（带 `af_refresh_v2` 的修复）：升级服务端后让用户**登录一次**即可；旧名只做一次兼容读取，并在
+  登录/刷新/登出时下发过期头。仍异常就清该站点的 Cookie 与其他站点数据。
+- 更老的版本（Cookie 名仍是 `af_refresh`）：先清浏览器站点数据恢复使用，再升级到带新名的版本。
+- 以后 http → https、https → http 任意方向切换，最省事的规避都是**切换后清一次站点数据**；若必须保留登录态，
+  只能再换一个新的 Cookie 名 —— 每次协议切换都会让当时使用的名字变成不可被覆盖的 Secure 残留。
+
+**不要做的事**：不要为了“让 Cookie 写得进去”去掉刷新 Cookie 的 `Secure`，也不要改成 `SameSite=None`；更不要让
+管理台跨源访问 API（同源要求见本节开头）。
+
 ## 构建与测试
 
 ```bash

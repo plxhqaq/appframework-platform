@@ -76,7 +76,7 @@ curl -s -X POST http://localhost:5080/api/v1/identity/login \
 - `userName` 大小写不敏感（服务端 `Trim().ToLowerInvariant()`）；空用户名或空口令统一返回 `101`。
 - `appKey` 可选：期望进入的应用，不在可访问集合内返回 `118`（403）。`deviceFingerprint` 与 `machineCode` 可选，前者写入刷新令牌记录供按设备排查/吊销，后者同时写入访问令牌 `machine` 声明与刷新令牌记录，供授权绑定。
 - 响应 `LoginResponse`：`accessToken` / `expiresAt` / `refreshToken` / `refreshExpiresAt` / `user`；`user` 即 `UserSessionDto`：`userId` / `userName` / `displayName` / `roles` / `permissions` / `appKeys` / `mustChangePassword` / `appKey` / `permissionsLocked`。`permissionsLocked` 仅在进入应用上下文时有意义，客户端据此决定是否还需要上传权限清单。
-- 管理端 `/api/v1/admin/auth/login` 用同一个 `LoginRequest`，但返回 `AdminSessionResponse`（只有 `accessToken` / `expiresAt` / `user`）：刷新令牌改由 httpOnly + SameSite=Strict 的 Cookie `af_refresh_v2` 承载，`Path` 固定 `/api/v1/admin/auth`，`Secure` 跟随请求是否 HTTPS（`AdminAuthEndpoints.cs`）。旧名 `af_refresh` 仅在读不到新名时兼容续期一次，并在登录/刷新/登出时清除；重命名是为了绕开「HTTPS 部署留下的 Secure 旧 Cookie 无法被 HTTP 响应覆盖」的浏览器保护（表现为 HTTP 部署后 Edge/Chromium 每次刷新都要重登）。
+- 管理端 `/api/v1/admin/auth/login` 用同一个 `LoginRequest`，但返回 `AdminSessionResponse`（只有 `accessToken` / `expiresAt` / `user`）：刷新令牌改由 httpOnly + SameSite=Strict 的 Cookie `af_refresh_v2` 承载，`Path` 固定 `/api/v1/admin/auth`，`Secure` 跟随请求是否 HTTPS（`AdminAuthEndpoints.cs`）。旧名 `af_refresh` 仅在读不到新名时兼容续期一次，并在登录/刷新/登出时清除；重命名是为了绕开「HTTPS 部署留下的 Secure 旧 Cookie 无法被 HTTP 响应覆盖」的浏览器保护（表现为 HTTP 部署后 Edge/Chromium 每次刷新都要重登）。现象、定位与处置见仓库 README 的「HTTP ↔ HTTPS 切换与登录 Cookie（排障必读）」。
 
 ### 2.4 刷新（一次性 + 复用检测）
 
