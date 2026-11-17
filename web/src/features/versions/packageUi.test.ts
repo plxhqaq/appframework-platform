@@ -5,7 +5,6 @@ import {
   manifestSourceLabel,
   packageKindMeta,
   packageStatusMeta,
-  packageTargetError,
 } from './packageUi';
 
 describe('发布包展示口径', () => {
@@ -37,52 +36,25 @@ describe('发布包展示口径', () => {
     expect(guessPackageFormat('noext')).toBeNull();
   });
 
-  it('增量包必须绑定具体运行时', () => {
-    expect(packageTargetError('incremental', 'any')).toBe('增量包必须指定具体的运行时标识');
-    expect(packageTargetError('incremental', 'win-x64')).toBeNull();
-    expect(packageTargetError('full', 'any')).toBeNull();
-  });
-
-  it('登记请求把空白字段归一为 null', () => {
+  it('登记请求只声明字节与旁挂清单，且永远不进发布态', () => {
     const request = buildRegisterRequest({
       sha256: 'a'.repeat(64),
       sizeBytes: 1024,
       fileName: 'Setup-1.0.0.exe',
-      kind: 'full',
-      target: 'any',
-      channelKey: '  ',
-      version: ' 1.0.0 ',
-      notes: '   ',
       manifestSha256: null,
-      publish: true,
-      canPublish: true,
     });
 
-    expect(request).toMatchObject({
+    expect(request).toEqual({
       sha256: 'a'.repeat(64),
       sizeBytes: 1024,
       fileName: 'Setup-1.0.0.exe',
-      kind: 'full',
-      target: 'any',
-      channelKey: null,
-      version: '1.0.0',
-      notes: null,
       manifestSha256: null,
-      publish: true,
+      publish: false,
     });
-  });
-
-  it('无发布权限时强制保留草稿', () => {
-    const request = buildRegisterRequest({
-      sha256: 'b'.repeat(64),
-      sizeBytes: 2048,
-      fileName: 'Setup-1.0.0.msi',
-      kind: 'full',
-      target: 'any',
-      publish: true,
-      canPublish: false,
-    });
-
-    expect(request.publish).toBe(false);
+    expect(request.kind).toBeUndefined();
+    expect(request.target).toBeUndefined();
+    expect(request.channelKey).toBeUndefined();
+    expect(request.version).toBeUndefined();
+    expect(request.notes).toBeUndefined();
   });
 });

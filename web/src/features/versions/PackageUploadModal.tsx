@@ -1,58 +1,38 @@
 import { tr } from '../../i18n/translate';
-import { FileOutlined, InboxOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { FileOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   App,
-  AutoComplete,
   Button,
-  Form,
-  Input,
+  Descriptions,
   Modal,
   Progress,
-  Segmented,
-  Select,
   Space,
-  Switch,
   Tag,
   Typography,
   Upload,
 } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { versionsApi } from '../../shared/api/versions';
-import type {
-  ReleaseChannel,
-  ReleasePackage,
-  ReleasePackageKind,
-} from '../../shared/api/types';
+import type { ReleasePackage, ReleasePackageStatus } from '../../shared/api/types';
 import { hashFile } from '../../shared/files';
 import { formatBytes } from '../../shared/format';
 import {
   buildRegisterRequest,
   guessPackageFormat,
   manifestSourceLabel,
+  packageKindMeta,
   packageStatusMeta,
-  packageTargetError,
 } from './packageUi';
-
-interface PackageFormValues {
-  channelKey?: string;
-  kind: ReleasePackageKind;
-  target: string;
-  version?: string;
-  notes?: string;
-  publish: boolean;
-}
 
 interface PackageUploadModalProps {
   open: boolean;
-  channels: ReleaseChannel[];
-  canPublish: boolean;
   onClose: () => void;
   onSaved: () => void;
+  /** 登记成功后打开草稿版本详情，供核对信息并发布。 */
+  onOpenRelease: (releaseId: string) => void;
 }
-
-const RUNTIMES = ['win-x64', 'win-arm64', 'linux-x64', 'linux-arm64', 'osx-x64', 'osx-arm64'];
 
 const LARGE_FILE_BYTES = 256 * 1024 * 1024;
 
@@ -71,49 +51,43 @@ const STAGE_LABEL: Record<UploadStage, string> = {
   get register() { return tr("登记发布包"); },
 };
 
+const DONE_STATUSES: ReleasePackageStatus[] = ['ready'];
+
 /**
- * 上传安装包：先经上传票据直传字节，再登记为发布包。
- *
- * 全量包（exe/msi/…）登记后立刻可被 check 下发；增量包登记后进入待摄取。
- * 清单优先取旁挂 JSON，否则由服务端从包内探测（PE 资源 / zip 内 af-package.json）。
+ * 上传安装包：管理台不提供任何手填元数据，渠道/版本/类型/运行时/说明全部取自包内清单
+ * （PE 内嵌清单、zip 内 af-package.json 或旁挂 JSON）。登记结果一律为草稿版本，
+ * 由上传者在草稿阶段核对并编辑发布说明，再走发布确认。
  */
 export function PackageUploadModal({
   open,
-  channels,
-  canPublish,
   onClose,
   onSaved,
+  onOpenRelease,
 }: PackageUploadModalProps) {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
-  const [form] = Form.useForm<PackageFormValues>();
   const [file, setFile] = useState<File | null>(null);
   const [manifestFile, setManifestFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [result, setResult] = useState<ReleasePackage | null>(null);
-  const kind = Form.useWatch('kind', form) ?? 'full';
 
   const format = useMemo(() => (file ? guessPackageFormat(file.name) : null), [file]);
   const largeFile = file !== null && file.size > LARGE_FILE_BYTES;
 
   useEffect(() => {
     if (open) {
-      form.setFieldsValue({
-        channelKey: channels[0]?.key,
-        kind: 'full',
-        target: 'any',
-        version: '',
-        notes: '',
-        publish: canPublish,
-      });
+      setFile(null);
+      setManifestFile(null);
+      setProgress(null);
+      setResult(null);
     }
-  }, [open, channels, canPublish, form]);
+  }, [open]);
 
   const applyProgress = (stage: UploadStage, loaded: number, total: number) =>
     setProgress({ stage, loaded, total });
 
   const mutation = useMutation({
-    mutationFn: async (values: PackageFormValues) => {
+    mutationFn: async () => {
       if (!file) {
         throw new Error(tr("请先选择安装包文件"));
       }
@@ -144,19 +118,7 @@ export function PackageUploadModal({
 
       applyProgress('register', 1, 1);
       return versionsApi.registerPackage(
-        buildRegisterRequest({
-          sha256,
-          sizeBytes: file.size,
-          fileName: file.name,
-          kind: values.kind,
-          target: values.target,
-          channelKey: values.channelKey,
-          version: values.version,
-          notes: values.notes,
-          manifestSha256,
-          publish: values.publish,
-          canPublish,
-        }),
+        buildRegisterRequest({ sha256, sizeBytes: file.size, fileName: file.name, manifestSha256 }),
       );
     },
     onSuccess: (registered) => {
@@ -168,23 +130,15 @@ export function PackageUploadModal({
         return;
       }
 
-      const status = packageStatusMeta(registered.status).label;
+      setResult(registered);
       message.success(
-        tr('{{file}} 已登记（{{size}}，{{status}}，清单来源 {{source}}）{{reused}}', {
+        tr('{{file}} 已登记为草稿（{{version}}，{{kind}}，{{target}}）', {
           file: registered.fileName,
-          size: formatBytes(registered.sizeBytes),
-          status,
-          source: manifestSourceLabel(registered.manifestSource),
-          reused: registered.reused ? tr('，复用已有内容') : '',
+          version: registered.version,
+          kind: packageKindMeta(registered.kind).label,
+          target: registered.target,
         }),
       );
-
-      if (registered.status === 'pending') {
-        setResult(registered);
-        return;
-      }
-
-      onClose();
     },
     onError: (error: Error) => message.error(error.message),
     onSettled: () => setProgress(null),
@@ -219,37 +173,8 @@ export function PackageUploadModal({
       return;
     }
 
-    const values = await form.validateFields().catch(() => null);
-    if (!values) {
-      return;
-    }
-
-    const targetError = packageTargetError(values.kind, values.target);
-    if (targetError) {
-      message.error(targetError);
-      return;
-    }
-
-    if (values.kind === 'full' && !manifestFile && format !== 'zip' && format !== '7z') {
-      const confirmed = await new Promise<boolean>((resolve) => {
-        modal.confirm({
-          title: tr("确认按全量安装包登记"),
-          content:
-            tr("未提供旁挂清单。若安装包内没有内嵌清单，服务端会按人工登记处理") +
-            tr("（清单来源 manual；渠道/版本取自表单，留空则登记失败）。"),
-          okText: tr("确认登记"),
-          cancelText: tr("返回检查"),
-          onOk: () => resolve(true),
-          onCancel: () => resolve(false),
-        });
-      });
-      if (!confirmed) {
-        return;
-      }
-    }
-
     try {
-      await mutation.mutateAsync(values);
+      await mutation.mutateAsync();
     } catch {
       // 错误已提示；保留已选文件便于重试
     }
@@ -260,19 +185,25 @@ export function PackageUploadModal({
       ? Math.min(100, Math.round((progress.loaded / progress.total) * 100))
       : 0;
 
+  const settled = current !== null;
+  const succeeded = current?.status === 'ready';
+
   return (
     <Modal
       open={open}
-      width={760}
+      width={640}
       title={tr("上传安装包")}
-      okText={current ? tr("关闭") : tr("上传并登记")}
-      cancelText={tr("取消")}
+      okText={settled ? (succeeded ? tr("查看草稿版本") : tr("关闭")) : tr("上传并登记")}
+      cancelText={tr("关闭")}
       confirmLoading={mutation.isPending}
       maskClosable={!mutation.isPending}
       closable={!mutation.isPending}
       onCancel={mutation.isPending ? undefined : onClose}
       onOk={() => {
-        if (current) {
+        if (settled) {
+          if (succeeded) {
+            onOpenRelease(current.releaseId);
+          }
           onClose();
           return;
         }
@@ -281,88 +212,25 @@ export function PackageUploadModal({
       afterClose={() => {
         mutation.reset();
         retry.reset();
-        form.resetFields();
         setFile(null);
         setManifestFile(null);
         setProgress(null);
         setResult(null);
       }}
     >
-      <Form<PackageFormValues> form={form} layout="vertical" requiredMark={false}>
-        <Space size="middle" style={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          <Form.Item name="kind" label={tr("包类型")} style={{ width: 260 }}>
-            <Segmented
-              options={[
-                { value: 'full', label: tr("全量安装包") },
-                { value: 'incremental', label: tr("增量包") },
-              ]}
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="target"
-            label={tr("目标运行时")}
-            style={{ width: 200 }}
-            rules={[{ required: true, message: tr("请选择运行时") }]}
-            tooltip={tr("全量包可登记为 any（对所有平台可用）；增量包必须对应具体运行时。")}
-          >
-            <Select
-              options={[
-                { value: 'any', label: tr("any（全平台）") },
-                ...RUNTIMES.map((value) => ({ value, label: value })),
-              ]}
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="channelKey"
-            label={tr("渠道")}
-            style={{ width: 220 }}
-            tooltip={tr("可直接输入新的渠道键，登记时若渠道不存在会自动创建。")}
-          >
-            <AutoComplete
-              allowClear
-              placeholder={tr("留空则取包内清单")}
-              options={channels.map((channel) => ({
-                value: channel.key,
-                label: `${channel.name}（${channel.key}）`,
-              }))}
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="version"
-            label={tr("版本号")}
-            style={{ width: 200 }}
-            tooltip={tr("留空则取包内清单；人工登记的全量包必须填写。")}
-          >
-            <Input placeholder="1.2.3" autoComplete="off" />
-          </Form.Item>
-        </Space>
-
-        <Form.Item name="notes" label={tr("发布说明")} rules={[{ max: 4000 }]}>
-          <Input.TextArea rows={2} placeholder={tr("可选；仅在自动创建草稿版本时写入")} />
-        </Form.Item>
-
-        <Form.Item
-          name="publish"
-          label={tr("登记后立即发布")}
-          valuePropName="checked"
-          tooltip={
-            canPublish
-              ? tr("草稿版本的包对客户端不可见；发布后 check 才会下发。")
-              : tr("当前账号没有版本发布权限，包会保留在草稿版本中。")
-          }
-        >
-          <Switch disabled={!canPublish} />
-        </Form.Item>
-      </Form>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message={tr("信息全部取自安装包内清单")}
+        description={tr("渠道、版本、包类型、运行时与说明由构建脚本写入包内清单；登记后进入草稿，核对信息并补充发布说明后再发布。")}
+      />
 
       <Upload.Dragger
         accept=".exe,.msi,.msp,.zip,.7z,.bin"
         maxCount={1}
         showUploadList={false}
-        disabled={mutation.isPending}
+        disabled={mutation.isPending || succeeded}
         beforeUpload={(selected) => {
           setFile(selected);
           setResult(null);
@@ -397,15 +265,13 @@ export function PackageUploadModal({
           accept=".json,application/json"
           maxCount={1}
           showUploadList={false}
-          disabled={mutation.isPending}
+          disabled={mutation.isPending || succeeded}
           beforeUpload={(selected) => {
             setManifestFile(selected);
             return false;
           }}
         >
-          <Button icon={<PlusOutlined />}>
-            {manifestFile ? tr("更换旁挂清单") : tr("选择旁挂清单（可选）")}
-          </Button>
+          <Button>{manifestFile ? tr("更换旁挂清单") : tr("选择旁挂清单（可选）")}</Button>
         </Upload>
         {manifestFile ? (
           <Tag closable onClose={() => setManifestFile(null)}>
@@ -413,7 +279,7 @@ export function PackageUploadModal({
           </Tag>
         ) : null}
         <Typography.Text type="secondary">
-          {tr("不选则由服务端从包内探测清单；sidecar 适用于 exe 未内嵌清单的场景。")}</Typography.Text>
+          {tr("不选则由服务端从包内探测清单；旁挂清单适用于 exe 未内嵌清单的场景。")}</Typography.Text>
       </Space>
 
       {largeFile ? (
@@ -423,16 +289,6 @@ export function PackageUploadModal({
           style={{ marginBottom: 12 }}
           message={tr("安装包超过 256MB")}
           description={tr("浏览器端会分块计算 SHA-256 并以流式上传，耗时取决于磁盘与网络；超大产物建议用发行脚本/CI 上传。")}
-        />
-      ) : null}
-
-      {kind === 'incremental' ? (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message={tr("增量包登记后进入待摄取")}
-          description={tr("服务端会异步解析文件清单；摄取完成前 check 不会下发该增量包。")}
         />
       ) : null}
 
@@ -481,13 +337,61 @@ export function PackageUploadModal({
         />
       ) : null}
 
-      {current?.status === 'ready' && current.fileCount != null ? (
+      {current && DONE_STATUSES.includes(current.status) ? (
+        <Descriptions
+          size="small"
+          column={1}
+          bordered
+          title={tr("登记结果（草稿）")}
+          items={[
+            {
+              key: 'channel',
+              label: tr("渠道"),
+              children: <Tag color="blue">{current.channelKey}</Tag>,
+            },
+            {
+              key: 'version',
+              label: tr("版本"),
+              children: <Typography.Text strong>{current.version}</Typography.Text>,
+            },
+            {
+              key: 'kind',
+              label: tr("包类型"),
+              children: (
+                <Space size={4}>
+                  <Tag color={packageKindMeta(current.kind).color}>
+                    {packageKindMeta(current.kind).label}
+                  </Tag>
+                  <Tag>{current.format.toUpperCase()}</Tag>
+                </Space>
+              ),
+            },
+            {
+              key: 'target',
+              label: tr("目标运行时"),
+              children: <Typography.Text code>{current.target}</Typography.Text>,
+            },
+            {
+              key: 'size',
+              label: tr("大小"),
+              children: formatBytes(current.sizeBytes),
+            },
+            {
+              key: 'manifest',
+              label: tr("清单来源"),
+              children: manifestSourceLabel(current.manifestSource),
+            },
+          ]}
+        />
+      ) : null}
+
+      {succeeded ? (
         <Alert
           type="success"
           showIcon
-          style={{ marginBottom: 12 }}
-          message={tr('{{file}} 已可用', { file: current.fileName })}
-          description={tr("清单 {{arg0}} 个文件 · {{arg1}}，来源 {{arg2}}。", { arg0: current.fileCount, arg1: formatBytes(current.sizeBytes), arg2: manifestSourceLabel(current.manifestSource) })}
+          style={{ marginTop: 12 }}
+          message={tr("已登记为草稿版本，尚未发布")}
+          description={tr("点击「查看草稿版本」核对信息并编辑发布说明；发布前还会再确认一次。")}
         />
       ) : null}
     </Modal>

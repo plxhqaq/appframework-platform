@@ -23,12 +23,15 @@
 **两条通路**：
 
 - **在线快照**：客户端调 `/client/licensing/status`，服务端返回带签名的 `snapshot`，验签后采信；随时可续期/吊销。
-- **离线码**：无网现场用，服务端签发一串 `AF3` 文本码，客户端本地用内置公钥验签；**没有吊销通道**，只能等到期。
+- **离线码**：无网现场用，服务端签发一串 `AF3` 文本码，客户端本地用内置公钥验签；**码本身没有吊销通道**，只能等到期。
+  但授权主体的「完全吊销」会让该机器在线状态恒为 `revoked`，客户端据此锁定并忽略本地离线码；
+  「仅在线注销」则不影响离线码（见 §5）。
 
 授权类型只有两种（`LicenseConventions.KindTrial` / `KindOfficial`，即 `trial` / `official`）；
 状态有五种：`active` / `expired` / `revoked` / `unlicensed` / `unmanaged`。状态的判定口径是
 「**吊销优先，其次看到期 + 宽限**」（`LicenseStatusResolver`）：已吊销恒为 `revoked`；否则
 `now <= ExpiresAt` 为 `active`，超过为 `expired`。其中 `ExpiresAt = NotAfter + GraceDays`。
+仅在线注销的授权不参与这条判定：状态接口按 `unlicensed` 返回（无快照），客户端回退到本地离线码。
 
 ---
 
@@ -172,15 +175,38 @@ curl -s -X POST http://localhost:5080/api/v1/admin/licensing/entitlements/$ID/re
 - `addDays` 必须在 `1–3650`；`notAfter`（显式）或算出的新到期时间必须晚于当前时间，否则校验失败。
 - `graceDays`/`notes` 省略则保留原值。已吊销的授权续期返回 `304`（HTTP 403）。
 
-**吊销** `RevokeLicenseRequest`：`reason`（最长 512）。**不可恢复**：想恢复只能重新签发一条新授权。
-重复吊销是幂等的（第二次不再改时间、不再推送）。吊销时：落库 `revokedAt`/`revokedReason` → SignalR 广播
-`LicenseChanged`（reason=`revoked`）→ 发布 Webhook 事件 `EventLicenseRevoked`。
+**吊销** `RevokeLicenseRequest`：`reason`（最长 512）、`scope`（`all` / `online`，缺省 `all`）。
+**不可恢复**：想恢复只能重新签发一条新授权。吊销时：落库 `revokedAt` / `revokedReason` / `revokeScope`
+→ SignalR 广播 `LicenseChanged`（reason=`revoked`）→ 发布 Webhook 事件 `EventLicenseRevoked`
+（负载带 `scope`）。
 
 ```bash
+# 完全吊销：在线授权与已签发的离线授权码一起失效（默认）
 curl -s -X POST http://localhost:5080/api/v1/admin/licensing/entitlements/$ID/revoke \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"reason":"客户退订"}'
+  -d '{"reason":"客户退订","scope":"all"}'
+
+# 仅注销在线授权：离线码继续有效（例如只停掉联网机器、保留无网现场）
+curl -s -X POST http://localhost:5080/api/v1/admin/licensing/entitlements/$ID/revoke \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"reason":"仅停在线","scope":"online"}'
 ```
+
+两种范围的判定差异：
+
+| scope | `GET/POST` 管理端状态 | 客户端 `/status` | 离线码 |
+|---|---|---|---|
+| `all` | `revoked` | `status=revoked` + 非空 `snapshot`，客户端验签后锁定 | 客户端锁定，忽略本地离线码 |
+| `online` | `revoked`（`revokeScope=online`） | `status=unlicensed`、`snapshot=null` | 客户端清除在线快照，回退本地离线码，仍可激活 |
+
+- 重复吊销幂等：首次吊销写入时间与范围；第二次只在「`online` → `all`」升级时更新范围（可同时更新
+  `reason`），`all → online` **不降级**、不改时间、不重复推送。
+- 历史行 `revokeScope` 为 `null` 视为 `all`；响应里的 `revokeScope` 对未吊销授权为 `null`，
+  对已吊销授权回填实际范围。`scope` 传其他值返回通用校验失败 `2`。
+- **老客户端无需升级即可适配**：老客户端对在线 `revoked` 立即锁定、对 `unlicensed` 清除在线快照后
+  回退离线码，正好对应上表的两种行为；服务端只负责返回 `unlicensed`，不下发可验证的吊销快照。
+- 离线码本身仍无吊销通道（见 §7）：`online` 注销后旧码在到期前依旧可本地验签通过；要彻底让某台机器
+  不可用，用 `all`（或之后升级为 `all`）。
 
 ---
 
@@ -216,11 +242,14 @@ appKey | productKey | licenseNo | keyId | deviceCode | 签名(64)`，字符串�
    `notAfter + graceDays < serverTime` 判过期。回拨本机时钟对在线校验无效。
 
 另外：`status=unmanaged` 直接拒绝；快照缺失（未授权/未签发）拒绝；快照 `status=revoked` 拒绝。
+**例外是「仅在线注销」**：服务端返回 `unlicensed` + `snapshot=null`，客户端应清除已缓存的在线快照并
+回退本地离线码，而不是当成永久吊销锁定。
 
 **SignalR `LicenseChanged` 只是提示，不是事实来源**：吊销/续期/签发时服务端向 `Clients.All` 广播
 `LicenseChanged`（负载 `LicenseChangedNotification{ appKey, machineCode, reason }`，
 `reason` 为 `issued`/`renewed`/`revoked`）。广播失败只记日志，不影响已落库结果。客户端收到提示后**必须回拉
-`/status`**，拿到新的 `revoked` 快照并验签后才锁定；断线或推送丢失都不会改变最终判定。
+`/status`**：完全吊销拿到 `revoked` 快照并验签后锁定；仅在线注销拿到 `unlicensed`（无快照），
+清除在线快照并回退离线码。断线或推送丢失都不会改变最终判定。
 
 > 注：SignalR 事件名一律用源码常量（`PlatformHubs.cs` 里的 `"LicenseChanged"`，PascalCase），
 > 00-quickstart 与客户端 README 已统一按常量书写，Webhook 事件名才是 `snake.dot` 形式（`license.revoked`）——
@@ -272,8 +301,10 @@ curl -s -X POST http://localhost:5080/api/v1/client/licensing/offline/verify \
 产品匹配 → 产品存在 → 是否过期（`now > notAfter + graceDays`）。**离线码绑定「产品键 + 机器码」，
 复制到另一台机器或另一个产品都会被拒。**
 
-> 无吊销通道：`DELETE /offline-codes/{id}` 只删台账行，**不影响已发出的码**，它在到期前依旧可被本地验签通过。
-> 请保留台账用于对账，签发时尽量带上可追踪的 `licenseNo`。
+> 码本身无吊销通道：`DELETE /offline-codes/{id}` 只删台账行，**不影响已发出的码**，它在到期前依旧可被本地验签通过。
+> 请保留台账用于对账，签发时尽量带上可追踪的 `licenseNo`。要停用某台机器的离线能力，
+> 对该授权主体做**完全吊销**（`scope=all`）：客户端在线校验拿到 `revoked` 后锁定，不再使用本地离线码；
+> `scope=online` 不会影响离线码。
 
 ---
 
@@ -384,11 +415,14 @@ if (!offline.IsValid)
 - **直接看 `status` 字段放行**：错。只有 `LicenseVerifier` 验签通过的快照才可信；被篡改的响应也能带 `status=active`。
 - **用本机时钟判到期**：在线会绕过服务端时间保护，回拨时钟即"续命"。必须用 `payload.ServerTime`。
 - **机器码只抄对字符不抄长度**：漏一位整串作废（`308`）；O/I/L 误抄反而能被归一纠正。
-- **以为能吊销离线码**：删台账不影响已发出的码，只能等到期。
+- **以为删台账能吊销离线码**：删台账不影响已发出的码，只能等到期；要连带停用离线能力，对授权主体做
+  `scope=all` 的完全吊销（客户端在线校验锁定）；`scope=online` 只停在线、不动离线码。
+- **把「仅在线」当永久吊销**：`online` 之后可以升级为 `all`（补一次吊销即可），但 `all` 不能降回 `online`。
 - **忘 `Idempotency-Key`**：产品/授权/离线码的 POST 建议带，24 小时窗口内重放安全。
 - **换钥后没重启**：私钥在启动时绑定，改环境变量不重启等于没换；且旧钥未同步前仍是唯一 active。
 - **管理台对应**：「授权」页按标签页提供 授权产品（`license.product.read`/`manage`）、
-  授权主体（签发/续期 `license.issue`、吊销 `license.revoke`）、离线码台账（`license.offlinecode.issue`，复制/删除）、
+  授权主体（签发/续期 `license.issue`、吊销 `license.revoke`，吊销弹窗可选「完全吊销」或「仅在线」）、
+  离线码台账（`license.offlinecode.issue`，复制/删除）、
   签名密钥（当前指纹、轮换同步、退役密钥，`license.signingkey.manage`，平台管理员独占）。
 
 ---

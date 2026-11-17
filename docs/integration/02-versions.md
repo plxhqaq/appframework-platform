@@ -125,6 +125,7 @@ curl -s -X PUT "http://localhost:5080$UPLOAD_URL" \
 | `GET /api/v1/admin/versions/releases` | `versions.release.read` | — |
 | `GET /api/v1/admin/versions/releases/{id}` | `versions.release.read` | — |
 | `POST /api/v1/admin/versions/releases` | `versions.release.publish` | `Idempotency-Key`，作用域 `versions.release.create` |
+| `PATCH /api/v1/admin/versions/releases/{id}` | `versions.release.publish` | —（仅草稿，只改 `notes`） |
 | `POST /api/v1/admin/versions/releases/{id}/publish` | `versions.release.publish` | — |
 | `POST /api/v1/admin/versions/releases/{id}/archive` | `versions.release.archive` | — |
 
@@ -174,11 +175,20 @@ curl -s -X POST http://localhost:5080/api/v1/admin/versions/releases \
 而 `ReleaseFileDto` 为 `path` / `sha256` / `sizeBytes`（按路径升序）；`packages[]` 字段见
 [`10-package-manifest.md`](10-package-manifest.md) §3。
 
+**零产物的纯安装包版本**（只上传了 Setup exe / 增量 zip，没有文件级清单）不再显示 0：详情与列表的
+`fileCount` / `totalSizeBytes` 回退为发布包汇总（包 `fileCount` 之和，`null` 按 1 计；`sizeBytes` 之和），
+列表同时回填 `packageCount` / `packageSizeBytes`。单 exe 全量包因此显示 1 个文件与包字节数。
+
 发布草稿（`/{id}/publish`）：已发布时**幂等返回**当前详情，不报错、不重复广播；已归档版本不能重新
 发布，返回 `203`（409）；**零产物但存在 `ready` 全量安装包时允许发布**（B8 起，纯安装包版本）；
 既无产物也无就绪安装包返回 `2`；发布前把所有产物的文件合并再核对一次 blob（`206`），
 草稿创建后文件被清理会在这一步暴露。发布成功（创建即发布与显式发布都算）广播平台事件
 `version.released`，负载含 `releaseId` / `channelKey` / `version` / `publishedAt`。
+
+**草稿说明编辑**（`PATCH /{id}`，`UpdateReleaseRequest` 只有 `notes`）：用于「上传安装包登记为草稿 →
+核对/修正包内说明 → 再发布」。`notes` 去空格后为空存 `null`，最长 4000 字符（`2`）；
+只有 `draft` 可改，已发布/已归档返回 `222`（409）。上传登记的版本一律先落草稿，发布动作始终由
+管理员在确认页显式触发（见 [`10-package-manifest.md`](10-package-manifest.md) §8）。
 
 ---
 
@@ -555,8 +565,12 @@ InMemory 集成测试覆盖不到。
 （`crypto.randomUUID()`），`PATCH` 与 publish / archive 两个动作不带幂等键；浏览器哈希按 4 MB 分块
 流式计算（`hashFile`，峰值内存固定为块大小），上传用 `XMLHttpRequest` 上报进度；超大产物仍建议走
 脚本或 CLI 申请票据后 `PUT`；前端提交的清单路径已做与服务端 `NormalizePath` 一致的规范化
-（`\` 转 `/`、去掉所选根目录段）。增量包登记后弹窗每 3 秒轮询包状态，`ready` 显示清单文件数，
-`failed` 原地重试；版本详情有未完成包时同样自动刷新。更新器页的「最新」标记由服务端
+（`\` 转 `/`、去掉所选根目录段）。上传安装包的弹窗**只选文件**（可选旁挂清单），渠道、版本、包类型、
+运行时与说明全部取自包内清单，不做人工输入；登记固定为**草稿**（`publish=false`），成功后可直接
+「查看草稿版本」。增量包登记后弹窗每 3 秒轮询包状态，`ready` 显示清单文件数，`failed` 原地重试；
+版本详情有未完成包时同样自动刷新。**发布必须先过确认弹窗**：加载详情、展示渠道/版本/包与文件汇总，
+草稿阶段可改发布说明，确认后按「`PATCH` 说明 → `publish`」提交；详情抽屉另有「编辑说明」入口，
+已发布版本不提供。更新器页的「最新」标记由服务端
 `/client/versions/updater` 逐 target 解析，不依赖前端版本比较。安装包与更新器的「下载」按钮先
 `POST .../download-ticket`，再用 `<a>` 打开返回的 `url`，由浏览器原生流式下载；非 zip 源会被服务端
 打包为 zip（下发文件名带 `.zip`），页面不再把文件读进内存。

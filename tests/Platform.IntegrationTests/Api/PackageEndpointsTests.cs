@@ -148,6 +148,57 @@ public sealed class PackageEndpointsTests : IClassFixture<PlatformApiFactory>
     }
 
     [Fact]
+    public async Task 仅凭包内清单登记草稿并回退版本汇总()
+    {
+        using var client = _factory.CreateClient();
+        var token = await LoginAsync(client);
+        const string channelKey = "pkg-manifest-only";
+
+        // 管理台上传不再填任何元数据：渠道/版本/类型/运行时/说明全部来自包内清单
+        var packageBytes = BuildZip(
+            ("af-package.json", FullManifest(
+                channelKey,
+                "5.0.0",
+                "win-x64",
+                null,
+                description: "由清单写入的安装包说明")),
+            ("payload.txt", "manifest-only"));
+        var packageSha = await UploadAsync(client, token, packageBytes);
+
+        var registered = await RegisterAsync(client, token, new RegisterReleasePackageRequest(
+            packageSha,
+            packageBytes.Length,
+            "Setup-pkg-manifest-only-5.0.0.zip",
+            Kind: null));
+        Assert.Equal(VersionConventions.PackageKindFull, registered.Kind);
+        Assert.Equal(channelKey, registered.ChannelKey);
+        Assert.Equal("5.0.0", registered.Version);
+        Assert.Equal("win-x64", registered.Target);
+        Assert.Equal(VersionConventions.ManifestSourceZip, registered.ManifestSource);
+
+        // 全量包不产生 artifact：版本汇总按包计数与大小回退，而不是 0
+        var detail = await ReadDataAsync<ReleaseDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                $"/api/v1/admin/versions/releases/{registered.ReleaseId}",
+                token)));
+        Assert.Equal(VersionConventions.StatusDraft, detail.Status);
+        Assert.Equal(1, detail.FileCount);
+        Assert.Equal(packageBytes.Length, detail.TotalSizeBytes);
+        Assert.Equal("由清单写入的安装包说明", detail.Notes);
+
+        var listed = await ReadDataAsync<PageResult<ReleaseSummaryDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                $"/api/v1/admin/versions/releases?channelKey={channelKey}",
+                token)));
+        var summary = Assert.Single(listed.Items);
+        Assert.Equal(1, summary.FileCount);
+        Assert.Equal(packageBytes.Length, summary.TotalSizeBytes);
+        Assert.Equal(1, summary.PackageCount);
+    }
+
+    [Fact]
     public async Task 管理台下载票据把非zip安装包打成zip且匿名可续传()
     {
         using var client = _factory.CreateClient();
@@ -613,16 +664,18 @@ public sealed class PackageEndpointsTests : IClassFixture<PlatformApiFactory>
         string version,
         string runtimeIdentifier,
         string? fileSha,
-        string? appKey = null)
+        string? appKey = null,
+        string? description = null)
     {
         var appKeyField = appKey is null ? string.Empty : $",\n  \"appKey\": \"{appKey}\"";
+        var descriptionField = description is null ? string.Empty : $",\n  \"description\": \"{description}\"";
         var files = fileSha is null
             ? "[]"
             : $"[{{\"path\": \"app/App.exe\", \"sha256\": \"{fileSha}\", \"sizeBytes\": {AppBytes.Length}}}]";
         return $$"""
         {
           "schema": "af-package/1",
-          "kind": "full"{{appKeyField}},
+          "kind": "full"{{appKeyField}}{{descriptionField}},
           "channelKey": "{{channelKey}}",
           "version": "{{version}}",
           "runtimeIdentifier": "{{runtimeIdentifier}}",

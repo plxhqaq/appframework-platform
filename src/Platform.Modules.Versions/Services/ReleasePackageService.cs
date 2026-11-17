@@ -270,13 +270,20 @@ public sealed partial class ReleasePackageService : IReleasePackageService
                 AppKey = appKey,
                 ChannelId = channel.Id,
                 Version = version,
-                Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
+                Notes = FirstNonEmpty(request.Notes, manifest?.Description) is { Length: > 0 } notes ? notes : null,
                 Status = VersionConventions.StatusDraft,
                 CreatedBy = actor,
                 Channel = channel,
             };
             _db.Set<Release>().Add(release);
             createdRelease = true;
+        }
+        else if (release.Status == VersionConventions.StatusDraft
+                 && string.IsNullOrWhiteSpace(release.Notes)
+                 && !string.IsNullOrWhiteSpace(manifest?.Description))
+        {
+            // 包内说明只在草稿阶段回填，不覆盖管理员已编辑过的说明。
+            release.Notes = manifest.Description;
         }
 
         var package = new ReleasePackage
@@ -298,7 +305,9 @@ public sealed partial class ReleasePackageService : IReleasePackageService
             CompletedAt = kind == VersionConventions.PackageKindFull ? now : null,
             CreatedBy = actor,
             PublishRequested = request.Publish,
-            FileCount = manifest?.HasFiles == true ? manifest.Files.Count : null,
+            FileCount = manifest?.HasFiles == true
+                ? manifest.Files.Count
+                : kind == VersionConventions.PackageKindFull ? 1 : null,
         };
         release.Packages.Add(package);
 
@@ -763,7 +772,8 @@ public sealed partial class ReleasePackageService : IReleasePackageService
             // full 允许人工登记，但必须先显式声明 kind，避免把坏包悄悄当成安装包。
             throw new BusinessException(
                 ApiErrorCode.VersionsPackageManifestMissing,
-                $"{probe.ErrorMessage} 请显式指定 kind=full 并填写 channelKey/version 以人工登记。");
+                $"{probe.ErrorMessage} 上传入口只按包内清单登记；请用 build-installer/build-platform-package "
+                + "等构建脚本产出带清单的安装包，或通过 API 显式指定 kind=full 并填写 channelKey/version 人工登记。");
         }
 
         return VersionConventions.PackageKindFull;

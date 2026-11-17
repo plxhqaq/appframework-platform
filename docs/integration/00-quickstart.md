@@ -476,11 +476,11 @@ curl -s -X POST http://localhost:5080/api/v1/admin/licensing/entitlements/$ID/re
   -H 'Content-Type: application/json' \
   -d '{"addDays":180}'
 
-# 吊销：不可恢复；需要恢复只能重新签发
+# 吊销：不可恢复；需要恢复只能重新签发。scope 缺省 all（在线 + 离线码），online 仅注销在线授权
 curl -s -X POST http://localhost:5080/api/v1/admin/licensing/entitlements/$ID/revoke \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"reason":"客户退订"}'
+  -d '{"reason":"客户退订","scope":"all"}'
 ```
 
 客户端校验在线状态（需要 `license.read`）：
@@ -498,7 +498,8 @@ curl -s -X POST http://localhost:5080/api/v1/client/licensing/status \
 **客户端必须验签后才采信快照**：用 `trustedKeys` 中任一公钥验证 ECDSA P-256（IEEE-P1363 64 字节签名，
 SHA-256），并核对快照里的 `appKey` / `productKey` / `machineCode`。过期判定用服务端时间，
 避免本机时钟被回拨。吊销时服务端经 SignalR 广播 `LicenseChanged`（PascalCase 常量），这只是提示：
-客户端回拉状态接口拿到新的 `revoked` 快照后才会锁定。
+完全吊销时客户端回拉状态接口拿到新的 `revoked` 快照后锁定；仅在线注销（`scope=online`）返回
+`unlicensed` + 空快照，客户端清除在线快照并回退本地离线码。
 
 ### 6.4 离线授权码
 

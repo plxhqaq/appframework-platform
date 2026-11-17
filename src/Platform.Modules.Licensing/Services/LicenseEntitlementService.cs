@@ -218,6 +218,7 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
         entitlement.IssuedBy = actor;
         entitlement.RevokedAt = null;
         entitlement.RevokedReason = null;
+        entitlement.RevokeScope = null;
 
         if (existing is null)
         {
@@ -324,10 +325,35 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
                               ApiErrorCode.LicensingEntitlementNotFound,
                               $"授权 {id} 不存在。");
 
+        string requestedScope = NormalizeRevokeScope(request.Scope);
+        bool changed = false;
+
         if (entitlement.RevokedAt is null)
         {
             entitlement.RevokedAt = now;
+            entitlement.RevokeScope = requestedScope;
             entitlement.RevokedReason = NormalizeText(request.Reason, 512);
+            changed = true;
+        }
+        else
+        {
+            // 历史行没有 scope，按完全吊销处理；「仅在线」可升级为完全吊销，反向不降级。
+            string currentScope = entitlement.RevokeScope ?? LicenseConventions.RevokeScopeAll;
+            if (!string.Equals(currentScope, requestedScope, StringComparison.Ordinal)
+                && requestedScope == LicenseConventions.RevokeScopeAll)
+            {
+                entitlement.RevokeScope = LicenseConventions.RevokeScopeAll;
+                if (!string.IsNullOrWhiteSpace(request.Reason))
+                {
+                    entitlement.RevokedReason = NormalizeText(request.Reason, 512);
+                }
+
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
             await _db.SaveChangesAsync(cancellationToken);
             await NotifyAsync(appKey, entitlement.MachineCode, LicenseChangedNotification.ReasonRevoked);
             await _events.PublishAsync(
@@ -339,6 +365,7 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
                         entitlementId = entitlement.Id,
                         productKey = entitlement.Product.Key,
                         machineCode = entitlement.MachineCode,
+                        scope = entitlement.RevokeScope ?? LicenseConventions.RevokeScopeAll,
                         revokedAt = entitlement.RevokedAt,
                         reason = entitlement.RevokedReason,
                     },
@@ -400,6 +427,22 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
         }
 
         return notAfter;
+    }
+
+    private static string NormalizeRevokeScope(string? scope)
+    {
+        string value = scope?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (value.Length == 0)
+        {
+            return LicenseConventions.RevokeScopeAll;
+        }
+
+        if (!LicenseConventions.IsValidRevokeScope(value))
+        {
+            throw BusinessException.Invalid("scope 只能是 all / online。");
+        }
+
+        return value;
     }
 
     private static int NormalizeGraceDays(int value)
@@ -496,5 +539,8 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
             entitlement.RevokedReason,
             entitlement.LastSeenAt,
             entitlement.CreatedAt,
-            entitlement.UpdatedAt);
+            entitlement.UpdatedAt,
+            entitlement.RevokedAt is null
+                ? null
+                : entitlement.RevokeScope ?? LicenseConventions.RevokeScopeAll);
 }

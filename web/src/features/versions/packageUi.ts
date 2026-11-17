@@ -54,28 +54,18 @@ export function guessPackageFormat(fileName: string): string | null {
   return (KNOWN_FORMATS as readonly string[]).includes(extension) ? extension : null;
 }
 
-/** 增量包必须绑定具体运行时；全量包可登记为 any。 */
-export function packageTargetError(kind: ReleasePackageKind, target: string): string | null {
-  return kind === 'incremental' && target === 'any'
-    ? tr("增量包必须指定具体的运行时标识")
-    : null;
-}
-
+/** 上传登记输入：管理台只声明字节与可选旁挂清单。 */
 export interface PackageRegistrationInput {
   sha256: string;
   sizeBytes: number;
   fileName: string;
-  kind: ReleasePackageKind;
-  target: string;
-  channelKey?: string | null;
-  version?: string | null;
-  notes?: string | null;
   manifestSha256?: string | null;
-  publish: boolean;
-  canPublish: boolean;
 }
 
-/** 组装登记请求：空白字符串转 null，发布开关以账号权限为上限。 */
+/**
+ * 组装登记请求：管理台不填任何元数据，渠道/版本/类型/运行时/说明由服务端从包内清单读取。
+ * 登记一律为草稿，发布走单独的确认流程。
+ */
 export function buildRegisterRequest(
   input: PackageRegistrationInput,
 ): RegisterReleasePackageRequest {
@@ -83,12 +73,7 @@ export function buildRegisterRequest(
     sha256: input.sha256,
     sizeBytes: input.sizeBytes,
     fileName: input.fileName,
-    kind: input.kind,
-    target: input.target,
-    channelKey: input.channelKey?.trim() || null,
-    version: input.version?.trim() || null,
     manifestSha256: input.manifestSha256 ?? null,
-    notes: input.notes?.trim() || null,
-    publish: input.publish && input.canPublish,
+    publish: false,
   };
 }

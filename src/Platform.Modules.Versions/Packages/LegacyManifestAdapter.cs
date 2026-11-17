@@ -25,11 +25,13 @@ public static class LegacyManifestAdapter
     private static readonly HashSet<string> InstallerKnownFields = new(StringComparer.OrdinalIgnoreCase)
     {
         "version", "branch", "publishTime", "gitVersion", "gitCommit", "modules", "hardware",
+        "runtimeIdentifier", "rid", "description",
     };
 
     private static readonly HashSet<string> BuildInfoKnownFields = new(StringComparer.OrdinalIgnoreCase)
     {
         "kind", "version", "branch", "publishTime", "gitVersion", "gitCommit", "modules", "hardware",
+        "runtimeIdentifier", "rid", "description",
     };
 
     private static readonly HashSet<string> UpdaterInfoKnownFields = new(StringComparer.OrdinalIgnoreCase)
@@ -66,11 +68,27 @@ public static class LegacyManifestAdapter
         }
 
         var warnings = new List<string> { "老清单 AF-MANIFEST/1：已按 kind=full、channelKey=branch 映射。" };
+        var runtimeIdentifier = FirstNonEmpty(
+            fields.GetValueOrDefault("runtimeIdentifier", string.Empty),
+            fields.GetValueOrDefault("rid", string.Empty));
+        if (!TryValidateRuntime(runtimeIdentifier, out var runtimeError))
+        {
+            return Invalid(runtimeError!);
+        }
+
+        var description = fields.GetValueOrDefault("description", string.Empty).Trim();
+        if (description.Length > VersionConventions.MaxDescriptionChars)
+        {
+            return Invalid($"清单 description 超过 {VersionConventions.MaxDescriptionChars} 个字符");
+        }
+
         var manifest = new PackageManifest
         {
             Kind = VersionConventions.PackageKindFull,
             ChannelKey = branch,
             Version = version,
+            RuntimeIdentifier = NullIfEmpty(runtimeIdentifier),
+            Description = NullIfEmpty(description),
             PublishTime = PackageManifest.ParsePublishTime(fields.GetValueOrDefault("publishTime"), warnings),
             GitVersion = NullIfEmpty(fields.GetValueOrDefault("gitVersion")),
             GitCommit = NullIfEmpty(fields.GetValueOrDefault("gitCommit")),
@@ -161,11 +179,32 @@ public static class LegacyManifestAdapter
                 ? PackageJson.GetStringArray(buildRoot.Value, "hardware")
                 : [];
 
+            // 老 build-info.json 现在会写 runtimeIdentifier；更老的包没有时回落到清单本身的同名字段。
+            var runtimeIdentifier = FirstNonEmpty(
+                buildRoot is { ValueKind: JsonValueKind.Object } ? PackageJson.GetString(buildRoot.Value, "runtimeIdentifier") : string.Empty,
+                buildRoot is { ValueKind: JsonValueKind.Object } ? PackageJson.GetString(buildRoot.Value, "rid") : string.Empty,
+                PackageJson.GetString(manifestRoot, "runtimeIdentifier"),
+                PackageJson.GetString(manifestRoot, "rid"));
+            if (!TryValidateRuntime(runtimeIdentifier, out var runtimeError))
+            {
+                return Invalid(runtimeError!);
+            }
+
+            var description = FirstNonEmpty(
+                buildRoot is { ValueKind: JsonValueKind.Object } ? PackageJson.GetString(buildRoot.Value, "description") : string.Empty,
+                PackageJson.GetString(manifestRoot, "description")).Trim();
+            if (description.Length > VersionConventions.MaxDescriptionChars)
+            {
+                return Invalid($"清单 description 超过 {VersionConventions.MaxDescriptionChars} 个字符");
+            }
+
             return PackageProbeResult.Ok(new PackageManifest
             {
                 Kind = VersionConventions.PackageKindIncremental,
                 ChannelKey = branch,
                 Version = version,
+                RuntimeIdentifier = NullIfEmpty(runtimeIdentifier),
+                Description = NullIfEmpty(description),
                 PublishTime = PackageManifest.ParsePublishTime(
                     FirstNonEmpty(
                         buildRoot is { ValueKind: JsonValueKind.Object } ? PackageJson.GetString(buildRoot.Value, "publishTime") : string.Empty,
@@ -240,6 +279,20 @@ public static class LegacyManifestAdapter
             Labels = PackageJson.CollectLabels(root, UpdaterInfoKnownFields),
             Warnings = warnings,
         });
+    }
+
+    private static bool TryValidateRuntime(string runtimeIdentifier, out string? error)
+    {
+        error = null;
+        if (runtimeIdentifier.Length == 0
+            || VersionConventions.IsSupportedRuntime(runtimeIdentifier)
+            || string.Equals(runtimeIdentifier, VersionConventions.PackageTargetAny, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        error = $"清单 runtimeIdentifier 不支持：{runtimeIdentifier}";
+        return false;
     }
 
     private static PackageProbeResult Invalid(string message) =>

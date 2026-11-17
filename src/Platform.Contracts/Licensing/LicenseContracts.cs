@@ -51,6 +51,12 @@ public static class LicenseConventions
     /// <summary>已吊销（不因到期而改变）。</summary>
     public const string StatusRevoked = "revoked";
 
+    /// <summary>吊销范围：在线授权与已签发的离线授权码一起失效。</summary>
+    public const string RevokeScopeAll = "all";
+
+    /// <summary>吊销范围：只注销在线授权；已签发的离线授权码继续有效。</summary>
+    public const string RevokeScopeOnline = "online";
+
     /// <summary>未授权（产品未给该机器签发，且未启用试用）。</summary>
     public const string StatusUnlicensed = "unlicensed";
 
@@ -65,6 +71,10 @@ public static class LicenseConventions
 
     /// <summary>签名算法标识。</summary>
     public const string SignatureAlgorithm = "ECDSA-P256-SHA256";
+
+    /// <summary>是否合法的吊销范围。</summary>
+    public static bool IsValidRevokeScope(string? scope) =>
+        scope is null or RevokeScopeAll or RevokeScopeOnline;
 
     /// <summary>是否合法的授权类型。</summary>
     public static bool IsValidKind(string? kind) =>
@@ -143,7 +153,8 @@ public sealed record LicenseEntitlementDto(
     string? RevokedReason,
     DateTimeOffset? LastSeenAt,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    string? RevokeScope = null);
 
 /// <summary>签发正式授权。机器码是授权主体，跨机器复制无效。</summary>
 public sealed record IssueLicenseRequest(
@@ -162,8 +173,8 @@ public sealed record RenewLicenseRequest(
     int? GraceDays,
     string? Notes);
 
-/// <summary>吊销授权。吊销后客户端下次校验即锁定，且不可自动恢复。</summary>
-public sealed record RevokeLicenseRequest(string? Reason);
+/// <summary>吊销授权。<see cref="Scope"/> 缺省为 <see cref="LicenseConventions.RevokeScopeAll"/>。</summary>
+public sealed record RevokeLicenseRequest(string? Reason, string? Scope = null);
 
 /// <summary>签发离线授权码（无联网现场）。</summary>
 public sealed record IssueOfflineLicenseCodeRequest(

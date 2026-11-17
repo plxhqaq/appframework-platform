@@ -21,6 +21,7 @@ import {
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -288,9 +289,18 @@ export function LicensingPage() {
       dataIndex: 'status',
       key: 'status',
       width: 90,
-      render: (status: string) => {
+      render: (status: string, row: LicenseEntitlement) => {
         const meta = STATUS_META[status] ?? { label: status };
-        return <Tag color={meta.color}>{meta.label}</Tag>;
+        return (
+          <Space size={4} wrap>
+            <Tag color={meta.color}>{meta.label}</Tag>
+            {status === 'revoked' && row.revokeScope === 'online' ? (
+              <Tooltip title={tr("仅注销在线授权；已签发的离线授权码仍可激活")}>
+                <Tag color="orange">{tr("仅在线")}</Tag>
+              </Tooltip>
+            ) : null}
+          </Space>
+        );
       },
     },
     {

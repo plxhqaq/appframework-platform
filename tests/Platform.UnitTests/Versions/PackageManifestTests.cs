@@ -163,6 +163,70 @@ public sealed class PackageManifestTests
     }
 
     [Fact]
+    public void 老安装器清单带运行时与说明()
+    {
+        const string raw = "AF-MANIFEST/1|version=1.0.0.225|branch=hipot|productKey=hipot|runtimeIdentifier=win-x64|description=涂布机 1.0.0.225 安装包";
+        var result = LegacyManifestAdapter.TryMapInstallerManifest(raw);
+        Assert.True(result.Success);
+        Assert.NotNull(result.Manifest);
+        Assert.Equal("win-x64", result.Manifest.RuntimeIdentifier);
+        Assert.Equal("涂布机 1.0.0.225 安装包", result.Manifest.Description);
+    }
+
+    [Fact]
+    public void 老安装器清单运行时非法被拒绝()
+    {
+        var result = LegacyManifestAdapter.TryMapInstallerManifest(
+            "AF-MANIFEST/1|version=1.0.0.1|branch=hipot|runtimeIdentifier=freebsd-x64");
+        Assert.False(result.Success);
+        Assert.Equal(ApiErrorCode.VersionsPackageManifestInvalid, result.ErrorCode);
+    }
+
+    [Fact]
+    public void 老增量包摘要读取运行时与说明()
+    {
+        const string buildInfo = """
+        {
+          "kind": "AF-UPDATE-PACKAGE/1",
+          "version": "1.2.3.0",
+          "branch": "hipot",
+          "runtimeIdentifier": "win-x64",
+          "description": "涂布机 1.2.3.0 增量包"
+        }
+        """;
+        var manifestJson = $$"""
+        {
+          "entries": [ { "path": "App.exe", "sha256": "{{Sha}}", "size": 123 } ]
+        }
+        """;
+        var result = LegacyManifestAdapter.TryMapUpdatePackage(buildInfo, manifestJson);
+        Assert.True(result.Success);
+        Assert.NotNull(result.Manifest);
+        Assert.Equal("win-x64", result.Manifest.RuntimeIdentifier);
+        Assert.Equal("涂布机 1.2.3.0 增量包", result.Manifest.Description);
+    }
+
+    [Fact]
+    public void 新清单解析说明字段并原样回写()
+    {
+        var json = $$"""
+        {
+          "schema": "af-package/1",
+          "kind": "incremental",
+          "version": "1.2.3.0",
+          "description": "说明文本",
+          "files": [ { "path": "A.exe", "sha256": "{{Sha}}", "sizeBytes": 10 } ]
+        }
+        """;
+        Assert.True(PackageManifest.TryParseJson(json, "zip", out var manifest, out _));
+        Assert.NotNull(manifest);
+        Assert.Equal("说明文本", manifest.Description);
+        Assert.True(PackageManifest.TryParseJson(manifest.ToJson(), "zip", out var roundTrip, out _));
+        Assert.NotNull(roundTrip);
+        Assert.Equal("说明文本", roundTrip.Description);
+    }
+
+    [Fact]
     public void 老增量包映射为增量清单()
     {
         const string buildInfo = """

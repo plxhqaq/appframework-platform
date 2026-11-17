@@ -53,6 +53,7 @@ public sealed class LicensingModelContributor : IPlatformModelContributor
             builder.Property(static x => x.IssuedBy).HasColumnName("issued_by").HasMaxLength(256);
             builder.Property(static x => x.RevokedAt).HasColumnName("revoked_at");
             builder.Property(static x => x.RevokedReason).HasColumnName("revoked_reason").HasMaxLength(512);
+            builder.Property(static x => x.RevokeScope).HasColumnName("revoke_scope").HasMaxLength(16);
             builder.Property(static x => x.LastSeenAt).HasColumnName("last_seen_at");
             builder.Property(static x => x.CreatedAt).HasColumnName("created_at");
             builder.Property(static x => x.UpdatedAt).HasColumnName("updated_at");

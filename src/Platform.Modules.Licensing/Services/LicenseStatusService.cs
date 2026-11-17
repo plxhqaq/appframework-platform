@@ -115,8 +115,9 @@ public sealed class LicenseStatusService : ILicenseStatusService
         LicenseSigningKey? current = await _keys.EnsureCurrentAsync(cancellationToken);
         IReadOnlyList<LicenseKeyDescriptorDto> trusted = await _keys.DescribeTrustedAsync(cancellationToken);
 
-        if (entitlement is null)
+        if (entitlement is null || LicenseStatusResolver.IsOnlineOnlyRevoked(entitlement))
         {
+            // 仅注销在线授权时按未授权下发：老客户端会清掉在线快照，已签发的离线码继续生效。
             return new LicenseStatusResponse(
                 appKey,
                 productKey,

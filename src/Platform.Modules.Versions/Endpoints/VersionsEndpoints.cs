@@ -233,6 +233,46 @@ internal static class VersionsEndpoints
             .WithSummary("按清单创建版本（支持 Idempotency-Key；Publish=true 时创建即发布）")
             .RequirePermission(PermissionCatalog.VersionsReleasePublish);
 
+        admin.MapPatch(
+                "/releases/{id:guid}",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    UpdateReleaseRequest request,
+                    ICurrentPrincipal principal,
+                    IReleaseService releases,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var updated = await releases.UpdateAsync(appKey, id, request, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.release.update",
+                            targetType: "release",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: updated.Version);
+                        return ApiResults.Ok(context, updated);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.release.update",
+                            targetType: "release",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("versions.releases.update")
+            .WithSummary("编辑草稿版本的发布说明")
+            .RequirePermission(PermissionCatalog.VersionsReleasePublish);
+
         admin.MapPost(
                 "/releases/{id:guid}/publish",
                 async (

@@ -25,6 +25,9 @@ public static class VersionConventions
     /// <summary>文件路径最大长度。</summary>
     public const int MaxPathLength = 512;
 
+    /// <summary>包清单说明（发布说明）最大长度。</summary>
+    public const int MaxDescriptionChars = 4000;
+
     /// <summary>单个产物允许的文件数上限。</summary>
     public const int MaxFilesPerArtifact = 50_000;
 
@@ -226,6 +229,9 @@ public sealed record CreateReleaseRequest(
     bool Publish,
     IReadOnlyList<CreateReleaseArtifactRequest>? Artifacts);
 
+/// <summary>编辑草稿版本；仅发布说明可改，<see cref="Notes"/> 传空串表示清空。</summary>
+public sealed record UpdateReleaseRequest(string? Notes);
+
 /// <summary>
 /// 客户端检查更新。<see cref="ChannelKey"/> 与 <see cref="AudienceTags"/> 至少给一个：
 /// 给了渠道键以渠道键为准；只有标签时，客户端声明的标签须包含渠道的全部受众标签
@@ -338,7 +344,8 @@ public sealed record PackageManifestDto(
     IReadOnlyList<string> Modules,
     IReadOnlyList<string> Hardware,
     string? ManifestHash,
-    IReadOnlyList<ReleaseFileDto> Files);
+    IReadOnlyList<ReleaseFileDto> Files,
+    string? Description = null);
 
 /// <summary>更新器版本线（独立于应用版本，客户端先更新更新器再应用增量）。</summary>
 public sealed record UpdaterInfoDto(

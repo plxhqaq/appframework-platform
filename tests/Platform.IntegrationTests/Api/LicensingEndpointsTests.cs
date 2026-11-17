@@ -114,6 +114,64 @@ public sealed class LicensingEndpointsTests : IClassFixture<PlatformApiFactory>
     }
 
     [Fact]
+    public async Task 仅注销在线授权不影响离线码且可升级为完全吊销()
+    {
+        using var client = _factory.CreateClient();
+        var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
+
+        await CreateProductAsync(client, token, "online-only-pro", seatLimit: null, trialDays: 0);
+        var issued = await IssueAsync(client, token, "online-only-pro", MachineA, addDays: 30, licenseNo: "ONLINE-001");
+
+        var offline = await ReadDataAsync<OfflineLicenseCodeDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                "/api/v1/admin/licensing/offline-codes",
+                token,
+                new IssueOfflineLicenseCodeRequest("online-only-pro", MachineA, null, 90, "OFF-ONLINE", "现场离线码"))));
+
+        var revoked = await ReadDataAsync<LicenseEntitlementDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/licensing/entitlements/{issued.Id}/revoke",
+                token,
+                new RevokeLicenseRequest("只停在线", LicenseConventions.RevokeScopeOnline))));
+        Assert.Equal(LicenseConventions.StatusRevoked, revoked.Status);
+        Assert.Equal(LicenseConventions.RevokeScopeOnline, revoked.RevokeScope);
+
+        // 在线状态按未授权下发：老客户端清掉在线快照，离线码接管
+        var status = await StatusAsync(client, token, "online-only-pro", MachineA);
+        Assert.Equal(LicenseConventions.StatusUnlicensed, status.Status);
+        Assert.Null(status.Snapshot);
+        Assert.Null(status.Kind);
+
+        // 离线码本身不受影响
+        var verified = await VerifyOfflineAsync(client, token, offline.Code, MachineA, "online-only-pro");
+        Assert.True(verified.IsValid);
+
+        // 再次提交 online 不降级/不重复推送；提交缺省 scope 升级为完全吊销
+        var again = await ReadDataAsync<LicenseEntitlementDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/licensing/entitlements/{issued.Id}/revoke",
+                token,
+                new RevokeLicenseRequest(null, LicenseConventions.RevokeScopeOnline))));
+        Assert.Equal(LicenseConventions.RevokeScopeOnline, again.RevokeScope);
+
+        var escalated = await ReadDataAsync<LicenseEntitlementDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/licensing/entitlements/{issued.Id}/revoke",
+                token,
+                new RevokeLicenseRequest("门店退租"))));
+        Assert.Equal(LicenseConventions.RevokeScopeAll, escalated.RevokeScope);
+        Assert.Equal("门店退租", escalated.RevokedReason);
+
+        var locked = await StatusAsync(client, token, "online-only-pro", MachineA);
+        Assert.Equal(LicenseConventions.StatusRevoked, locked.Status);
+        Assert.NotNull(locked.Snapshot);
+    }
+
+    [Fact]
     public async Task 试用自动签发且席位用尽拒绝新授权()
     {
         using var client = _factory.CreateClient();

@@ -96,6 +96,9 @@ public sealed class LicenseEntitlement : IAuditableEntity
     /// <summary>吊销原因。</summary>
     public string? RevokedReason { get; set; }
 
+    /// <summary>吊销范围：all（含离线码）/ online（仅在线授权）；历史行 null 视为 all。</summary>
+    public string? RevokeScope { get; set; }
+
     /// <summary>最近一次客户端校验时间。</summary>
     public DateTimeOffset? LastSeenAt { get; set; }
 

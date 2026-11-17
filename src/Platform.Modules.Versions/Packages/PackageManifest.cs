@@ -105,6 +105,9 @@ public sealed class PackageManifest
     /// <summary>目标运行时（可选；full 包可为空或 any）。</summary>
     public string? RuntimeIdentifier { get; init; }
 
+    /// <summary>发布说明（可选；登记草稿版本时作为初始 notes）。</summary>
+    public string? Description { get; init; }
+
     /// <summary>构建时间（可选）。</summary>
     public DateTimeOffset? PublishTime { get; init; }
 
@@ -238,6 +241,12 @@ public sealed class PackageManifest
             }
 
             var publishTime = ParsePublishTime(PackageJson.GetString(root, "publishTime"), warnings);
+            var description = PackageJson.GetString(root, "description").Trim();
+            if (description.Length > VersionConventions.MaxDescriptionChars)
+            {
+                error = $"清单 description 超过 {VersionConventions.MaxDescriptionChars} 个字符";
+                return false;
+            }
             var modules = PackageJson.GetStringArray(root, "modules");
             var hardware = PackageJson.GetStringArray(root, "hardware");
             if (root.TryGetProperty("capabilities", out var capabilities) && capabilities.ValueKind == JsonValueKind.Object)
@@ -280,6 +289,7 @@ public sealed class PackageManifest
                     PackageJson.GetString(root, "channel"))),
                 Version = version,
                 RuntimeIdentifier = NullIfEmpty(runtimeIdentifier),
+                Description = NullIfEmpty(description),
                 PublishTime = publishTime,
                 GitVersion = NullIfEmpty(PackageJson.GetString(root, "gitVersion")),
                 GitCommit = NullIfEmpty(PackageJson.GetString(root, "gitCommit")),
@@ -354,6 +364,13 @@ public sealed class PackageManifest
         }
 
         var warnings = new List<string>();
+        var description = fields.GetValueOrDefault("description", string.Empty).Trim();
+        if (description.Length > VersionConventions.MaxDescriptionChars)
+        {
+            error = $"清单 description 超过 {VersionConventions.MaxDescriptionChars} 个字符";
+            return false;
+        }
+
         var publishTime = ParsePublishTime(fields.GetValueOrDefault("publishTime", string.Empty), warnings);
         manifest = new PackageManifest
         {
@@ -365,6 +382,7 @@ public sealed class PackageManifest
                 fields.GetValueOrDefault("channel", string.Empty))),
             Version = version,
             RuntimeIdentifier = NullIfEmpty(runtimeIdentifier),
+            Description = NullIfEmpty(description),
             PublishTime = publishTime,
             GitVersion = NullIfEmpty(fields.GetValueOrDefault("gitVersion", string.Empty)),
             GitCommit = NullIfEmpty(fields.GetValueOrDefault("gitCommit", string.Empty)),
@@ -392,7 +410,8 @@ public sealed class PackageManifest
         Modules,
         Hardware,
         ManifestHash,
-        Files);
+        Files,
+        Description);
 
     /// <summary>规范化为存储用 JSON（可再次解析，<see cref="ManifestHash"/> 不变）。</summary>
     public string ToJson()
@@ -407,6 +426,7 @@ public sealed class PackageManifest
             WriteOptional(writer, "channelKey", ChannelKey);
             WriteOptional(writer, "version", Version);
             WriteOptional(writer, "runtimeIdentifier", RuntimeIdentifier);
+            WriteOptional(writer, "description", Description);
             if (PublishTime is { } publishTime)
             {
                 writer.WriteString("publishTime", publishTime.ToString("O", CultureInfo.InvariantCulture));

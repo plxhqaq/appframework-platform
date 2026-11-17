@@ -27,6 +27,13 @@ public interface IReleaseService
     /// <summary>版本详情（含全部产物与文件清单）。</summary>
     Task<ReleaseDetailDto> GetAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>编辑草稿版本的发布说明（包内说明可被管理员修正后再发布）。</summary>
+    Task<ReleaseDetailDto> UpdateAsync(
+        string appKey,
+        Guid id,
+        UpdateReleaseRequest request,
+        CancellationToken cancellationToken = default);
+
     /// <summary>按提交的清单创建版本；<c>Publish=true</c> 时创建即发布。</summary>
     Task<ReleaseDetailDto> CreateAsync(
         string appKey,
@@ -132,8 +139,12 @@ public sealed partial class ReleaseService : IReleaseService
                 x.Status,
                 x.Notes,
                 x.Artifacts.Count,
-                x.Artifacts.Sum(static a => a.FileCount),
-                x.Artifacts.Sum(static a => a.TotalSizeBytes),
+                x.Artifacts.Count > 0
+                    ? x.Artifacts.Sum(static a => a.FileCount)
+                    : x.Packages.Sum(static p => p.FileCount ?? 1),
+                x.Artifacts.Count > 0
+                    ? x.Artifacts.Sum(static a => a.TotalSizeBytes)
+                    : x.Packages.Sum(static p => p.SizeBytes),
                 x.PublishedAt,
                 x.CreatedAt,
                 x.UpdatedAt,
@@ -150,6 +161,36 @@ public sealed partial class ReleaseService : IReleaseService
         CancellationToken cancellationToken = default)
     {
         var release = await LoadDetailAsync(appKey, id, cancellationToken);
+        return ToDetail(release);
+    }
+
+    /// <inheritdoc />
+    public async Task<ReleaseDetailDto> UpdateAsync(
+        string appKey,
+        Guid id,
+        UpdateReleaseRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var release = await LoadDetailAsync(appKey, id, cancellationToken);
+        if (release.Status != VersionConventions.StatusDraft)
+        {
+            throw new BusinessException(
+                ApiErrorCode.VersionsReleaseImmutable,
+                $"版本 {release.Version} 已{(release.Status == VersionConventions.StatusPublished ? "发布" : "归档")}，"
+                + "只有草稿可以编辑发布说明。");
+        }
+
+        string? notes = request.Notes?.Trim();
+        if (notes is { Length: > VersionConventions.MaxDescriptionChars })
+        {
+            throw BusinessException.Invalid(
+                $"发布说明不能超过 {VersionConventions.MaxDescriptionChars} 个字符。");
+        }
+
+        release.Notes = string.IsNullOrEmpty(notes) ? null : notes;
+        await _db.SaveChangesAsync(cancellationToken);
         return ToDetail(release);
     }
 
@@ -826,8 +867,12 @@ public sealed partial class ReleaseService : IReleaseService
             release.Status,
             release.Notes,
             artifacts.Count,
-            artifacts.Sum(static x => x.FileCount),
-            artifacts.Sum(static x => x.TotalSizeBytes),
+            artifacts.Count > 0
+                ? artifacts.Sum(static x => x.FileCount)
+                : release.Packages.Sum(static p => p.FileCount ?? 1),
+            artifacts.Count > 0
+                ? artifacts.Sum(static x => x.TotalSizeBytes)
+                : release.Packages.Sum(static p => p.SizeBytes),
             release.PublishedAt,
             release.ArchivedAt,
             release.CreatedBy,

@@ -1,5 +1,5 @@
 import { tr } from '../../i18n/translate';
-import { DownloadOutlined, InboxOutlined, SendOutlined } from '@ant-design/icons';
+import { DownloadOutlined, EditOutlined, InboxOutlined, SendOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App, Button, Collapse, Descriptions, Drawer, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { startDownload } from '../../shared/download';
@@ -15,6 +15,7 @@ import { formatBytes, formatDateTime } from '../../shared/format';
 import { responsivePagination, responsiveWidth } from '../../shared/responsive';
 import { useResponsive } from '../../shared/useResponsive';
 import { manifestSourceLabel, packageKindMeta, packageStatusMeta } from './packageUi';
+import { ReleasePublishModal } from './ReleasePublishModal';
 
 interface ReleaseDetailDrawerProps {
   releaseId: string | null;
@@ -46,6 +47,7 @@ export function ReleaseDetailDrawer({
   const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [reviewMode, setReviewMode] = useState<'publish' | 'edit' | null>(null);
 
   const detail = useQuery({
     queryKey: ['versions', 'release', releaseId],
@@ -60,13 +62,10 @@ export function ReleaseDetailDrawer({
     },
   });
 
-  const action = useMutation({
-    mutationFn: async (kind: 'publish' | 'archive') =>
-      kind === 'publish'
-        ? versionsApi.publishRelease(releaseId!)
-        : versionsApi.archiveRelease(releaseId!),
+  const archive = useMutation({
+    mutationFn: () => versionsApi.archiveRelease(releaseId!),
     onSuccess: async (release) => {
-      message.success(tr("版本 {{arg0}} 已{{arg1}}", { arg0: release.version, arg1: release.status === 'archived' ? tr("归档") : tr("发布") }));
+      message.success(tr("版本 {{arg0}} 已归档", { arg0: release.version }));
       await queryClient.invalidateQueries({ queryKey: ['versions', 'release', releaseId] });
       onChanged();
     },
@@ -126,26 +125,32 @@ export function ReleaseDetailDrawer({
       open={releaseId !== null}
       width={responsiveWidth(isMobile, 760)}
       title={release ? tr("版本 {{arg0}}", { arg0: release.version }) : tr("版本详情")}
-      onClose={onClose}
+      onClose={() => {
+        setReviewMode(null);
+        onClose();
+      }}
       styles={{ body: { padding: isMobile ? 12 : 24 } }}
       extra={
         release ? (
           <Space>
             {canPublish && release.status === 'draft' ? (
-              <Button
-                type="primary"
-                icon={<SendOutlined />}
-                loading={action.isPending}
-                onClick={() => action.mutate('publish')}
-              >
-                {tr("发布")}</Button>
+              <>
+                <Button icon={<EditOutlined />} onClick={() => setReviewMode('edit')}>
+                  {tr("编辑说明")}</Button>
+                <Button
+                  type="primary"
+                  icon={<SendOutlined />}
+                  onClick={() => setReviewMode('publish')}
+                >
+                  {tr("发布")}</Button>
+              </>
             ) : null}
             {canArchive && release.status !== 'archived' ? (
               <Button
                 danger
                 icon={<InboxOutlined />}
-                loading={action.isPending}
-                onClick={() => action.mutate('archive')}
+                loading={archive.isPending}
+                onClick={() => archive.mutate()}
               >
                 {tr("归档")}</Button>
             ) : null}
@@ -413,6 +418,15 @@ export function ReleaseDetailDrawer({
             }))}
           />
         </>
+      ) : null}
+
+      {canPublish && release?.status === 'draft' ? (
+        <ReleasePublishModal
+          releaseId={reviewMode ? releaseId : null}
+          mode={reviewMode ?? 'publish'}
+          onClose={() => setReviewMode(null)}
+          onChanged={onChanged}
+        />
       ) : null}
     </Drawer>
   );

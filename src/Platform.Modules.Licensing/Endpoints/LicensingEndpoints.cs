@@ -290,7 +290,9 @@ internal static class LicensingEndpoints
                             targetType: "license_entitlement",
                             targetId: id.ToString(),
                             result: AuditResults.Success,
-                            message: revoked.RevokedReason);
+                            message: revoked.RevokeScope == LicenseConventions.RevokeScopeOnline
+                                ? $"仅注销在线授权（离线授权码仍有效）：{revoked.RevokedReason ?? "未填写原因"}"
+                                : revoked.RevokedReason);
                         return ApiResults.Ok(context, revoked);
                     }
                     catch (BusinessException exception)
@@ -306,7 +308,7 @@ internal static class LicensingEndpoints
                     }
                 })
             .WithName("licensing.entitlements.revoke")
-            .WithSummary("吊销授权（推送提示，客户端回拉后锁定）")
+            .WithSummary("吊销授权（all=含离线码；online=仅注销在线授权）")
             .RequirePermission(PermissionCatalog.LicenseRevoke);
     }
 

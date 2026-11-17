@@ -26,6 +26,7 @@ import { ChannelFormModal } from './ChannelFormModal';
 import { PackageUploadModal } from './PackageUploadModal';
 import { ReleaseCreateModal } from './ReleaseCreateModal';
 import { ReleaseDetailDrawer } from './ReleaseDetailDrawer';
+import { ReleasePublishModal } from './ReleasePublishModal';
 
 const STATUS_META: Record<ReleaseStatus, { label: string; color?: string }> = {
   draft: { get label() { return tr("草稿"); } },
@@ -59,6 +60,7 @@ export function VersionsPage() {
   const [editingChannel, setEditingChannel] = useState<ReleaseChannel | null>(null);
   const [releaseFormOpen, setReleaseFormOpen] = useState(false);
   const [packageFormOpen, setPackageFormOpen] = useState(false);
+  const [publishId, setPublishId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [channelFilter, setChannelFilter] = useState<string | undefined>();
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
@@ -92,15 +94,10 @@ export function VersionsPage() {
     await queryClient.invalidateQueries({ queryKey: ['versions'] });
   };
 
-  const mutateRelease = async (action: 'publish' | 'archive', row: ReleaseSummary) => {
+  const archiveRelease = async (row: ReleaseSummary) => {
     try {
-      if (action === 'publish') {
-        await versionsApi.publishRelease(row.id);
-        message.success(tr("版本 {{arg0}} 已发布", { arg0: row.version }));
-      } else {
-        await versionsApi.archiveRelease(row.id);
-        message.success(tr("版本 {{arg0}} 已归档", { arg0: row.version }));
-      }
+      await versionsApi.archiveRelease(row.id);
+      message.success(tr("版本 {{arg0}} 已归档", { arg0: row.version }));
       await refresh();
     } catch (error) {
       message.error(error instanceof Error ? error.message : tr("操作失败"));
@@ -260,11 +257,11 @@ export function VersionsPage() {
           <Button type="link" size="small" onClick={() => setDetailId(row.id)}>
             {tr("详情")}</Button>
           {canPublish && row.status === 'draft' ? (
-            <Button type="link" size="small" onClick={() => void mutateRelease('publish', row)}>
+            <Button type="link" size="small" onClick={() => setPublishId(row.id)}>
               {tr("发布")}</Button>
           ) : null}
           {canArchive && row.status !== 'archived' ? (
-            <Button type="link" size="small" danger onClick={() => void mutateRelease('archive', row)}>
+            <Button type="link" size="small" danger onClick={() => void archiveRelease(row)}>
               {tr("归档")}</Button>
           ) : null}
         </Space>
@@ -427,10 +424,16 @@ export function VersionsPage() {
 
       <PackageUploadModal
         open={packageFormOpen}
-        channels={(channels.data ?? []).filter((channel) => channel.isEnabled)}
-        canPublish={canPublish}
         onClose={() => setPackageFormOpen(false)}
         onSaved={() => void refresh()}
+        onOpenRelease={(releaseId) => setDetailId(releaseId)}
+      />
+
+      <ReleasePublishModal
+        releaseId={publishId}
+        mode="publish"
+        onClose={() => setPublishId(null)}
+        onChanged={() => void refresh()}
       />
 
       <ReleaseDetailDrawer

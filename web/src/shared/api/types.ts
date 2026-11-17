@@ -491,6 +491,11 @@ export interface CreateReleaseRequest {
   artifacts: CreateReleaseArtifactRequest[];
 }
 
+/** 编辑草稿版本；目前仅发布说明可改，空串表示清空。 */
+export interface UpdateReleaseRequest {
+  notes: string | null;
+}
+
 /** 申请上传票据（先声明内容哈希与长度，再直传字节）。 */
 export interface CreateUploadTicketRequest {
   sha256: string;
@@ -640,6 +645,9 @@ export type LicenseStatus = 'active' | 'expired' | 'revoked' | 'unlicensed' | 'u
 /** 授权类型：trial / official。 */
 export type LicenseKind = 'trial' | 'official';
 
+/** 吊销范围：all=连离线授权码一起失效；online=只注销在线授权。 */
+export type LicenseRevokeScope = 'all' | 'online';
+
 /** 授权主体（配额绑定机器码，跨机器复制无效）。 */
 export interface LicenseEntitlement {
   id: string;
@@ -656,6 +664,8 @@ export interface LicenseEntitlement {
   issuedBy?: string | null;
   revokedAt?: string | null;
   revokedReason?: string | null;
+  /** 吊销范围；null 表示未吊销，历史已吊销行按 all 处理。 */
+  revokeScope?: LicenseRevokeScope | null;
   lastSeenAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -680,9 +690,10 @@ export interface RenewLicenseRequest {
   notes?: string | null;
 }
 
-/** 吊销授权。 */
+/** 吊销授权；scope 缺省为 all。 */
 export interface RevokeLicenseRequest {
   reason?: string | null;
+  scope?: LicenseRevokeScope | null;
 }
 
 /** 签发离线授权码。 */

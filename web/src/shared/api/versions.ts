@@ -13,6 +13,7 @@ import type {
   ReleasePackage,
   ReleaseSummary,
   UpdateReleaseChannelRequest,
+  UpdateReleaseRequest,
   UpdaterInfo,
   UploadResult,
   UploadTicket,
@@ -92,6 +93,13 @@ export const versionsApi = {
 
   publishRelease: (id: string) =>
     request<ReleaseDetail>(`/api/v1/admin/versions/releases/${id}/publish`, { method: 'POST' }),
+
+  /** 编辑草稿版本的发布说明（发布前确认用）。 */
+  updateRelease: (id: string, body: UpdateReleaseRequest) =>
+    request<ReleaseDetail>(`/api/v1/admin/versions/releases/${id}`, {
+      method: 'PATCH',
+      body,
+    }),
 
   archiveRelease: (id: string) =>
     request<ReleaseDetail>(`/api/v1/admin/versions/releases/${id}/archive`, { method: 'POST' }),

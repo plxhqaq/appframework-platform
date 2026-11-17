@@ -376,6 +376,56 @@ public sealed class VersionsEndpointsTests : IClassFixture<PlatformApiFactory>
     }
 
     [Fact]
+    public async Task 草稿可改发布说明且发布后不可再改()
+    {
+        using var client = _factory.CreateClient();
+        var token = await LoginAsync(client);
+
+        await CreateChannelAsync(client, token, "draft-notes");
+        var sha = await UploadAsync(client, token, AppBytes);
+        var draft = await CreateReleaseAsync(
+            client,
+            token,
+            "draft-notes",
+            "3.0.0",
+            publish: false,
+            Artifact("win-x64", ("App.exe", AppBytes, sha)));
+        Assert.Equal("集成测试版本", draft.Notes);
+
+        var updated = await ReadDataAsync<ReleaseDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Patch,
+                $"/api/v1/admin/versions/releases/{draft.Id}",
+                token,
+                new UpdateReleaseRequest("发布前核对后的说明"))));
+        Assert.Equal("发布前核对后的说明", updated.Notes);
+
+        // 空白视为清空
+        var cleared = await ReadDataAsync<ReleaseDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Patch,
+                $"/api/v1/admin/versions/releases/{draft.Id}",
+                token,
+                new UpdateReleaseRequest("  "))));
+        Assert.Null(cleared.Notes);
+
+        await ReadDataAsync<ReleaseDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/versions/releases/{draft.Id}/publish",
+                token)));
+
+        var rejected = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Patch,
+            $"/api/v1/admin/versions/releases/{draft.Id}",
+            token,
+            new UpdateReleaseRequest("发布后再改")));
+        Assert.Equal(
+            (int)ApiErrorCode.VersionsReleaseImmutable,
+            await IdentityTestHelpers.ReadErrorCodeAsync(rejected, HttpStatusCode.Conflict));
+    }
+
+    [Fact]
     public async Task 停用渠道后不能再创建版本且渠道键幂等()
     {
         using var client = _factory.CreateClient();

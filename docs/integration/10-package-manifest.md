@@ -41,6 +41,7 @@ zip 根目录（`app/` 前缀与大小写不敏感），或作为 sidecar JSON�
   "channelKey": "stable",
   "version": "1.2.3.0",
   "runtimeIdentifier": "win-x64",
+  "description": "全功能 1.2.3.0 安装包（full）",
   "publishTime": "2026-11-13T10:00:00Z",
   "gitVersion": "1.2.3.0",
   "gitCommit": "abc123",
@@ -51,7 +52,9 @@ zip 根目录（`app/` 前缀与大小写不敏感），或作为 sidecar JSON�
 }
 ```
 
-- `kind` / `version` 必填；`appKey` / `channelKey` / `runtimeIdentifier` 可选，但出现即校验。
+- `kind` / `version` 必填；`appKey` / `channelKey` / `runtimeIdentifier` / `description` 可选，但出现即校验。
+- `runtimeIdentifier` 决定登记时的 `target`（六个白名单值或 `any`），上传人无需再手选运行时。
+- `description` 是发布说明，登记为草稿时写入版本 `notes`，管理台在草稿阶段可继续修正；不超过 4000 字符。
 - `kind=incremental` 必须带非空 `files`；`kind=full` 可省略（安装器自包含）。
 - 文件 `path` 归一后（`\ → /`、去 `./`、去 `app/` 顶层前缀）必须唯一且大小写不敏感不重复；
   拒绝绝对路径、`..`、空段、NUL。条目按 `path` 排序后计算 `manifest_hash`。
@@ -59,7 +62,7 @@ zip 根目录（`app/` 前缀与大小写不敏感），或作为 sidecar JSON�
 ### 2.2 exe：PE `VERSIONINFO Comments`
 
 ```text
-AF-PACKAGE/1|kind=full|version=1.2.3.0|channel=stable|rid=win-x64|entryPoint=Setup.exe
+AF-PACKAGE/1|kind=full|version=1.2.3.0|channel=stable|rid=win-x64|description=…|entryPoint=Setup.exe
 ```
 
 服务端按 PE/COFF 规范跨平台读取（不依赖 `FileVersionInfo`），资源上限 1 MB；解析失败按「无清单」处理。
@@ -73,11 +76,16 @@ AF-PACKAGE/1|kind=full|version=1.2.3.0|channel=stable|rid=win-x64|entryPoint=Set
 | zip `updater-info.json` | `version` / `entry` / `files[]` | `kind=updater`（B9） |
 | sidecar `af-package.json` | 登记请求带 `manifestSha256` | 优先于包内清单 |
 
+当前构建脚本在两个旧来源里都写 `runtimeIdentifier=win-x64` 与 `description`；老包没有这两段时，
+全量包运行时回退 `any`、说明为空，增量包若也没有运行时则登记返回 `211`（只能由 API 调用方显式补
+`target`，管理台上传口不再提供手选）。
+
 ### 2.4 识别顺序与失败口径
 
 1. 请求带 `manifestSha256` → 读该 Blob（sidecar，需先用票据上传）。
 2. zip → `af-package.json`，回退旧格式；exe → PE Comments，回退 `AF-MANIFEST/1`。
-3. 都没有 → **仅 `kind=full` 允许人工登记**（`manifestSource=manual`，管理台二次确认）；
+3. 都没有 → 仅 `kind=full` 允许**通过 API 人工登记**（`manifestSource=manual`，需显式传
+   `channelKey` / `version`）；管理台上传口已不接受人工元数据，必须由包内或旁挂清单提供。
    增量包缺清单直接拒绝 `215`。
 
 **安全上限**（均可配，见 §6）：清单 JSON ≤1 MB；zip 条目 ≤100 000；单条目 ≤4 GiB；
@@ -97,12 +105,11 @@ curl -s -X PUT "http://localhost:5080$TICKET" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/octet-stream' \
   --data-binary @Setup-stable-1.2.3.exe
 
-# 3) 登记发布包（可只传哈希/长度/文件名，清单自动识别）
+# 3) 登记发布包（只传哈希/长度/文件名，类型、渠道、版本、运行时与说明全部取自包内清单）
 curl -s -X POST http://localhost:5080/api/v1/admin/versions/packages \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"sha256":"'$SHA'","sizeBytes":'$SIZE',"fileName":"Setup-stable-1.2.3.exe",
-       "kind":"full","target":"any","publish":true}'
+  -d '{"sha256":"'$SHA'","sizeBytes":'$SIZE',"fileName":"Setup-stable-1.2.3.exe"}'
 ```
 
 登记请求字段：
@@ -111,17 +118,19 @@ curl -s -X POST http://localhost:5080/api/v1/admin/versions/packages \
 |---|---|---|
 | `sha256` / `sizeBytes` | 是 | Blob 必须已存在且长度一致，否则 `206` |
 | `fileName` | 是 | 下载时 `Content-Disposition` 用；禁止路径分隔符与控制字符 |
-| `kind` | 见下 | `full` / `incremental`；缺省时仅当包内清单明确 kind 才推断 |
-| `target` | 否 | 缺省取清单 `runtimeIdentifier`；full 仍为空则 `any` |
+| `kind` | 否 | 缺省取包内清单；`full` / `incremental`，显式值必须与清单一致（`224`） |
+| `target` | 否 | 缺省取清单 `runtimeIdentifier`；full 仍为空则 `any`，incremental 缺失返回 `211` |
 | `format` | 否 | 缺省按扩展名推断（exe/msi/msp/zip/7z/bin） |
-| `channelKey` / `version` | 否 | 缺省取清单；人工登记 full 包必须提供 |
+| `channelKey` / `version` | 否 | 缺省取清单；没有清单的人工登记 full 包必须提供 |
 | `manifestSha256` | 否 | sidecar 清单的哈希（需已上传） |
-| `publish` | 否 | `true` 且包 ready 时直接发布；否则留在草稿版本 |
-| `notes` | 否 | 自动创建草稿版本时写入版本说明 |
+| `publish` | 否 | 默认 `false`，登记后留作草稿；`true` 且包 ready 时直接发布 |
+| `notes` | 否 | 显式说明优先于清单 `description`；都不传则版本说明为空 |
 
 行为要点：
 
 - 版本不存在时自动创建**草稿**（`draft`），失败也可见；`publish=true` 时登记成功即发布。
+- 管理台上传口固定 `publish=false` 且不传任何元数据：类型、目标、渠道、版本与说明都从包内清单读取，
+  避免上传人填写与包内事实不一致。登记后进入草稿，管理员核对/修正说明后再走发布确认（§8）。
 - 同槽位同 `sha256` 重放返回已有行（`reused=true`）；不同 `sha256` 占同槽位 → `219`。
 - 清单与同 RID 已有产物的 `manifest_hash` 不一致 → `219`（发布不可变）。
 - 文件名模板默认只告警；`Versions:RequirePackageFileNameMatch=true` 时返回 `218`。
@@ -248,11 +257,15 @@ curl -s -o Setup.exe -D headers.txt \
 
 「版本与渠道」页与「更新器」页覆盖全部管理端操作：
 
-- 上传弹窗：包类型（full/incremental）、目标运行时、渠道、版本、文件、可选旁挂清单、
-  登记后立即发布；浏览器分块计算 SHA-256 并显示哈希/上传进度，>256 MB 给出提示。
+- 上传弹窗：只选文件与可选旁挂清单，**不填包类型/目标运行时/渠道/版本/说明**；浏览器分块计算 SHA-256
+  并显示哈希/上传进度，>256 MB 给出提示。登记请求只有 `sha256` / `sizeBytes` / `fileName` /
+  `manifestSha256`，`publish=false` 固定为草稿；成功后可直接「查看草稿版本」。
+- 登记结果面板展示从清单解析出的渠道/版本/类型/运行时/大小与清单来源，帮助上传人确认包是否配对。
+- 发布确认：版本详情与列表的「发布」都会先打开确认弹窗，展示渠道、版本、包与文件汇总；草稿阶段可
+  修改发布说明（`PATCH /releases/{id}`），确认后保存说明并发布。已发布版本只读，不再提供改说明或重复发布。
 - 增量包登记后弹窗轮询 `GET /packages/{id}`（3 秒），显示 `pending/processing/ready/failed`、
   清单文件数、`errorCode` 与原因；失败时原地「重试摄取」（`POST /packages/{id}/retry`）。
-- full 包未提供旁挂清单时会二次确认：包内无清单则按人工登记（`manual`）处理。
+- 纯安装包版本（无文件级产物）的文件数与总大小由发布包汇总回填；单 exe 全量包显示 1 个文件与包字节数。
 - 详情抽屉：kind / target / format / status / 清单来源 / 清单文件数 / 大小 / SHA-256 / 下载 / 删除
   （仅草稿）；有未完成增量包时每 3 秒自动刷新，失败包可直接重试。
 - 状态颜色：待摄取、摄取中、可用、失败（失败时悬浮显示 `errorCode` 与原因）。
