@@ -3,8 +3,15 @@ namespace Platform.Contracts.Identity;
 /// <summary>身份约定常量。口令策略、令牌格式与种子名称集中在这里，服务端与前端共享同一口径。</summary>
 public static class IdentityConventions
 {
-    /// <summary>管理端刷新令牌 Cookie 名（httpOnly + SameSite=Strict）。</summary>
-    public const string RefreshCookieName = "af_refresh";
+    /// <summary>
+    /// 管理端刷新令牌 Cookie 名（httpOnly + SameSite=Strict）。
+    /// 带 v2 后缀是为了绕开 HTTPS 部署期写入的 Secure 旧 Cookie：浏览器不允许 HTTP 响应覆盖
+    /// 同名 Secure Cookie，复用旧名会让「HTTPS 切 HTTP」后的每次刷新都取不到令牌而强制重登。
+    /// </summary>
+    public const string RefreshCookieName = "af_refresh_v2";
+
+    /// <summary>旧版刷新 Cookie 名：兼容读取一次以完成轮换，登录/登出时顺手清理。</summary>
+    public const string LegacyRefreshCookieName = "af_refresh";
 
     /// <summary>刷新 Cookie 的作用路径：只随管理端认证端点发送，不污染其它接口。</summary>
     public const string RefreshCookiePath = "/api/v1/admin/auth";

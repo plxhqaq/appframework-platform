@@ -78,7 +78,7 @@ internal static class AdminAuthEndpoints
                     IAuditWriter audit,
                     CancellationToken cancellationToken) =>
                 {
-                    var refreshToken = context.Request.Cookies[IdentityConventions.RefreshCookieName];
+                    var refreshToken = ReadRefreshCookie(context);
                     try
                     {
                         var issued = await auth.RefreshAsync(
@@ -137,7 +137,7 @@ internal static class AdminAuthEndpoints
                             "只有用户会话可以切换应用上下文。");
                     }
 
-                    var refreshToken = context.Request.Cookies[IdentityConventions.RefreshCookieName];
+                    var refreshToken = ReadRefreshCookie(context);
                     try
                     {
                         var issued = await auth.SwitchAppContextAsync(
@@ -179,7 +179,7 @@ internal static class AdminAuthEndpoints
                     IAuditWriter audit,
                     CancellationToken cancellationToken) =>
                 {
-                    var refreshToken = context.Request.Cookies[IdentityConventions.RefreshCookieName];
+                    var refreshToken = ReadRefreshCookie(context);
                     await auth.LogoutAsync(refreshToken, cancellationToken);
                     DeleteRefreshCookie(context);
                     await WriteAuditAsync(
@@ -197,6 +197,22 @@ internal static class AdminAuthEndpoints
             .AllowAnonymous();
     }
 
+    /// <summary>
+    /// 读取刷新令牌：优先新名；HTTPS 部署升级上来的旧名仍可续期一次，随后自然换成新名。
+    /// HTTP 下旧 Secure Cookie 根本不会发送，这一兜底只影响 HTTPS 现场，避免升级即全员重登。
+    /// </summary>
+    private static string ReadRefreshCookie(HttpContext context)
+    {
+        string? current = context.Request.Cookies[IdentityConventions.RefreshCookieName];
+        if (!string.IsNullOrEmpty(current))
+        {
+            return current;
+        }
+
+        string? legacy = context.Request.Cookies[IdentityConventions.LegacyRefreshCookieName];
+        return legacy ?? string.Empty;
+    }
+
     private static void WriteRefreshCookie(HttpContext context, string token, DateTimeOffset expires)
     {
         context.Response.Cookies.Append(
@@ -212,11 +228,30 @@ internal static class AdminAuthEndpoints
                 MaxAge = expires - DateTimeOffset.UtcNow,
                 IsEssential = true,
             });
+
+        // 顺手清掉旧名：HTTPS 期写入的 Secure 旧 Cookie 在 HTTP 下删不掉（浏览器保护），
+        // 但它只作为兼容兜底被读取一次，轮换后写出的新令牌都落在新名下。
+        DeleteLegacyRefreshCookie(context);
     }
 
-    private static void DeleteRefreshCookie(HttpContext context) =>
+    private static void DeleteRefreshCookie(HttpContext context)
+    {
+        CookieOptions options = new()
+        {
+            HttpOnly = true,
+            Secure = context.Request.IsHttps,
+            SameSite = SameSiteMode.Strict,
+            Path = IdentityConventions.RefreshCookiePath,
+            IsEssential = true,
+        };
+
+        context.Response.Cookies.Delete(IdentityConventions.RefreshCookieName, options);
+        DeleteLegacyRefreshCookie(context);
+    }
+
+    private static void DeleteLegacyRefreshCookie(HttpContext context) =>
         context.Response.Cookies.Delete(
-            IdentityConventions.RefreshCookieName,
+            IdentityConventions.LegacyRefreshCookieName,
             new CookieOptions
             {
                 HttpOnly = true,

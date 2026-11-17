@@ -142,6 +142,13 @@ public sealed class IdentityAuthEndpointsTests : IClassFixture<PlatformApiFactor
         Assert.Contains("samesite=strict", loginCookie, StringComparison.OrdinalIgnoreCase);
         Assert.Contains($"path={IdentityConventions.RefreshCookiePath}", loginCookie, StringComparison.OrdinalIgnoreCase);
 
+        // 旧名必须顺手清掉：HTTPS 期写入的 Secure 旧 Cookie 在 HTTP 下无法被同名非 Secure Cookie 覆盖，
+        // 继续读旧名会让「HTTPS 切 HTTP」后的每次刷新都 401。
+        var legacy = Assert.Single(
+            loginResponse.Headers.GetValues("Set-Cookie"),
+            x => x.StartsWith($"{IdentityConventions.LegacyRefreshCookieName}=", StringComparison.Ordinal));
+        Assert.Contains("expires=thu, 01 jan 1970", legacy, StringComparison.OrdinalIgnoreCase);
+
         var refreshResponse = await client.PostAsync("/api/v1/admin/auth/refresh", content: null);
         var refreshed = await IdentityTestHelpers.ReadDataAsync<AdminSessionResponse>(refreshResponse);
         Assert.NotEqual(login.AccessToken, refreshed.AccessToken);
@@ -159,6 +166,27 @@ public sealed class IdentityAuthEndpointsTests : IClassFixture<PlatformApiFactor
         Assert.Equal(
             (int)ApiErrorCode.IdentityRefreshTokenInvalid,
             await IdentityTestHelpers.ReadErrorCodeAsync(afterLogout, HttpStatusCode.Unauthorized));
+    }
+
+    [Fact]
+    public async Task 刷新兼容旧Cookie名并换成新名()
+    {
+        using var client = _factory.CreateClient();
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/v1/admin/auth/login",
+            new LoginRequest(IdentityTestHelpers.AdminUserName, IdentityTestHelpers.AdminPassword));
+        var token = ReadCookieValue(ReadSetCookie(loginResponse));
+
+        // 只带旧名（例如 HTTPS 升级上来的现场）：仍可续期一次
+        using var legacyClient = _factory.CreateClient();
+        using var legacyRefresh = new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/auth/refresh");
+        legacyRefresh.Headers.Add(
+            "Cookie",
+            $"{IdentityConventions.LegacyRefreshCookieName}={token}");
+        var response = await legacyClient.SendAsync(legacyRefresh);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotEqual(token, ReadCookieValue(ReadSetCookie(response)));
     }
 
     [Fact]
@@ -205,5 +233,11 @@ public sealed class IdentityAuthEndpointsTests : IClassFixture<PlatformApiFactor
     {
         Assert.True(response.Headers.TryGetValues("Set-Cookie", out var values));
         return values.Single(x => x.StartsWith(IdentityConventions.RefreshCookieName, StringComparison.Ordinal));
+    }
+
+    private static string ReadCookieValue(string setCookie)
+    {
+        var pair = setCookie.Split(';', 2)[0];
+        return pair[(pair.IndexOf('=') + 1)..];
     }
 }
