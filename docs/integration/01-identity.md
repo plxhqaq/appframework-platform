@@ -41,10 +41,11 @@
 | POST | `/api/v1/identity/singlekey/redeem` | 匿名 | `single-login-redeem` 10/分（IP） | 否 |
 | POST | `/api/v1/identity/qr/sessions` | 匿名 | `qr-session` 60/分（IP） | 否 |
 | GET | `/api/v1/identity/qr/sessions/{id}` | 匿名 | `qr-session`（与创建共用额度） | 否 |
+| POST | `/api/v1/identity/qr/sessions/{id}/cancel` | 匿名 | `qr-session` | 是（仅取消待审批会话） |
 | POST | `/api/v1/admin/auth/login` | 匿名 | `identity-login` | 否 |
-| POST | `/api/v1/admin/auth/refresh` | Cookie `af_refresh` | `identity-login` | 否 |
+| POST | `/api/v1/admin/auth/refresh` | Cookie `af_refresh_v2` | `identity-login` | 否 |
 | POST | `/api/v1/admin/auth/context` | Bearer（服务主体被拒） | — | 否 |
-| POST | `/api/v1/admin/auth/logout` | Cookie `af_refresh` | — | 天然幂等 |
+| POST | `/api/v1/admin/auth/logout` | Cookie `af_refresh_v2` | — | 天然幂等 |
 
 > 限流注册见 `src/Platform.Api/Program.cs:78` 起的 `AddRateLimiter`；全局还有 600 次/分/IP 的兜底窗口，被限流统一返回码 `7`（HTTP 429）。
 > 账号维度的口令爆破由登录节流表负责，与 IP 限流互补。
@@ -75,7 +76,7 @@ curl -s -X POST http://localhost:5080/api/v1/identity/login \
 - `userName` 大小写不敏感（服务端 `Trim().ToLowerInvariant()`）；空用户名或空口令统一返回 `101`。
 - `appKey` 可选：期望进入的应用，不在可访问集合内返回 `118`（403）。`deviceFingerprint` 与 `machineCode` 可选，前者写入刷新令牌记录供按设备排查/吊销，后者同时写入访问令牌 `machine` 声明与刷新令牌记录，供授权绑定。
 - 响应 `LoginResponse`：`accessToken` / `expiresAt` / `refreshToken` / `refreshExpiresAt` / `user`；`user` 即 `UserSessionDto`：`userId` / `userName` / `displayName` / `roles` / `permissions` / `appKeys` / `mustChangePassword` / `appKey` / `permissionsLocked`。`permissionsLocked` 仅在进入应用上下文时有意义，客户端据此决定是否还需要上传权限清单。
-- 管理端 `/api/v1/admin/auth/login` 用同一个 `LoginRequest`，但返回 `AdminSessionResponse`（只有 `accessToken` / `expiresAt` / `user`）：刷新令牌改由 httpOnly + SameSite=Strict 的 Cookie `af_refresh` 承载，`Path` 固定 `/api/v1/admin/auth`，`Secure` 跟随请求是否 HTTPS（`AdminAuthEndpoints.cs:200`）。
+- 管理端 `/api/v1/admin/auth/login` 用同一个 `LoginRequest`，但返回 `AdminSessionResponse`（只有 `accessToken` / `expiresAt` / `user`）：刷新令牌改由 httpOnly + SameSite=Strict 的 Cookie `af_refresh_v2` 承载，`Path` 固定 `/api/v1/admin/auth`，`Secure` 跟随请求是否 HTTPS（`AdminAuthEndpoints.cs`）。旧名 `af_refresh` 仅在读不到新名时兼容续期一次，并在登录/刷新/登出时清除；重命名是为了绕开「HTTPS 部署留下的 Secure 旧 Cookie 无法被 HTTP 响应覆盖」的浏览器保护（表现为 HTTP 部署后 Edge/Chromium 每次刷新都要重登）。
 
 ### 2.4 刷新（一次性 + 复用检测）
 
@@ -161,7 +162,7 @@ curl -s -X POST http://localhost:5080/api/v1/identity/singlekey/redeem \
 
 ## 5. 扫码登录
 
-会话状态机：`pending` →（审批）`approved` /（拒绝）`rejected`；`pending` 且已过 `expiresAt` 时在读取时算作 `expired`（**不写库**，落表状态只有三值）。
+会话状态机：`pending` →（审批）`approved` /（拒绝）`rejected` /（客户端放弃）`cancelled`；`pending` 且已过 `expiresAt` 时在读取时算作 `expired`（**不写库**，`expired` 不落表）。
 
 ```bash
 # 1) 客户端发起（匿名）
@@ -172,7 +173,10 @@ curl -s -X POST http://localhost:5080/api/v1/identity/qr/sessions \
 # 2) 客户端轮询（匿名；id 为标准带连字符 GUID）
 curl -s http://localhost:5080/api/v1/identity/qr/sessions/$REQUEST_ID
 
-# 3) 管理端（identity.qr.approve）
+# 3) 客户端放弃本次扫码（匿名、幂等；只取消仍 pending 且未过期的会话）
+curl -s -X POST http://localhost:5080/api/v1/identity/qr/sessions/$REQUEST_ID/cancel
+
+# 4) 管理端（identity.qr.approve）
 curl -s -b admin.jar 'http://localhost:5080/api/v1/admin/identity/qr/sessions?status=pending&page=1&pageSize=20'
 curl -s -b admin.jar http://localhost:5080/api/v1/admin/identity/qr/sessions/$REQUEST_ID
 curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sessions/$REQUEST_ID/approve \
@@ -185,7 +189,8 @@ curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sess
 - 轮询响应 `QrSessionStatusDto{requestId, status, createdAt, expiresAt, approvedAt, session}`：仅当 `status=approved` 且已签发的令牌尚未过期时 `session` 非空（`TemporarySessionResponse`，同上一节）。令牌过期后 `status` 仍是 `approved`，但 `session` 为 `null`——只能重新扫码。
 - 审批 `durationMinutes` 为空取 `QrLogin:DefaultDurationMinutes`（30），上限 `QrLogin:MaxDurationMinutes`（120，即 2 小时）。临时令牌在**审批瞬间**按审批人的真实身份签发并落库，同一请求 id 之后每次轮询领取到的是同一枚。
 - 管理端按 id 取单个会话 `GET /api/v1/admin/identity/qr/sessions/{id}`（权限同上）：手机扫码直达审批页时用它，不必先翻列表。
-- 管理端列表 `status` 只接受 `pending`/`approved`/`rejected`/`expired`（其它值返回 `2`，400），`expired` 筛的是「仍为 pending 但已超时」的行；响应 `QrSessionSummaryDto` 含 `clientName`/`deviceFingerprint`/`createdByIp`/`approvedAt`/`approvedByName`。
+- 客户端取消 `POST /api/v1/identity/qr/sessions/{id}/cancel`（匿名、幂等）：仅当会话仍为 `pending` 且未过期时迁到 `cancelled`，之后管理端待审批列表不再出现、审批返回 `111`；已批准/已拒绝/已过期的会话原样返回、不改状态，也不会吊销已签发令牌。客户端离开扫码页、刷新二维码、关窗时都应调用，否则待审批单会一直留在管理台直到自然超时（10 分钟）。
+- 管理端列表 `status` 只接受 `pending`/`approved`/`rejected`/`expired`/`cancelled`（其它值返回 `2`，400），`expired` 筛的是「仍为 pending 但已超时」的行；响应 `QrSessionSummaryDto` 含 `clientName`/`deviceFingerprint`/`createdByIp`/`approvedAt`/`approvedByName`。
 - 并发审批由带 `status = 'pending' AND expires_at > now` 条件的状态迁移语句裁决（`QrLoginService.cs:200`）：两个审批人同时点击只有一个生效。会话落 `qr_login_sessions` 表，服务重启后待审批会话仍在。
 - 审批/拒绝后服务端经 SignalR `/hubs/platform` 广播事件 `QrLoginApproved`（负载 `QrLoginApprovedNotification{requestId, approved}`，`Clients.All`）：**只是提示**，推送失败只记日志、不影响已落库的审批结果，客户端必须以轮询结果为准。错误码 `109`（404）/`110`（410）/`111`（409）见第 7 节。
 

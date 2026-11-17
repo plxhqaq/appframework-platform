@@ -183,7 +183,8 @@ curl -s http://localhost:5080/api/v1/platform/modules
 
 ## 4. 第三步：登录拿令牌
 
-管理端用**用户名口令**登录；刷新令牌由服务端写入 httpOnly + SameSite=Strict Cookie（`af_refresh`，路径 `/api/v1/admin/auth`），响应体只返回 access token：
+管理端用**用户名口令**登录；刷新令牌由服务端写入 httpOnly + SameSite=Strict Cookie（`af_refresh_v2`，路径 `/api/v1/admin/auth`），响应体只返回 access token。
+旧名 `af_refresh` 只做兼容读取与清理：HTTPS 部署期写入的 Secure 旧 Cookie 在 HTTP 下删不掉也覆盖不了，换新名才能让「HTTPS 切 HTTP」后的现场正常记住登录：
 
 ```bash
 curl -s -c admin.jar -X POST http://localhost:5080/api/v1/admin/auth/login \
@@ -249,7 +250,9 @@ curl -s -X POST http://localhost:5080/api/v1/identity/qr/sessions \
 [01-identity.md](01-identity.md) 第 5 节。
 
 2. 客户端轮询 `GET /api/v1/identity/qr/sessions/{requestId}`，状态为
-   `pending` / `approved` / `rejected` / `expired`；`approved` 时响应带 `session.accessToken`（令牌过期后不再回传）。
+   `pending` / `approved` / `rejected` / `expired` / `cancelled`；`approved` 时响应带 `session.accessToken`（令牌过期后不再回传）。
+   离开扫码页、刷新二维码或关窗时，客户端应调 `POST /api/v1/identity/qr/sessions/{requestId}/cancel`
+   放弃本次扫码（匿名、幂等，只取消仍待审批的会话、不签发令牌），否则该单会在管理台一直可审批直到超时。
 
 3. 管理端审批（需要 `identity.qr.approve`）：
 
@@ -772,7 +775,8 @@ dotnet pack src/AppFramework.Platform.Client/AppFramework.Platform.Client.csproj
 `AppFramework.Platform.Contracts` 内含 DTO、错误码、权限码目录、Hub 契约与分页类型；
 `AppFramework.Platform.Client` 是薄 SDK（令牌 + 自动续期 + 下载 + `LicenseVerifier`）。
 两者版本号都由 `Directory.Build.props` 的 `PlatformContractsVersion` / `PlatformClientVersion` 单点控制，
-当前 `0.3.0-preview.1`。该版本起 M2M 令牌响应与会话携带 `permissionsLocked`，且不再导出
+当前 `0.4.0-preview.1`。该版本起新增匿名扫码会话取消（`CancelQrLoginSessionAsync` / `cancelled` 状态）；
+`0.3.0-preview.1` 起 M2M 令牌响应与会话携带 `permissionsLocked`，且不再导出
 `ClientPermissionCatalog`（客户端权限改由应用权限清单声明，见 §11）。客户端仓库应**精确 pin 版本**（不用 `*` 或范围），破坏性变更必须主版本 +1。
 在线文档（OpenAPI / Scalar）与包的完整清单见 [`07-openapi.md`](07-openapi.md)。
 
