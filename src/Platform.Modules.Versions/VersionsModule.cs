@@ -60,6 +60,10 @@ public sealed class VersionsModule : IPlatformModule
         services.AddScoped<IUploadTicketService, UploadTicketService>();
         services.AddScoped<IReleaseContentService, ReleaseContentService>();
         services.AddSingleton<IPackageManifestProbe, PackageManifestProbe>();
+        // 管理台下载票据用 DataProtection 做限时签名，无需落库；zip 缓存生成器无状态。
+        services.AddDataProtection();
+        services.AddSingleton<IDownloadTicketService, DownloadTicketService>();
+        services.AddSingleton<IDownloadArchiveService, DownloadArchiveService>();
         services.AddHostedService<ReleasePackageIngestionWorker>();
 
         services.TryAddEnumerable(

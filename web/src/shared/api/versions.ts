@@ -4,6 +4,7 @@ import type {
   CreateReleaseChannelRequest,
   CreateReleaseRequest,
   CreateUploadTicketRequest,
+  DownloadTicket,
   PageResult,
   RegisterReleasePackageRequest,
   RegisterUpdaterRequest,
@@ -164,4 +165,16 @@ export const versionsApi = {
       `/api/v1/client/versions/updater${toQueryString({ runtimeIdentifier })}`,
       { signal },
     ),
+
+  /** 管理台下载安装包：签发限时票据，之后由浏览器原生下载（非 zip 自动打包）。 */
+  createPackageDownloadTicket: (id: string) =>
+    request<DownloadTicket>(`/api/v1/client/versions/packages/${id}/download-ticket`, {
+      method: 'POST',
+    }),
+
+  /** 管理台下载更新器：同上。 */
+  createUpdaterDownloadTicket: (id: string) =>
+    request<DownloadTicket>(`/api/v1/client/versions/updaters/${id}/download-ticket`, {
+      method: 'POST',
+    }),
 };

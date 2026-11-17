@@ -8,6 +8,13 @@ namespace Platform.Modules.Versions.Services;
 internal static class VersionBlobPaths
 {
     public static string Blob(string appKey, string sha256) => $"versions/{appKey}/{sha256}";
+
+    /// <summary>
+    /// 管理台下载用的 zip 缓存：同目录、以 <c>{sha}.zip</c> 命名，孤儿扫描按同一 sha 判定引用，
+    /// 源内容不再被引用时与源文件一起回收。
+    /// </summary>
+    public static string ArchiveZip(string appKey, string sha256) =>
+        $"versions/{appKey}/{sha256}.zip";
 }
 
 /// <summary>清单哈希：文件条目按路径排序后逐行规范化，路径/哈希/长度任一变化都会改变摘要。</summary>

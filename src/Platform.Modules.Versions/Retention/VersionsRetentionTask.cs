@@ -384,7 +384,8 @@ public sealed class VersionsRetentionTask : IRetentionCleanupTask
 
     private static BlobCandidate? ParseCandidate(BlobEntry entry)
     {
-        // 只认 versions/{appKey}/{sha256} 这一种内容寻址布局，其他文件不碰。
+        // 只认 versions/{appKey}/{sha256} 与它的下载缓存 versions/{appKey}/{sha256}.zip，
+        // 其他文件不碰。缓存与源内容共用引用判定，源内容不再被引用时一起回收。
         var segments = entry.RelativePath.Split('/');
         if (segments.Length != 3 || !string.Equals(segments[0], "versions", StringComparison.Ordinal))
         {
@@ -392,6 +393,11 @@ public sealed class VersionsRetentionTask : IRetentionCleanupTask
         }
 
         var sha = segments[2];
+        if (sha.EndsWith(".zip", StringComparison.Ordinal))
+        {
+            sha = sha[..^".zip".Length];
+        }
+
         if (sha.Length != 64 || !sha.All(char.IsAsciiHexDigitLower))
         {
             return null;

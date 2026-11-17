@@ -2,7 +2,7 @@ import { tr } from '../../i18n/translate';
 import { DownloadOutlined, InboxOutlined, SendOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App, Button, Collapse, Descriptions, Drawer, Space, Table, Tag, Tooltip, Typography } from 'antd';
-import { requestBlob } from '../../shared/api/client';
+import { startDownload } from '../../shared/download';
 import { versionsApi } from '../../shared/api/versions';
 import type {
   ReleaseArtifact,
@@ -14,7 +14,7 @@ import { useState } from 'react';
 import { formatBytes, formatDateTime } from '../../shared/format';
 import { responsivePagination, responsiveWidth } from '../../shared/responsive';
 import { useResponsive } from '../../shared/useResponsive';
-import { manifestSourceLabel, packageKindMeta, packageStatusMeta, safeDownloadName } from './packageUi';
+import { manifestSourceLabel, packageKindMeta, packageStatusMeta } from './packageUi';
 
 interface ReleaseDetailDrawerProps {
   releaseId: string | null;
@@ -96,15 +96,9 @@ export function ReleaseDetailDrawer({
   const downloadPackage = async (pkg: ReleasePackage) => {
     setDownloadingId(pkg.id);
     try {
-      const blob = await requestBlob(`/api/v1/client/versions/packages/${pkg.id}/download`);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = safeDownloadName(pkg.fileName);
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
+      // 票据签发时服务端会把非 zip 包打成 zip；下载交给浏览器，支持大文件流式与断点续传。
+      const ticket = await versionsApi.createPackageDownloadTicket(pkg.id);
+      startDownload(ticket.url);
     } catch (error) {
       message.error(error instanceof Error ? error.message : tr("下载失败"));
     } finally {

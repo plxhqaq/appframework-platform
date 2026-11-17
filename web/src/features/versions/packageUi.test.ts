@@ -6,7 +6,6 @@ import {
   packageKindMeta,
   packageStatusMeta,
   packageTargetError,
-  safeDownloadName,
 } from './packageUi';
 
 describe('发布包展示口径', () => {
@@ -85,11 +84,5 @@ describe('发布包展示口径', () => {
     });
 
     expect(request.publish).toBe(false);
-  });
-
-  it('下载文件名去掉路径与危险字符', () => {
-    expect(safeDownloadName('..\\evil/Setup.exe')).toBe('.._evil_Setup.exe');
-    expect(safeDownloadName('Setup.exe')).toBe('Setup.exe');
-    expect(safeDownloadName('')).toBe('package');
   });
 });

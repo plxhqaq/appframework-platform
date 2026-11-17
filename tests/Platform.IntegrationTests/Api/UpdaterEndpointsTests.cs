@@ -147,6 +147,77 @@ public sealed class UpdaterEndpointsTests
     }
 
     [Fact]
+    public async Task 管理台更新器下载票据把非zip打成zip且归档后失效()
+    {
+        using var factory = new PlatformApiFactory();
+        using var client = factory.CreateClient();
+        var token = await LoginAsync(client);
+
+        var raw = "raw-updater-binary"u8.ToArray();
+        var sha = await UploadAsync(client, token, raw);
+        var registered = await RegisterAsync(client, token, new RegisterUpdaterRequest(
+            "win-x64",
+            "5.0.0",
+            "AppFramework.Updater-5.0.0.bin",
+            sha,
+            raw.Length));
+
+        var ticket = await ReadDataAsync<DownloadTicketDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/client/versions/updaters/{registered.Id}/download-ticket",
+                token)));
+        Assert.StartsWith("/api/v1/client/versions/downloads/", ticket.Url);
+        Assert.Equal("AppFramework.Updater-5.0.0.bin.zip", ticket.FileName);
+        Assert.True(ticket.SizeBytes > raw.Length);
+
+        var download = await client.GetAsync(ticket.Url);
+        Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+        Assert.Equal("application/zip", download.Content.Headers.ContentType!.MediaType);
+        Assert.Equal($"\"{sha}-zip\"", download.Headers.ETag!.Tag);
+        Assert.Equal(sha, download.Headers.GetValues("X-Content-Sha256").Single());
+
+        var zipBytes = await download.Content.ReadAsByteArrayAsync();
+        using (var archive = new ZipArchive(new MemoryStream(zipBytes), ZipArchiveMode.Read))
+        {
+            var entry = Assert.Single(archive.Entries);
+            Assert.Equal("AppFramework.Updater-5.0.0.bin", entry.FullName);
+            using var entryStream = entry.Open();
+            using var entryBuffer = new MemoryStream();
+            await entryStream.CopyToAsync(entryBuffer);
+            Assert.Equal(raw, entryBuffer.ToArray());
+        }
+
+        using var rangeRequest = new HttpRequestMessage(HttpMethod.Get, ticket.Url);
+        rangeRequest.Headers.Range = new RangeHeaderValue(0, 3);
+        var range = await client.SendAsync(rangeRequest);
+        Assert.Equal(HttpStatusCode.PartialContent, range.StatusCode);
+        Assert.Equal($"bytes 0-3/{zipBytes.Length}", range.Content.Headers.ContentRange!.ToString());
+
+        // SDK 原始端点保持二进制原样
+        var rawDownload = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Get,
+            $"/api/v1/client/versions/updaters/{registered.Id}/download",
+            token));
+        Assert.Equal("application/octet-stream", rawDownload.Content.Headers.ContentType!.MediaType);
+        Assert.Equal($"\"{sha}\"", rawDownload.Headers.ETag!.Tag);
+        Assert.Equal(raw, await rawDownload.Content.ReadAsByteArrayAsync());
+
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (await client.PostAsync(
+                $"/api/v1/client/versions/updaters/{registered.Id}/download-ticket",
+                content: null)).StatusCode);
+
+        // 票据只证明「谁签发过」，GET 仍按当前状态校验：归档后立即失效
+        await ArchiveAsync(client, token, registered.Id);
+        var archived = await client.GetAsync(ticket.Url);
+        Assert.Equal(
+            (int)ApiErrorCode.VersionsUpdaterNotFound,
+            await IdentityTestHelpers.ReadErrorCodeAsync(archived, HttpStatusCode.NotFound));
+    }
+
+    [Fact]
     public async Task 同RID优先且归档后逐级回退()
     {
         using var factory = new PlatformApiFactory();

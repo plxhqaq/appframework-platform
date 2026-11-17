@@ -856,6 +856,166 @@ internal static class VersionsEndpoints
             .WithName("versions.client.updater.download")
             .WithSummary("下载更新器分发包（Range / ETag / 304，保留原文件名）")
             .RequirePermission(PermissionCatalog.VersionsArtifactDownload);
+
+        // 管理台浏览器下载：Bearer 无法随 <a> 发出，改发限时票据；非 zip 源先打成 zip，
+        // 因为浏览器对 exe 会弹安全拦截。SDK/客户端仍走上面的原始下载端点。
+        client.MapPost(
+                "/packages/{id:guid}/download-ticket",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IReleasePackageService packages,
+                    IDownloadArchiveService archives,
+                    IDownloadTicketService tickets,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    var download = await packages.ResolveDownloadAsync(appKey, id, cancellationToken);
+                    var representation = await RepresentAsync(
+                        appKey, download.Sha256, download.FileName, download.SizeBytes,
+                        archives, cancellationToken);
+                    var issued = tickets.Issue(appKey, DownloadTicketKinds.Package, id);
+                    return ApiResults.Ok(
+                        context,
+                        new DownloadTicketDto(
+                            $"{PlatformRoutes.ClientModule(PlatformModuleKeys.Versions)}/downloads/{issued.Ticket}",
+                            representation.FileName,
+                            representation.SizeBytes,
+                            issued.ExpiresAt));
+                })
+            .WithName("versions.packages.download.ticket")
+            .WithSummary("签发安装包下载票据（非 zip 自动打包，浏览器原生流式下载）")
+            .RequirePermission(PermissionCatalog.VersionsArtifactDownload);
+
+        client.MapPost(
+                "/updaters/{id:guid}/download-ticket",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IUpdaterReleaseService updaters,
+                    IDownloadArchiveService archives,
+                    IDownloadTicketService tickets,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    var download = await updaters.ResolveDownloadAsync(appKey, id, cancellationToken);
+                    var representation = await RepresentAsync(
+                        appKey, download.Sha256, download.FileName, download.SizeBytes,
+                        archives, cancellationToken);
+                    var issued = tickets.Issue(appKey, DownloadTicketKinds.Updater, id);
+                    return ApiResults.Ok(
+                        context,
+                        new DownloadTicketDto(
+                            $"{PlatformRoutes.ClientModule(PlatformModuleKeys.Versions)}/downloads/{issued.Ticket}",
+                            representation.FileName,
+                            representation.SizeBytes,
+                            issued.ExpiresAt));
+                })
+            .WithName("versions.updaters.download.ticket")
+            .WithSummary("签发更新器下载票据（非 zip 自动打包，浏览器原生流式下载）")
+            .RequirePermission(PermissionCatalog.VersionsArtifactDownload);
+
+        client.MapGet(
+                "/downloads/{ticket}",
+                async (
+                    HttpContext context,
+                    string ticket,
+                    IDownloadTicketService tickets,
+                    IReleasePackageService packages,
+                    IUpdaterReleaseService updaters,
+                    IDownloadArchiveService archives,
+                    IBlobStorage blobs,
+                    PlatformMetrics metrics,
+                    CancellationToken cancellationToken) =>
+                {
+                    var parsed = tickets.Read(ticket);
+                    var representation = await ResolveTicketDownloadAsync(
+                        parsed, packages, updaters, archives, cancellationToken);
+                    RecordDownload(metrics, parsed.Kind, representation.SizeBytes);
+                    var stream = await blobs.OpenReadAsync(representation.BlobPath, cancellationToken);
+                    context.Response.Headers["X-Content-Sha256"] = representation.Sha256;
+                    return Results.Stream(
+                        stream,
+                        contentType: representation.ContentType,
+                        fileDownloadName: representation.FileName,
+                        lastModified: null,
+                        entityTag: new EntityTagHeaderValue(
+                            representation.IsArchive
+                                ? $"\"{representation.Sha256}-zip\""
+                                : $"\"{representation.Sha256}\""),
+                        enableRangeProcessing: true);
+                })
+            .WithName("versions.download.ticket")
+            .WithSummary("凭票据下载（浏览器原生流式 + Range 续传；非 zip 源下发 zip）")
+            .AllowAnonymous();
+    }
+
+    private sealed record DownloadRepresentation(
+        string BlobPath,
+        string FileName,
+        long SizeBytes,
+        string Sha256,
+        bool IsArchive)
+    {
+        /// <summary>浏览器下载类型：生成的 zip 与原始 zip 都按 <c>application/zip</c> 下发。</summary>
+        public string ContentType =>
+            string.Equals(Path.GetExtension(FileName), ".zip", StringComparison.OrdinalIgnoreCase)
+                ? "application/zip"
+                : "application/octet-stream";
+    }
+
+    private static async Task<DownloadRepresentation> ResolveTicketDownloadAsync(
+        DownloadTicket ticket,
+        IReleasePackageService packages,
+        IUpdaterReleaseService updaters,
+        IDownloadArchiveService archives,
+        CancellationToken cancellationToken)
+    {
+        switch (ticket.Kind)
+        {
+            case DownloadTicketKinds.Package:
+            {
+                var download = await packages.ResolveDownloadAsync(
+                    ticket.AppKey, ticket.Id, cancellationToken);
+                return await RepresentAsync(
+                    ticket.AppKey, download.Sha256, download.FileName, download.SizeBytes,
+                    archives, cancellationToken);
+            }
+
+            case DownloadTicketKinds.Updater:
+            {
+                var download = await updaters.ResolveDownloadAsync(
+                    ticket.AppKey, ticket.Id, cancellationToken);
+                return await RepresentAsync(
+                    ticket.AppKey, download.Sha256, download.FileName, download.SizeBytes,
+                    archives, cancellationToken);
+            }
+
+            default:
+                throw new BusinessException(ApiErrorCode.Unauthorized, "下载票据无效或已过期，请回到管理台重新点击下载。");
+        }
+    }
+
+    /// <summary>把源文件映射成实际下发文件：已是 zip 原样，否则取（必要时生成）zip 缓存。</summary>
+    private static async Task<DownloadRepresentation> RepresentAsync(
+        string appKey,
+        string sha256,
+        string fileName,
+        long sizeBytes,
+        IDownloadArchiveService archives,
+        CancellationToken cancellationToken)
+    {
+        if (!archives.NeedsArchive(fileName))
+        {
+            return new DownloadRepresentation(
+                VersionBlobPaths.Blob(appKey, sha256), fileName, sizeBytes, sha256, IsArchive: false);
+        }
+
+        var archive = await archives.EnsureAsync(appKey, sha256, fileName, cancellationToken);
+        return new DownloadRepresentation(
+            archive.BlobPath, archive.FileName, archive.SizeBytes, sha256, IsArchive: true);
     }
 
     private static void RecordDownload(PlatformMetrics metrics, string kind, long sizeBytes) =>

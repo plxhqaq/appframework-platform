@@ -92,14 +92,3 @@ export function buildRegisterRequest(
     publish: input.publish && input.canPublish,
   };
 }
-
-/** 下载文件名：路径分隔符与控件字符替换为下划线，避免目录穿越与文件名异常。 */
-export function safeDownloadName(fileName: string): string {
-  const cleaned = Array.from(fileName, (char) => {
-    const code = char.codePointAt(0) ?? 0;
-    return code < 0x20 || code === 0x7f || '\\/:*?"<>|'.includes(char) ? '_' : char;
-  })
-    .join('')
-    .trim();
-  return cleaned || 'package';
-}

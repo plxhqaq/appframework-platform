@@ -504,6 +504,14 @@ export interface UploadTicket {
   expiresAt: string;
 }
 
+/** 下载票据；GET url 交给浏览器原生下载（流式 + 断点续传），非 zip 源下发的是 zip。 */
+export interface DownloadTicket {
+  url: string;
+  fileName: string;
+  sizeBytes: number;
+  expiresAt: string;
+}
+
 /** 上传结果；reused 表示内容已存在（内容寻址去重）。 */
 export interface UploadResult {
   sha256: string;

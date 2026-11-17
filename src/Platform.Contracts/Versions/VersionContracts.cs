@@ -37,6 +37,12 @@ public static class VersionConventions
     /// <summary>上传票据默认有效期（分钟）。</summary>
     public const int UploadTicketMinutes = 30;
 
+    /// <summary>
+    /// 管理台下载票据有效期（小时）。浏览器下载可以被暂停后很久再续传，
+    /// 票据太短会让续传请求直接 401，所以按天给。
+    /// </summary>
+    public const int DownloadTicketHours = 24;
+
     /// <summary>版本草稿。</summary>
     public const string StatusDraft = "draft";
 
@@ -267,6 +273,12 @@ public sealed record CreateUploadTicketRequest(string? Sha256, long SizeBytes);
 
 /// <summary>上传票据；<see cref="UploadUrl"/> 为相对本服务的 PUT 地址。</summary>
 public sealed record UploadTicketDto(Guid Id, string UploadUrl, DateTimeOffset ExpiresAt);
+
+/// <summary>
+/// 管理台浏览器下载票据；GET <see cref="Url"/> 即可由浏览器原生下载（流式 + Range 续传）。
+/// <see cref="FileName"/> / <see cref="SizeBytes"/> 是实际下发的文件：非 zip 源会被打成 zip。
+/// </summary>
+public sealed record DownloadTicketDto(string Url, string FileName, long SizeBytes, DateTimeOffset ExpiresAt);
 
 /// <summary>上传结果。<see cref="Reused"/> 表示内容已存在（内容寻址去重）。</summary>
 public sealed record UploadResultDto(string Sha256, long SizeBytes, bool Reused);

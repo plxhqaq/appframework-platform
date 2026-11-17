@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -90,6 +91,9 @@ public class PlatformApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<PlatformDbContext>();
             services.RemoveAll<IDbContextOptionsConfiguration<PlatformDbContext>>();
             services.AddDbContext<PlatformDbContext>(options => options.UseInMemoryDatabase(_databaseName));
+            // 下载票据走 DataProtection；用进程内临时密钥环，避免测试往用户目录写密钥
+            services.RemoveAll<IDataProtectionProvider>();
+            services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
             ConfigureTestServices(services);
         });
     }

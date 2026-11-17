@@ -17,6 +17,7 @@
 | 上传 | `/api/v1/admin/versions/uploads` | — |
 | 下载 | — | `/api/v1/client/versions/download/{sha256}` |
 | 发布包 | `/api/v1/admin/versions/packages` | `/api/v1/client/versions/packages/{id}/download` |
+| 浏览器下载 | `POST /api/v1/client/versions/{packages,updaters}/{id}/download-ticket` | `GET /api/v1/client/versions/downloads/{ticket}`（匿名） |
 
 ---
 
@@ -253,6 +254,33 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $CLIENT_TOKEN
 但归属校验换成包：包属于本应用、所属版本已发布、`status=ready`、Blob 存在，任一不过统一 `213`（404）。
 响应带 `Content-Disposition: attachment; filename="..."`（原文件名）与 `X-Content-Sha256`；归档版本后
 包立即不可下载。`check` 返回的 `installer.id` 直接拼该路径，不需要再查清单。
+
+### 管理台浏览器下载票据
+
+管理台的安装包 / 更新器下载不把整文件读进页面内存，而是先换一张短期票据，再把 URL 交给浏览器下载
+管理器（流式落盘、暂停与断点续传都由浏览器负责）：
+
+| 方法与路径 | 权限码 | 说明 |
+|---|---|---|
+| `POST /api/v1/client/versions/packages/{id}/download-ticket` | `versions.artifact.download` | 签发安装包下载票据 |
+| `POST /api/v1/client/versions/updaters/{id}/download-ticket` | `versions.artifact.download` | 签发更新器下载票据 |
+| `GET /api/v1/client/versions/downloads/{ticket}` | 匿名 | 凭票据流式下载，支持 `Range` → `206` / `If-None-Match` → `304` |
+
+- 票据用 DataProtection 限时签名，不落库，有效期 `VersionConventions.DownloadTicketHours`（24 小时）。
+  浏览器下载被暂停后往往很久才续传，票据太短会让续传请求直接 401，所以按天给。
+- 票据只绑定 `appKey` + 资源 ID，**GET 时仍按当前状态重新校验归属**：版本归档、包删除或更新器归档后，
+  已签发票据立即失效（`213` / `223` 等 404）。
+- `<a href>` 无法带 `Authorization` 头，因此 GET 端点匿名；票据本身就是短期凭证，不要贴到日志或外部系统。
+- 源文件名不是 `.zip` 时（exe / msi / msp / 7z / bin），签发时生成 zip 缓存
+  `versions/{appKey}/{sha256}.zip`，下发文件名追加 `.zip`（如 `Setup-x.exe.zip`），避免浏览器对 exe 的
+  安全检查拦截；`.zip` 源原样下发，不二次打包。
+- zip 以 Store（不再压缩，exe 本身已压缩）模式单遍流式生成，条目名只取原文件名并清掉路径与非法字符，
+  时间戳固定，重复生成字节稳定；缓存与源同 sha，源不再被引用时由孤儿清理一起回收。生成发生在签发
+  票据的请求里，因此**首次下载非 zip 大包时，点下载后要等打包完成浏览器才开始接收**；同一内容的后续
+  下载直接命中缓存。
+- zip 表现的 `ETag` 为 `"{sha256}-zip"`，原始源仍是 `"{sha256}"`；`X-Content-Sha256` 始终是源内容哈希；
+  `Content-Type` 为 `application/zip` 或 `application/octet-stream`。
+- 客户端 / SDK 继续使用上面的原始下载端点，签名与限流口径不变，不要换成票据端点。
 
 本模块**没有**配置限流策略（`PlatformRateLimitPolicies` 里没有版本项），只有创建类端点的幂等：
 `Idempotency-Key` 上限 256 字符、结果保留 24 小时；同键重放返回首次成功响应（`traceId` 换成当前请求
@@ -494,6 +522,7 @@ InMemory 集成测试覆盖不到。
 | `208` / `209` | 票据过期（410）或已消费（409）：超过 `Versions:UploadTicketMinutes`（默认 30 分钟）、或复用旧 `uploadUrl` 重传 | 每次重传重新申请票据并换 `Idempotency-Key`（同键会回放同一张票） |
 | 清单一致但本地缺文件，客户端却没补 | `ifNoneMatch` 默认传了内容哈希，服务端回 `304`，SDK 返回 `false` 跳过落盘 | 只在确认本地文件哈希已匹配时才传（见第 7 节） |
 | `download` 返回 `205` | 该哈希不属于本应用的已发布版本：跨应用复制了清单，或版本已归档 | 用当前应用当前已发布版本的清单 |
+| 管理台下载返回 401「下载票据无效或已过期」 | 票据超过 24 小时、被篡改，或服务端 DataProtection 密钥环换了（容器重建且密钥目录未持久化） | 回管理台重新点下载；长期部署应持久化 DataProtection 密钥目录 |
 | 渠道键 / 版本号看着合法却报 `2` | 键须小写字母开头、2–32 位、不含下划线；版本号必须三或四段数字（`1.10` 非法） | 用 `-` 不用 `_`；写成 `1.10.0`、`1.10.0.0` 或 `1.10.0-rc.1` |
 | 增量包一直 `pending` | `Versions:IngestionEnabled=false`（测试/关闭时）或 Worker 未启动 | 打开配置并重启 API；多副本时确认单实例约束；详情抽屉看 `processing`/租约 |
 | 重试摄取返回 `226` | 只有 `failed` 允许重试 | 等 Worker 处理完；`pending/processing/ready` 不发重试 |
@@ -516,10 +545,10 @@ InMemory 集成测试覆盖不到。
 | 详情抽屉的产物与文件清单 | `versions.release.read` | `GET /releases/{id}` |
 | 归档按钮 | `versions.release.archive` | `POST /releases/{id}/archive` |
 | 上传安装包（全量/增量） | `versions.artifact.upload` | `POST /uploads` → `PUT` → `POST /packages` |
-| 详情抽屉的发布包表 / 下载 | `versions.release.read` / `versions.artifact.download` | `GET /packages` / `GET /api/v1/client/versions/packages/{id}/download` |
+| 详情抽屉的发布包表 / 下载 | `versions.release.read` / `versions.artifact.download` | `GET /packages` / `POST /api/v1/client/versions/packages/{id}/download-ticket` → `GET /downloads/{ticket}` |
 | 删除草稿版本的包 | `versions.release.archive` | `DELETE /packages/{id}` |
 | 增量包摄取状态轮询 / 重试 | `versions.release.read` / `versions.artifact.upload` | `GET /packages/{id}` / `POST /packages/{id}/retry` |
-| 更新器列表 / 上传 / 归档 / 下载 | `versions.release.read` / `versions.artifact.upload` / `versions.release.archive` / `versions.artifact.download` | `GET` / `POST /updaters`、`POST /updaters/{id}/archive`、`GET /api/v1/client/versions/updaters/{id}/download` |
+| 更新器列表 / 上传 / 归档 / 下载 | `versions.release.read` / `versions.artifact.upload` / `versions.release.archive` / `versions.artifact.download` | `GET` / `POST /updaters`、`POST /updaters/{id}/archive`、`POST /updaters/{id}/download-ticket` → `GET /downloads/{ticket}` |
 | 顶部「当前应用」选择器 | — | `POST /api/v1/admin/auth/context` |
 
 页面细节：状态标签草稿/已发布/已归档对应三个状态常量；创建类请求由前端生成 `Idempotency-Key`
@@ -528,7 +557,9 @@ InMemory 集成测试覆盖不到。
 脚本或 CLI 申请票据后 `PUT`；前端提交的清单路径已做与服务端 `NormalizePath` 一致的规范化
 （`\` 转 `/`、去掉所选根目录段）。增量包登记后弹窗每 3 秒轮询包状态，`ready` 显示清单文件数，
 `failed` 原地重试；版本详情有未完成包时同样自动刷新。更新器页的「最新」标记由服务端
-`/client/versions/updater` 逐 target 解析，不依赖前端版本比较。
+`/client/versions/updater` 逐 target 解析，不依赖前端版本比较。安装包与更新器的「下载」按钮先
+`POST .../download-ticket`，再用 `<a>` 打开返回的 `url`，由浏览器原生流式下载；非 zip 源会被服务端
+打包为 zip（下发文件名带 `.zip`），页面不再把文件读进内存。
 
 ---
 

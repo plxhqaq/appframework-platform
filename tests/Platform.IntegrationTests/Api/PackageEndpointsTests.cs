@@ -148,6 +148,119 @@ public sealed class PackageEndpointsTests : IClassFixture<PlatformApiFactory>
     }
 
     [Fact]
+    public async Task 管理台下载票据把非zip安装包打成zip且匿名可续传()
+    {
+        using var client = _factory.CreateClient();
+        var token = await LoginAsync(client);
+        const string channelKey = "pkg-ticket";
+
+        await CreateChannelAsync(client, token, channelKey);
+
+        var exeBytes = "browser-download-installer-binary"u8.ToArray();
+        var exeSha = await UploadAsync(client, token, exeBytes);
+        var exePackage = await RegisterAsync(client, token, new RegisterReleasePackageRequest(
+            exeSha,
+            exeBytes.Length,
+            "Setup-pkg-ticket-1.0.0.exe",
+            VersionConventions.PackageKindFull,
+            Target: "win-x64",
+            Format: "exe",
+            ChannelKey: channelKey,
+            Version: "1.0.0",
+            Publish: true));
+
+        var ticket = await ReadDataAsync<DownloadTicketDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/client/versions/packages/{exePackage.Id}/download-ticket",
+                token)));
+        Assert.StartsWith("/api/v1/client/versions/downloads/", ticket.Url);
+        Assert.Equal("Setup-pkg-ticket-1.0.0.exe.zip", ticket.FileName);
+        Assert.True(ticket.SizeBytes > exeBytes.Length);
+        Assert.True(ticket.ExpiresAt > DateTimeOffset.UtcNow);
+
+        // 浏览器不能随 <a> 带 Bearer，票据 GET 必须匿名可下载
+        var download = await client.GetAsync(ticket.Url);
+        Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+        Assert.Equal("application/zip", download.Content.Headers.ContentType!.MediaType);
+        Assert.Equal($"\"{exeSha}-zip\"", download.Headers.ETag!.Tag);
+        Assert.Equal(exeSha, download.Headers.GetValues("X-Content-Sha256").Single());
+        Assert.Contains(
+            "Setup-pkg-ticket-1.0.0.exe.zip",
+            download.Content.Headers.ContentDisposition!.ToString());
+
+        var zipBytes = await download.Content.ReadAsByteArrayAsync();
+        using (var archive = new ZipArchive(new MemoryStream(zipBytes), ZipArchiveMode.Read))
+        {
+            var entry = Assert.Single(archive.Entries);
+            Assert.Equal("Setup-pkg-ticket-1.0.0.exe", entry.FullName);
+            using var entryStream = entry.Open();
+            using var entryBuffer = new MemoryStream();
+            await entryStream.CopyToAsync(entryBuffer);
+            Assert.Equal(exeBytes, entryBuffer.ToArray());
+        }
+
+        using var rangeRequest = new HttpRequestMessage(HttpMethod.Get, ticket.Url);
+        rangeRequest.Headers.Range = new RangeHeaderValue(0, 3);
+        var range = await client.SendAsync(rangeRequest);
+        Assert.Equal(HttpStatusCode.PartialContent, range.StatusCode);
+        Assert.Equal($"bytes 0-3/{zipBytes.Length}", range.Content.Headers.ContentRange!.ToString());
+
+        using var cachedRequest = new HttpRequestMessage(HttpMethod.Get, ticket.Url);
+        cachedRequest.Headers.IfNoneMatch.Add(new EntityTagHeaderValue($"\"{exeSha}-zip\""));
+        Assert.Equal(HttpStatusCode.NotModified, (await client.SendAsync(cachedRequest)).StatusCode);
+
+        // SDK/客户端仍走原始端点：exe 原样下发，不被替换为 zip
+        var raw = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Get,
+            $"/api/v1/client/versions/packages/{exePackage.Id}/download",
+            token));
+        Assert.Equal("application/octet-stream", raw.Content.Headers.ContentType!.MediaType);
+        Assert.Equal($"\"{exeSha}\"", raw.Headers.ETag!.Tag);
+        Assert.Equal(exeBytes, await raw.Content.ReadAsByteArrayAsync());
+
+        // zip 源保持原样，不再二次打包
+        var zipBytesSource = BuildZip(
+            ("af-package.json", FullManifest(channelKey, "2.0.0", "win-x64", null)),
+            ("payload.txt", "already-zipped"));
+        var zipSha = await UploadAsync(client, token, zipBytesSource);
+        var zipPackage = await RegisterAsync(client, token, new RegisterReleasePackageRequest(
+            zipSha,
+            zipBytesSource.Length,
+            "Setup-pkg-ticket-2.0.0.zip",
+            VersionConventions.PackageKindFull,
+            Target: "win-x64",
+            Format: "zip",
+            ChannelKey: channelKey,
+            Version: "2.0.0",
+            Publish: true));
+
+        var zipTicket = await ReadDataAsync<DownloadTicketDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/client/versions/packages/{zipPackage.Id}/download-ticket",
+                token)));
+        Assert.Equal("Setup-pkg-ticket-2.0.0.zip", zipTicket.FileName);
+        Assert.Equal(zipBytesSource.Length, zipTicket.SizeBytes);
+
+        var zipDownload = await client.GetAsync(zipTicket.Url);
+        Assert.Equal(HttpStatusCode.OK, zipDownload.StatusCode);
+        Assert.Equal("application/zip", zipDownload.Content.Headers.ContentType!.MediaType);
+        Assert.Equal($"\"{zipSha}\"", zipDownload.Headers.ETag!.Tag);
+        Assert.Equal(zipBytesSource, await zipDownload.Content.ReadAsByteArrayAsync());
+
+        // 伪造票据匿名访问直接 401；无权限也不能签票
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (await client.GetAsync("/api/v1/client/versions/downloads/not-a-ticket")).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (await client.PostAsync(
+                $"/api/v1/client/versions/packages/{exePackage.Id}/download-ticket",
+                content: null)).StatusCode);
+    }
+
+    [Fact]
     public async Task 无清单包可人工登记且冲突与删除受控()
     {
         using var client = _factory.CreateClient();

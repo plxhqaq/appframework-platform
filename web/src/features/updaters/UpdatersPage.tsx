@@ -19,16 +19,15 @@ import {
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useEffect, useState } from 'react';
-import { ApiError, requestBlob } from '../../shared/api/client';
+import { ApiError } from '../../shared/api/client';
 import { versionsApi } from '../../shared/api/versions';
 import type { UpdaterInfo } from '../../shared/api/types';
-import { saveBlob } from '../../shared/download';
+import { startDownload } from '../../shared/download';
 import { formatBytes, formatDateTime } from '../../shared/format';
 import { PERMISSIONS } from '../../shared/permissions';
 import { responsivePagination } from '../../shared/responsive';
 import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
-import { safeDownloadName } from '../versions/packageUi';
 import { UpdaterUploadModal } from './UpdaterUploadModal';
 
 const RUNTIMES = ['any', 'win-x64', 'win-arm64', 'linux-x64', 'linux-arm64', 'osx-x64', 'osx-arm64'];
@@ -133,8 +132,9 @@ export function UpdatersPage() {
   const download = async (row: UpdaterInfo) => {
     setDownloadingId(row.id);
     try {
-      const blob = await requestBlob(`/api/v1/client/versions/updaters/${row.id}/download`);
-      saveBlob(blob, safeDownloadName(row.fileName));
+      // 非 zip 的更新器（exe）由服务端打包成 zip，浏览器原生下载支持断点续传。
+      const ticket = await versionsApi.createUpdaterDownloadTicket(row.id);
+      startDownload(ticket.url);
     } catch (error) {
       message.error(error instanceof Error ? error.message : tr("下载失败"));
     } finally {

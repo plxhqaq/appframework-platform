@@ -11,6 +11,11 @@ import type { ApiResult } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
+/** 把服务端返回的相对地址补成实际可访问地址；已是绝对地址时原样返回。 */
+export function resolveApiUrl(path: string): string {
+  return /^https?:\/\//i.test(path) ? path : `${API_BASE_URL}${path}`;
+}
+
 /** 业务错误：code 来自 ApiErrorCode，traceId 用于与服务端日志对齐。 */
 export class ApiError extends Error {
   readonly code: number;
