@@ -39,9 +39,9 @@ import { formatBytes, formatDateTime } from '../../shared/format';
 import { PERMISSIONS } from '../../shared/permissions';
 import { responsivePagination, responsiveWidth } from '../../shared/responsive';
 import { useResponsive } from '../../shared/useResponsive';
+import { DevicePickerModal } from '../../shared/ui/DevicePickerModal';
+import { isDeviceSelectable } from '../../shared/deviceSelection';
 import { useAuthStore } from '../../stores/auth';
-import { DevicePickerModal } from './DevicePickerModal';
-import { isDeviceSelectable } from './deviceSelection';
 
 interface NamespaceFormValues {
   key: string;

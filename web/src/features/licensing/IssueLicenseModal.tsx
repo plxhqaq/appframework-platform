@@ -1,12 +1,13 @@
 import { tr } from '../../i18n/translate';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { App, DatePicker, Form, Input, InputNumber, Modal, Radio, Select } from 'antd';
+import { UnorderedListOutlined } from '@ant-design/icons';
+import { useMutation } from '@tanstack/react-query';
+import { App, Button, DatePicker, Form, Input, InputNumber, Modal, Radio, Select } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
-import { useEffect, useState } from 'react';
-import { devicesApi } from '../../shared/api/devices';
+import { useEffect, useMemo, useState } from 'react';
 import { licensingApi } from '../../shared/api/licensing';
-import type { IssueLicenseRequest, LicenseProduct } from '../../shared/api/types';
+import type { DeviceSummary, IssueLicenseRequest, LicenseProduct } from '../../shared/api/types';
 import { PERMISSIONS } from '../../shared/permissions';
+import { DevicePickerModal } from '../../shared/ui/DevicePickerModal';
 import { useAuthStore } from '../../stores/auth';
 
 interface IssueFormValues {
@@ -39,18 +40,26 @@ export function IssueLicenseModal({ open, products, initial, onClose, onSaved }:
   const [form] = Form.useForm<IssueFormValues>();
   const canPickOnlineDevice = useAuthStore((state) => state.hasPermission(PERMISSIONS.deviceRead));
   const appKey = useAuthStore((state) => state.session?.appKey ?? null);
-  const [deviceSearch, setDeviceSearch] = useState('');
-  const [deviceKeyword, setDeviceKeyword] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickedDevice, setPickedDevice] = useState<DeviceSummary | null>(null);
+  const machineCodeValue = Form.useWatch('machineCode', form);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDeviceKeyword(deviceSearch.trim()), 300);
-    return () => window.clearTimeout(timer);
-  }, [deviceSearch]);
+  const pickerSelection = useMemo(
+    () => new Map<string, DeviceSummary>(pickedDevice ? [[pickedDevice.id, pickedDevice]] : []),
+    [pickedDevice],
+  );
+
+  const matchedPicked =
+    pickedDevice !== null &&
+    typeof machineCodeValue === 'string' &&
+    pickedDevice.machineCode === machineCodeValue.replace(/[\s_-]/g, '').toUpperCase()
+      ? pickedDevice
+      : null;
 
   useEffect(() => {
     if (!open) {
-      setDeviceSearch('');
-      setDeviceKeyword('');
+      setPickerOpen(false);
+      setPickedDevice(null);
       return;
     }
 
@@ -58,17 +67,6 @@ export function IssueLicenseModal({ open, products, initial, onClose, onSaved }:
       form.setFieldsValue({ productKey: initial.productKey, machineCode: initial.machineCode });
     }
   }, [open, initial, form]);
-
-  const onlineDevices = useQuery({
-    queryKey: ['licensing', 'issue', 'online-devices', appKey, deviceKeyword],
-    queryFn: ({ signal }) =>
-      devicesApi.listDevices(
-        { onlineStatus: 'online', keyword: deviceKeyword || undefined, pageSize: 30 },
-        signal,
-      ),
-    enabled: open && canPickOnlineDevice && appKey !== null,
-    staleTime: 15_000,
-  });
 
   const mutation = useMutation({
     mutationFn: (values: IssueFormValues) => {
@@ -140,54 +138,18 @@ export function IssueLicenseModal({ open, products, initial, onClose, onSaved }:
           />
         </Form.Item>
 
-        {canPickOnlineDevice ? (
-          <Form.Item noStyle shouldUpdate={(prev, next) => prev.machineCode !== next.machineCode}>
-            {({ getFieldValue, setFieldValue }) => {
-              const items = onlineDevices.data?.items ?? [];
-              const typed = String(getFieldValue('machineCode') ?? '').replace(/[\s_-]/g, '').toUpperCase();
-              const matched = items.find((device) => device.machineCode === typed);
-              return (
-                <Form.Item
-                  label={tr("从在线设备选择")}
-                  tooltip={tr("只列出当前在线设备，选中即回填机器码；离线或尚未注册的设备仍可在下方手填。")}
-                  extra={
-                    onlineDevices.isError
-                      ? tr("在线设备列表加载失败，可直接手填机器码。")
-                      : matched
-                        ? tr("已匹配在线设备：{{arg0}}（{{arg1}}）", {
-                            arg0: matched.displayName,
-                            arg1: matched.ipAddress ?? '-',
-                          })
-                        : undefined
-                  }
-                >
-                  <Select
-                    allowClear
-                    showSearch
-                    filterOption={false}
-                    loading={onlineDevices.isFetching}
-                    value={matched ? matched.machineCode : undefined}
-                    placeholder={tr("搜索设备名 / 机器码 / IP")}
-                    onSearch={setDeviceSearch}
-                    onChange={(value?: string) => setFieldValue('machineCode', value ?? '')}
-                    notFoundContent={
-                      onlineDevices.isFetching ? tr("搜索中…") : tr("没有匹配的在线设备，可直接手填机器码")
-                    }
-                    options={items.map((device) => ({
-                      value: device.machineCode,
-                      label: `${device.displayName} · ${device.machineCode}`,
-                    }))}
-                  />
-                </Form.Item>
-              );
-            }}
-          </Form.Item>
-        ) : null}
-
         <Form.Item
           name="machineCode"
           label={tr("机器码")}
           tooltip={tr("客户端「关于/授权」页展示的 16 字符机器码；手抄的 O/I/L 会被自动纠正。")}
+          extra={
+            matchedPicked
+              ? tr("已匹配在线设备：{{arg0}}（{{arg1}}）", {
+                  arg0: matchedPicked.displayName,
+                  arg1: matchedPicked.ipAddress ?? '-',
+                })
+              : undefined
+          }
           rules={[
             { required: true, message: tr("请输入机器码") },
             {
@@ -196,7 +158,23 @@ export function IssueLicenseModal({ open, products, initial, onClose, onSaved }:
             },
           ]}
         >
-          <Input placeholder={tr("例如 008J-4CT4 ANK7-F24S")} autoComplete="off" />
+          <Input
+            placeholder={tr("例如 008J-4CT4 ANK7-F24S")}
+            autoComplete="off"
+            addonAfter={
+              canPickOnlineDevice ? (
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<UnorderedListOutlined />}
+                  disabled={appKey === null}
+                  onClick={() => setPickerOpen(true)}
+                >
+                  {tr("选择设备")}
+                </Button>
+              ) : undefined
+            }
+          />
         </Form.Item>
 
         <Form.Item name="validity" label={tr("有效期")}>
@@ -253,6 +231,23 @@ export function IssueLicenseModal({ open, products, initial, onClose, onSaved }:
           <Input.TextArea rows={2} placeholder={tr("可选，仅管理端可见")} />
         </Form.Item>
       </Form>
+
+      <DevicePickerModal
+        open={pickerOpen}
+        appKey={appKey}
+        selected={pickerSelection}
+        single
+        title={tr("选择设备")}
+        onConfirm={(next) => {
+          const device = [...next.values()][0];
+          if (device) {
+            setPickedDevice(device);
+            form.setFieldValue('machineCode', device.machineCode);
+          }
+          setPickerOpen(false);
+        }}
+        onCancel={() => setPickerOpen(false)}
+      />
     </Modal>
   );
 }

@@ -1,15 +1,15 @@
-import { formatDateTime } from '../../shared/format';
+import { formatDateTime } from '../format';
 import { tr } from '../../i18n/translate';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Flex, Input, Modal, Space, Table, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useEffect, useState } from 'react';
-import { devicesApi } from '../../shared/api/devices';
-import type { DeviceSummary } from '../../shared/api/types';
-import { responsivePagination, responsiveWidth } from '../../shared/responsive';
-import { useResponsive } from '../../shared/useResponsive';
-import { isDeviceSelectable } from './deviceSelection';
+import { devicesApi } from '../api/devices';
+import type { DeviceSummary } from '../api/types';
+import { responsivePagination, responsiveWidth } from '../responsive';
+import { useResponsive } from '../useResponsive';
+import { isDeviceSelectable } from '../deviceSelection';
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -19,6 +19,9 @@ interface DevicePickerModalProps {
   selected: ReadonlyMap<string, DeviceSummary>;
   onConfirm: (selected: Map<string, DeviceSummary>) => void;
   onCancel: () => void;
+  /** 单选模式：只允许选一台（如签发授权绑定机器码）。 */
+  single?: boolean;
+  title?: string;
 }
 
 /**
@@ -33,6 +36,8 @@ export function DevicePickerModal({
   selected,
   onConfirm,
   onCancel,
+  single = false,
+  title,
 }: DevicePickerModalProps) {
   const { isMobile } = useResponsive();
   const [draft, setDraft] = useState<Map<string, DeviceSummary>>(new Map());
@@ -120,6 +125,7 @@ export function DevicePickerModal({
   };
 
   const rowSelection = {
+    type: single ? ('radio' as const) : ('checkbox' as const),
     selectedRowKeys: [...draft.keys()],
     preserveSelectedRowKeys: true,
     onChange: handleSelectionChange,
@@ -129,11 +135,11 @@ export function DevicePickerModal({
   return (
     <Modal
       open={open}
-      title={tr("选择目标设备")}
+      title={title ?? tr("选择目标设备")}
       width={responsiveWidth(isMobile, 920)}
       onCancel={onCancel}
       onOk={() => onConfirm(draft)}
-      okText={tr("确定（已选 {{arg0}} 台）", { arg0: draft.size })}
+      okText={single ? tr("确定") : tr("确定（已选 {{arg0}} 台）", { arg0: draft.size })}
       okButtonProps={{ disabled: draft.size === 0 }}
       cancelText={tr("取消")}
     >
