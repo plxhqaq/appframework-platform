@@ -21,7 +21,7 @@ import { hashFile } from '../../shared/files';
 import { formatBytes } from '../../shared/format';
 
 interface UpdaterFormValues {
-  target: string;
+  target?: string;
   version?: string;
   notes?: string;
 }
@@ -64,7 +64,7 @@ export function UpdaterUploadModal({ open, onClose, onSaved }: UpdaterUploadModa
 
   useEffect(() => {
     if (open) {
-      form.setFieldsValue({ target: 'any', version: '', notes: '' });
+      form.setFieldsValue({ target: undefined, version: '', notes: '' });
     }
   }, [open, form]);
 
@@ -103,7 +103,7 @@ export function UpdaterUploadModal({ open, onClose, onSaved }: UpdaterUploadModa
 
       applyProgress('register', 1, 1);
       return versionsApi.registerUpdater({
-        target: values.target,
+        target: values.target ?? null,
         version: values.version?.trim() || null,
         fileName: file.name,
         sha256,
@@ -170,10 +170,11 @@ export function UpdaterUploadModal({ open, onClose, onSaved }: UpdaterUploadModa
             name="target"
             label={tr("目标运行时")}
             style={{ width: 220 }}
-            rules={[{ required: true, message: tr("请选择运行时") }]}
-            tooltip={tr("any 作为兜底更新器；具体 RID 优先于 any。")}
+            tooltip={tr("目标运行时留空时取包内清单的 runtimeIdentifier，取不到才回退 any。")}
           >
             <Select
+              allowClear
+              placeholder={tr("按包内清单自动识别")}
               options={[
                 { value: 'any', label: tr("any（全平台兜底）") },
                 ...RUNTIMES.map((value) => ({ value, label: value })),

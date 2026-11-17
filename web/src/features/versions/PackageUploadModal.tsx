@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   App,
+  AutoComplete,
   Button,
   Form,
   Input,
@@ -313,8 +314,13 @@ export function PackageUploadModal({
             />
           </Form.Item>
 
-          <Form.Item name="channelKey" label={tr("渠道")} style={{ width: 220 }}>
-            <Select
+          <Form.Item
+            name="channelKey"
+            label={tr("渠道")}
+            style={{ width: 220 }}
+            tooltip={tr("可直接输入新的渠道键，登记时若渠道不存在会自动创建。")}
+          >
+            <AutoComplete
               allowClear
               placeholder={tr("留空则取包内清单")}
               options={channels.map((channel) => ({

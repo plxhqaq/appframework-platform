@@ -172,6 +172,17 @@ public sealed class UpdaterEndpointsTests
                 token)));
         Assert.Equal(any.Id, linuxLatest.Id);
 
+        // any 本身也是合法 target：管理台按「兜底档」查最新版本时不能报 400。
+        Assert.Equal(any.Id, (await GetLatestAsync(client, token, VersionConventions.PackageTargetAny)).Id);
+
+        var unsupported = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Get,
+            "/api/v1/client/versions/updater?runtimeIdentifier=win-mips",
+            token));
+        Assert.Equal(
+            (int)ApiErrorCode.VersionsRuntimeIdentifierUnsupported,
+            await IdentityTestHelpers.ReadErrorCodeAsync(unsupported, HttpStatusCode.BadRequest));
+
         const string channelKey = "upd-order";
         _ = await CreateChannelAsync(client, token, channelKey);
         Assert.True((await CheckAsync(client, token, channelKey, "1.0.0", "2.9.9")).HasUpdaterUpdate);

@@ -807,8 +807,11 @@ internal static class VersionsEndpoints
                     string? runtimeIdentifier = null,
                     CancellationToken cancellationToken = default) =>
                 {
-                    var rid = runtimeIdentifier?.Trim();
-                    if (!VersionConventions.IsSupportedRuntime(rid))
+                    var rid = runtimeIdentifier?.Trim().ToLowerInvariant();
+                    // any 是兜底更新器自身的标识：具体 RID 会优先命中同 RID，
+                    // 管理台也要能按 any 查「这一档兜底」的最新版本，所以不能只放行具体 RID。
+                    var isAny = string.Equals(rid, VersionConventions.PackageTargetAny, StringComparison.Ordinal);
+                    if (!isAny && !VersionConventions.IsSupportedRuntime(rid))
                     {
                         throw new BusinessException(
                             ApiErrorCode.VersionsRuntimeIdentifierUnsupported,
@@ -823,7 +826,7 @@ internal static class VersionsEndpoints
                     return ApiResults.Ok(context, latest);
                 })
             .WithName("versions.client.updater.latest")
-            .WithSummary("读取当前运行时下最新的已发布更新器")
+            .WithSummary("读取当前运行时下最新的已发布更新器（any 只看通用兜底档）")
             .RequirePermission(PermissionCatalog.VersionsReleaseRead);
 
         client.MapGet(

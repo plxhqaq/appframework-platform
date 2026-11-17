@@ -203,12 +203,23 @@ public sealed partial class ReleasePackageService : IReleasePackageService
         var target = ResolveTarget(request.Target, manifest, kind);
 
         var channel = await _db.Set<ReleaseChannel>()
-                          .FirstOrDefaultAsync(
-                              x => x.AppKey == appKey && x.Key == channelKey,
-                              cancellationToken)
-                      ?? throw BusinessException.NotFound(
-                          ApiErrorCode.VersionsChannelNotFound,
-                          $"渠道 {channelKey} 不存在。");
+            .FirstOrDefaultAsync(
+                x => x.AppKey == appKey && x.Key == channelKey,
+                cancellationToken);
+
+        if (channel is null)
+        {
+            // 上传入口的渠道键来自表单或包内清单，要求用户先手建渠道再上传只会输错。
+            // 缺就按渠道键自动建一个（名称同键），在渠道列表里标记为自动创建，后续可改名/补受众。
+            channel = new ReleaseChannel
+            {
+                AppKey = appKey,
+                Key = channelKey,
+                Name = channelKey,
+                AutoCreated = true,
+            };
+            _db.Set<ReleaseChannel>().Add(channel);
+        }
 
         if (!channel.IsEnabled)
         {

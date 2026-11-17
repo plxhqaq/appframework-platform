@@ -277,6 +277,44 @@ public sealed class PackageEndpointsTests : IClassFixture<PlatformApiFactory>
     }
 
     [Fact]
+    public async Task 登记安装包时渠道不存在自动创建并可被客户端命中()
+    {
+        using var client = _factory.CreateClient();
+        var token = await LoginAsync(client);
+        const string channelKey = "pkg-auto-channel";
+
+        // 不预先建渠道：渠道键只出现在包内清单里，上传即自动建渠道，免得手输渠道键出错。
+        var packageBytes = BuildZip(
+            ("af-package.json", FullManifest(channelKey, "1.0.0", "win-x64", null)),
+            ("payload.txt", "auto-channel"));
+        var packageSha = await UploadAsync(client, token, packageBytes);
+
+        var registered = await RegisterAsync(client, token, new RegisterReleasePackageRequest(
+            packageSha,
+            packageBytes.Length,
+            $"Setup-{channelKey}-1.0.0.zip",
+            VersionConventions.PackageKindFull,
+            Target: "win-x64",
+            Format: "zip",
+            Publish: true));
+        Assert.Equal(channelKey, registered.ChannelKey);
+        Assert.Equal("1.0.0", registered.Version);
+
+        var channels = await ReadDataAsync<List<ReleaseChannelDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                "/api/v1/admin/versions/channels",
+                token)));
+        var auto = Assert.Single(channels, x => x.Key == channelKey);
+        Assert.True(auto.AutoCreated);
+        Assert.Equal(channelKey, auto.Name);
+
+        var check = await CheckAsync(client, token, channelKey, "0.9.0");
+        Assert.True(check.HasUpdate);
+        Assert.Equal("1.0.0", check.LatestVersion);
+    }
+
+    [Fact]
     public async Task 清单应用渠道版本不一致分别拒绝()
     {
         using var client = _factory.CreateClient();
