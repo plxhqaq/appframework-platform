@@ -1,8 +1,7 @@
 import { formatDate } from '../../shared/format';
 import { tr } from '../../i18n/translate';
-import { CopyOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
-import { App, Button, DatePicker, Form, Input, InputNumber, Modal, Radio, Select, Space, Typography } from 'antd';
+import { App, DatePicker, Form, Input, InputNumber, Modal, Radio, Select, Space, Typography } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useState } from 'react';
 import { licensingApi } from '../../shared/api/licensing';
@@ -78,19 +77,6 @@ export function OfflineCodeModal({ open, products, onClose, onIssued }: OfflineC
     }
   };
 
-  const copy = async () => {
-    if (!issued) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(issued.code);
-      message.success(tr("授权码已复制（不带分隔符，粘贴即可）"));
-    } catch {
-      message.error(tr("复制失败，请手动选择文本复制"));
-    }
-  };
-
   return (
     <Modal
       open={open}
@@ -119,12 +105,8 @@ export function OfflineCodeModal({ open, products, onClose, onIssued }: OfflineC
           >
             {issued.formattedCode}
           </Typography.Paragraph>
-          <Space>
-            <Button icon={<CopyOutlined />} onClick={() => void copy()}>
-              {tr("复制授权码")}</Button>
-            <Typography.Text type="secondary">
-              {tr("请把整段码交给现场，在客户端「授权」页录入并激活。")}</Typography.Text>
-          </Space>
+          <Typography.Text type="secondary">
+            {tr("请把整段码交给现场，在客户端「授权」页录入并激活。")}</Typography.Text>
         </Space>
       ) : (
         <Form<OfflineFormValues>
