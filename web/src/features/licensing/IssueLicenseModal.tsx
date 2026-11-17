@@ -1,9 +1,13 @@
 import { tr } from '../../i18n/translate';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { App, DatePicker, Form, Input, InputNumber, Modal, Radio, Select } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
+import { useEffect, useState } from 'react';
+import { devicesApi } from '../../shared/api/devices';
 import { licensingApi } from '../../shared/api/licensing';
 import type { IssueLicenseRequest, LicenseProduct } from '../../shared/api/types';
+import { PERMISSIONS } from '../../shared/permissions';
+import { useAuthStore } from '../../stores/auth';
 
 interface IssueFormValues {
   productKey: string;
@@ -19,6 +23,8 @@ interface IssueFormValues {
 interface IssueLicenseModalProps {
   open: boolean;
   products: LicenseProduct[];
+  /** 从试用行「转正式」时预填，避免重新找机器码。 */
+  initial?: { productKey: string; machineCode: string } | null;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -26,10 +32,43 @@ interface IssueLicenseModalProps {
 /**
  * 签发正式授权。机器码是授权主体：客户端上报 16 字符机器码，
  * 授权复制到另一台机器后验签依旧通过但机器码不匹配，服务端直接拒绝。
+ * 有 device.read 时可直接从当前在线设备里选，选中即回填机器码。
  */
-export function IssueLicenseModal({ open, products, onClose, onSaved }: IssueLicenseModalProps) {
+export function IssueLicenseModal({ open, products, initial, onClose, onSaved }: IssueLicenseModalProps) {
   const { message } = App.useApp();
   const [form] = Form.useForm<IssueFormValues>();
+  const canPickOnlineDevice = useAuthStore((state) => state.hasPermission(PERMISSIONS.deviceRead));
+  const appKey = useAuthStore((state) => state.session?.appKey ?? null);
+  const [deviceSearch, setDeviceSearch] = useState('');
+  const [deviceKeyword, setDeviceKeyword] = useState('');
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDeviceKeyword(deviceSearch.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [deviceSearch]);
+
+  useEffect(() => {
+    if (!open) {
+      setDeviceSearch('');
+      setDeviceKeyword('');
+      return;
+    }
+
+    if (initial) {
+      form.setFieldsValue({ productKey: initial.productKey, machineCode: initial.machineCode });
+    }
+  }, [open, initial, form]);
+
+  const onlineDevices = useQuery({
+    queryKey: ['licensing', 'issue', 'online-devices', appKey, deviceKeyword],
+    queryFn: ({ signal }) =>
+      devicesApi.listDevices(
+        { onlineStatus: 'online', keyword: deviceKeyword || undefined, pageSize: 30 },
+        signal,
+      ),
+    enabled: open && canPickOnlineDevice && appKey !== null,
+    staleTime: 15_000,
+  });
 
   const mutation = useMutation({
     mutationFn: (values: IssueFormValues) => {
@@ -101,6 +140,50 @@ export function IssueLicenseModal({ open, products, onClose, onSaved }: IssueLic
           />
         </Form.Item>
 
+        {canPickOnlineDevice ? (
+          <Form.Item noStyle shouldUpdate={(prev, next) => prev.machineCode !== next.machineCode}>
+            {({ getFieldValue, setFieldValue }) => {
+              const items = onlineDevices.data?.items ?? [];
+              const typed = String(getFieldValue('machineCode') ?? '').replace(/[\s_-]/g, '').toUpperCase();
+              const matched = items.find((device) => device.machineCode === typed);
+              return (
+                <Form.Item
+                  label={tr("从在线设备选择")}
+                  tooltip={tr("只列出当前在线设备，选中即回填机器码；离线或尚未注册的设备仍可在下方手填。")}
+                  extra={
+                    onlineDevices.isError
+                      ? tr("在线设备列表加载失败，可直接手填机器码。")
+                      : matched
+                        ? tr("已匹配在线设备：{{arg0}}（{{arg1}}）", {
+                            arg0: matched.displayName,
+                            arg1: matched.ipAddress ?? '-',
+                          })
+                        : undefined
+                  }
+                >
+                  <Select
+                    allowClear
+                    showSearch
+                    filterOption={false}
+                    loading={onlineDevices.isFetching}
+                    value={matched ? matched.machineCode : undefined}
+                    placeholder={tr("搜索设备名 / 机器码 / IP")}
+                    onSearch={setDeviceSearch}
+                    onChange={(value?: string) => setFieldValue('machineCode', value ?? '')}
+                    notFoundContent={
+                      onlineDevices.isFetching ? tr("搜索中…") : tr("没有匹配的在线设备，可直接手填机器码")
+                    }
+                    options={items.map((device) => ({
+                      value: device.machineCode,
+                      label: `${device.displayName} · ${device.machineCode}`,
+                    }))}
+                  />
+                </Form.Item>
+              );
+            }}
+          </Form.Item>
+        ) : null}
+
         <Form.Item
           name="machineCode"
           label={tr("机器码")}
@@ -152,7 +235,7 @@ export function IssueLicenseModal({ open, products, onClose, onSaved }: IssueLic
         <Form.Item
           name="graceDays"
           label={tr("宽限天数")}
-          tooltip={tr("留空使用产品默认值；到期后客户端仍可离线运行的天数。")}
+          tooltip={tr("留空取产品默认值；宽限写入本条授权，状态校验只看它，之后改产品默认值不影响已签发授权。")}
         >
           <InputNumber min={0} max={30} style={{ width: '100%' }} placeholder={tr("产品默认")} />
         </Form.Item>

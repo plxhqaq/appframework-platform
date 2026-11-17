@@ -144,6 +144,19 @@ public sealed class LicensingEndpointsTests : IClassFixture<PlatformApiFactory>
                 "/api/v1/admin/licensing/entitlements?productKey=trial-seat&status=active",
                 token)));
         Assert.Single(list.Items);
+
+        // 同机器同产品的正式授权就地升级试用：沿用原行与席位，不需要先吊销
+        var upgraded = await IssueAsync(client, token, "trial-seat", MachineA, addDays: 30, licenseNo: null);
+        Assert.Equal(list.Items[0].Id, upgraded.Id);
+        Assert.Equal(LicenseConventions.KindOfficial, upgraded.Kind);
+        Assert.Equal(LicenseConventions.StatusActive, upgraded.Status);
+
+        var afterUpgrade = await ReadDataAsync<PageResult<LicenseEntitlementDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                "/api/v1/admin/licensing/entitlements?productKey=trial-seat&status=active",
+                token)));
+        Assert.Single(afterUpgrade.Items);
     }
 
     [Fact]

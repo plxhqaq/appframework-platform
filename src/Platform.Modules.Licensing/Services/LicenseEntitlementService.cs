@@ -177,7 +177,10 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
                 x => x.ProductId == product.Id && x.MachineCode == machineCode,
                 cancellationToken);
 
-        if (existing is not null && existing.RevokedAt is null)
+        // 自动试用可被同机器同产品的正式授权就地升级：沿用原行，不新增席位，也不必先吊销。
+        if (existing is not null
+            && existing.RevokedAt is null
+            && !string.Equals(existing.Kind, LicenseConventions.KindTrial, StringComparison.Ordinal))
         {
             throw new BusinessException(
                 ApiErrorCode.Conflict,

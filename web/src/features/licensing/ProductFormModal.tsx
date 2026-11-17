@@ -147,7 +147,7 @@ export function ProductFormModal({ open, product, onClose, onSaved }: ProductFor
         <Form.Item
           name="defaultGraceDays"
           label={tr("默认宽限天数")}
-          tooltip={tr("到期后仍可离线运行的天数；签发时未指定则用这里。")}
+          tooltip={tr("仅作新签发授权与自动试用时的默认值；已签发授权各自保存快照，改这里不影响它们。")}
           rules={[{ required: true, message: tr("请输入宽限天数") }]}
         >
           <InputNumber min={0} max={30} style={{ width: '100%' }} />
@@ -156,7 +156,7 @@ export function ProductFormModal({ open, product, onClose, onSaved }: ProductFor
         <Form.Item
           name="trialDays"
           label={tr("自动试用天数")}
-          tooltip={tr("大于 0 时，未签发的机器首次校验状态会自动获得试用授权。")}
+          tooltip={tr("大于 0 时，无授权的机器首次在线校验状态会自动获得试用；客户转正时签发正式授权就地升级。")}
           rules={[{ required: true, message: tr("请输入试用天数") }]}
         >
           <InputNumber min={0} max={365} style={{ width: '100%' }} />

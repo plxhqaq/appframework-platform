@@ -84,6 +84,7 @@ export function LicensingPage() {
   const [productFormOpen, setProductFormOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<LicenseProduct | null>(null);
   const [issueOpen, setIssueOpen] = useState(false);
+  const [issueInitial, setIssueInitial] = useState<{ productKey: string; machineCode: string } | null>(null);
   const [renewing, setRenewing] = useState<LicenseEntitlement | null>(null);
   const [revoking, setRevoking] = useState<LicenseEntitlement | null>(null);
   const [offlineOpen, setOfflineOpen] = useState(false);
@@ -217,10 +218,10 @@ export function LicensingPage() {
       render: (_: unknown, row: LicenseProduct) => `${row.activeEntitlementCount} / ${row.entitlementCount}`,
     },
     {
-      title: tr("宽限"),
+      title: tr("默认宽限"),
       dataIndex: 'defaultGraceDays',
       key: 'defaultGraceDays',
-      width: 70,
+      width: 90,
       responsive: ['md'],
     },
     {
@@ -296,9 +297,18 @@ export function LicensingPage() {
       title: tr("到期"),
       dataIndex: 'notAfter',
       key: 'notAfter',
-      width: 110,
+      width: 130,
       responsive: ['md'],
-      render: (value: string) => formatDate(value),
+      render: (value: string, row: LicenseEntitlement) => (
+        <Space direction="vertical" size={0}>
+          <span>{formatDate(value)}</span>
+          {row.graceDays > 0 ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {tr("含宽限至 {{arg0}}", { arg0: formatDate(row.expiresAt) })}
+            </Typography.Text>
+          ) : null}
+        </Space>
+      ),
     },
     {
       title: tr("授权编号"),
@@ -323,7 +333,19 @@ export function LicensingPage() {
       fixed: 'right',
       render: (_: unknown, row: LicenseEntitlement) => (
         <Space size="small">
-          {canIssue && row.status !== 'revoked' ? (
+          {canIssue && row.status !== 'revoked' && row.kind === 'trial' ? (
+            <Button
+              type="link"
+              size="small"
+              onClick={() => {
+                setIssueInitial({ productKey: row.productKey, machineCode: row.machineCode });
+                setIssueOpen(true);
+              }}
+            >
+              {tr("转正式")}
+            </Button>
+          ) : null}
+          {canIssue && row.status !== 'revoked' && row.kind !== 'trial' ? (
             <Button type="link" size="small" onClick={() => setRenewing(row)}>
               {tr("续期")}</Button>
           ) : null}
@@ -549,7 +571,14 @@ export function LicensingPage() {
                 title={tr("授权")}
                 extra={
                   canIssue ? (
-                    <Button type="primary" icon={<PlusOutlined />} onClick={() => setIssueOpen(true)}>
+                    <Button
+                      type="primary"
+                      icon={<PlusOutlined />}
+                      onClick={() => {
+                        setIssueInitial(null);
+                        setIssueOpen(true);
+                      }}
+                    >
                       {tr("签发授权")}</Button>
                   ) : null
                 }
@@ -782,7 +811,11 @@ export function LicensingPage() {
       <IssueLicenseModal
         open={issueOpen}
         products={products.data ?? []}
-        onClose={() => setIssueOpen(false)}
+        initial={issueInitial}
+        onClose={() => {
+          setIssueOpen(false);
+          setIssueInitial(null);
+        }}
         onSaved={() => void refresh()}
       />
 

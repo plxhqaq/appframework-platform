@@ -115,7 +115,7 @@ curl -s http://localhost:5080/api/v1/admin/licensing/signing-keys \
 |---|---|
 | `key` | `^[a-z][a-z0-9-]{1,31}$`，最长 32；应用内唯一，重复返回 `301`（HTTP 409） |
 | `seatLimit` | `null`/`<=0` 归一为「不限」；上限 **100000**，超限返回校验失败 `2`（HTTP 400）。有效授权数达到上限即席位用尽 |
-| `defaultGraceDays` | `0–30`（`MaxGraceDays=30`），默认 7 |
+| `defaultGraceDays` | `0–30`（`MaxGraceDays=30`），默认 7；仅在签发/自动试用**当时**作为缺省值写入授权，之后改产品不影响已签发授权 |
 | `trialDays` | `0–365`（`MaxTrialDays=365`）。`>0` 时启用自动试用 |
 | `description` | 最长 1024 |
 
@@ -152,9 +152,12 @@ curl -s -X POST http://localhost:5080/api/v1/admin/licensing/entitlements \
 
 - `notAfter` 与 `addDays` 二选一；`addDays` 缺省 **365**（`DefaultLicenseDays`），且必须在 `1–max` 内
   （`max = Math.Clamp(Licensing:MaxLicenseDays, 1, 3650)`）。
-- `graceDays` 缺省取产品 `defaultGraceDays`；`0–30`。`ExpiresAt = notAfter + graceDays`。
+- `graceDays` 缺省取产品 `defaultGraceDays`；`0–30`。`ExpiresAt = notAfter + graceDays`，签发后宽限是**本条授权的快照**：
+  状态判定与客户端校验只读授权自己的 `graceDays`/`ExpiresAt`，再改产品默认值不会回写已签发授权。
 - `licenseNo` 留空自动生成：`LIC-yyyyMMdd-机器码前4位-3位Crockford随机`（最长 32，仅可打印 ASCII）。
-- 该机器码**已有未吊销授权**时返回通用 `Conflict`（HTTP 409，"请使用续期"）；新发时席位用尽返回 `309`（HTTP 409）。
+- 该机器码**已有未吊销的非试用授权**时返回通用 `Conflict`（HTTP 409，"请使用续期"）；新发时席位用尽返回 `309`（HTTP 409）。
+- 该机器码已有的是**同产品自动试用**（`kind=trial`、未吊销）时，签发正式授权**就地升级**同一行：沿用原 `id`
+  （客户端不用改绑定）、不再占新席位，`kind` 变为 `official`，`notBefore`/`notAfter`/`graceDays` 按本次请求重写，无需先吊销。
 - 类型固定为 `official`。
 
 **续期** `RenewLicenseRequest`：`notAfter`、`addDays`、`graceDays`、`notes`。`addDays` 的**追加基准**是
