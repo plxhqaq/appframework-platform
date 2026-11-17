@@ -22,6 +22,7 @@ public sealed class DevicesModelContributor : IPlatformModelContributor
             builder.Property(static x => x.DeviceKey).HasColumnName("device_key").HasMaxLength(64).IsRequired();
             builder.Property(static x => x.MachineCode).HasColumnName("machine_code").HasMaxLength(32).IsRequired();
             builder.Property(static x => x.InstallGuid).HasColumnName("install_guid");
+            builder.Property(static x => x.MergedIntoDeviceId).HasColumnName("merged_into_device_id");
             builder.Property(static x => x.AutoName).HasColumnName("auto_name").HasMaxLength(128);
             builder.Property(static x => x.CustomName).HasColumnName("custom_name").HasMaxLength(128);
             builder.Property(static x => x.DisplayName).HasColumnName("display_name").HasMaxLength(256).IsRequired();

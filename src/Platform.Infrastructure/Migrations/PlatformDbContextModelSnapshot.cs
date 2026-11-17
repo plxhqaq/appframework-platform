@@ -674,6 +674,10 @@ namespace Platform.Infrastructure.Migrations
                         .HasColumnType("character varying(32)")
                         .HasColumnName("machine_code");
 
+                    b.Property<Guid?>("MergedIntoDeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("merged_into_device_id");
+
                     b.Property<string>("OnlineStatus")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -1381,6 +1385,11 @@ namespace Platform.Infrastructure.Migrations
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid")
                         .HasColumnName("product_id");
+
+                    b.Property<string>("RevokeScope")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("revoke_scope");
 
                     b.Property<DateTimeOffset?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")

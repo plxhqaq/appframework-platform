@@ -33,12 +33,12 @@ interface IssueLicenseModalProps {
 /**
  * 签发正式授权。机器码是授权主体：客户端上报 16 字符机器码，
  * 授权复制到另一台机器后验签依旧通过但机器码不匹配，服务端直接拒绝。
- * 有 device.read 时可直接从当前在线设备里选，选中即回填机器码。
+ * 有 device.read 时可直接从设备目录里选（含离线设备），选中即回填机器码。
  */
 export function IssueLicenseModal({ open, products, initial, onClose, onSaved }: IssueLicenseModalProps) {
   const { message } = App.useApp();
   const [form] = Form.useForm<IssueFormValues>();
-  const canPickOnlineDevice = useAuthStore((state) => state.hasPermission(PERMISSIONS.deviceRead));
+  const canPickDevice = useAuthStore((state) => state.hasPermission(PERMISSIONS.deviceRead));
   const appKey = useAuthStore((state) => state.session?.appKey ?? null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickedDevice, setPickedDevice] = useState<DeviceSummary | null>(null);
@@ -144,7 +144,7 @@ export function IssueLicenseModal({ open, products, initial, onClose, onSaved }:
           tooltip={tr("客户端「关于/授权」页展示的 16 字符机器码；手抄的 O/I/L 会被自动纠正。")}
           extra={
             matchedPicked
-              ? tr("已匹配在线设备：{{arg0}}（{{arg1}}）", {
+              ? tr("已匹配设备：{{arg0}}（{{arg1}}）", {
                   arg0: matchedPicked.displayName,
                   arg1: matchedPicked.ipAddress ?? '-',
                 })
@@ -162,7 +162,7 @@ export function IssueLicenseModal({ open, products, initial, onClose, onSaved }:
             placeholder={tr("例如 008J-4CT4 ANK7-F24S")}
             autoComplete="off"
             addonAfter={
-              canPickOnlineDevice ? (
+              canPickDevice ? (
                 <Button
                   type="text"
                   size="small"
@@ -237,6 +237,7 @@ export function IssueLicenseModal({ open, products, initial, onClose, onSaved }:
         appKey={appKey}
         selected={pickerSelection}
         single
+        mode="license"
         title={tr("选择设备")}
         onConfirm={(next) => {
           const device = [...next.values()][0];

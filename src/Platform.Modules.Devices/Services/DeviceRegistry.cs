@@ -11,7 +11,7 @@ using Platform.Modules.Devices.Options;
 
 namespace Platform.Modules.Devices.Services;
 
-/// <summary>设备注册：按 <c>(appKey, deviceKey)</c> 去重，重复连接复用同一条设备记录。</summary>
+/// <summary>设备注册：按 <c>(appKey, machineCode)</c> 去重，同机多个客户端安装复用同一条设备记录。</summary>
 public interface IDeviceRegistry
 {
     /// <summary>注册或复用设备；停用设备拒绝注册。</summary>
@@ -81,11 +81,17 @@ public sealed class DeviceRegistry : IDeviceRegistry
             ? DeviceValidation.RequireHeartbeatSeconds(reported)
             : (int?)null;
 
-        var (deviceKey, machineCode) = DeviceIdentityHasher.Compute(identity);
+        var (_, machineCode) = DeviceIdentityHasher.Compute(identity);
+        // 设备键与机器码同值：同一台机器的不同客户端安装落到同一条记录，唯一索引直接兜底并发。
+        string deviceKey = machineCode;
         var now = _clock.UtcNow;
 
         Device? device = await _db.Set<Device>()
-            .FirstOrDefaultAsync(x => x.AppKey == appKey && x.DeviceKey == deviceKey, cancellationToken);
+            .FirstOrDefaultAsync(
+                x => x.AppKey == appKey
+                     && x.MachineCode == machineCode
+                     && x.MergedIntoDeviceId == null,
+                cancellationToken);
         bool isNew = device is null;
 
         if (device is null)
@@ -117,7 +123,7 @@ public sealed class DeviceRegistry : IDeviceRegistry
             EnsureEnabled(device);
             ApplyConnection(
                 device, autoName, customName, ipAddress, branch, frameworkVersion,
-                machineCode, heartbeatSeconds, now);
+                machineCode, identity.InstallGuid, heartbeatSeconds, now);
         }
 
         try
@@ -126,14 +132,18 @@ public sealed class DeviceRegistry : IDeviceRegistry
         }
         catch (DbUpdateException)
         {
-            // 并发首次注册：唯一索引兜底，清除后按已存在记录走更新路径。
+            // 并发首次注册：唯一索引兜底，清除后按机器码走更新路径。
             _db.ChangeTracker.Clear();
             device = await _db.Set<Device>()
-                .FirstAsync(x => x.AppKey == appKey && x.DeviceKey == deviceKey, cancellationToken);
+                .FirstAsync(
+                    x => x.AppKey == appKey
+                         && x.MachineCode == machineCode
+                         && x.MergedIntoDeviceId == null,
+                    cancellationToken);
             EnsureEnabled(device);
             ApplyConnection(
                 device, autoName, customName, ipAddress, branch, frameworkVersion,
-                machineCode, heartbeatSeconds, now);
+                machineCode, identity.InstallGuid, heartbeatSeconds, now);
             await _db.SaveChangesAsync(cancellationToken);
             isNew = false;
         }
@@ -161,6 +171,7 @@ public sealed class DeviceRegistry : IDeviceRegistry
         string? branch,
         string? frameworkVersion,
         string machineCode,
+        Guid installGuid,
         int? heartbeatSeconds,
         DateTimeOffset now)
     {
@@ -171,7 +182,9 @@ public sealed class DeviceRegistry : IDeviceRegistry
         }
 
         device.DisplayName = DeviceNaming.Compose(device.AutoName, device.CustomName);
+        device.DeviceKey = machineCode;
         device.MachineCode = machineCode;
+        device.InstallGuid = installGuid;
         device.OnlineStatus = DeviceOnlineStatuses.Online;
         device.LastConnectedAt = now;
         device.LastHeartbeatAt = now;

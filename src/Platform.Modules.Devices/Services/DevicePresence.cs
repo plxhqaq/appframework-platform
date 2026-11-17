@@ -138,7 +138,7 @@ public sealed class DevicePresence : IDevicePresence
     public async Task<int> MarkOfflineAsync(CancellationToken cancellationToken = default)
     {
         var candidates = await _db.Set<Device>()
-            .Where(x => x.OnlineStatus == DeviceOnlineStatuses.Online)
+            .Where(x => x.OnlineStatus == DeviceOnlineStatuses.Online && x.MergedIntoDeviceId == null)
             .ToListAsync(cancellationToken);
 
         var now = _clock.UtcNow;
@@ -171,7 +171,9 @@ public sealed class DevicePresence : IDevicePresence
     {
         var device = await _db.Set<Device>()
                          .FirstOrDefaultAsync(
-                             x => x.AppKey == appKey && x.Id == deviceId,
+                             x => x.AppKey == appKey
+                                  && x.Id == deviceId
+                                  && x.MergedIntoDeviceId == null,
                              cancellationToken)
                      ?? throw BusinessException.NotFound(
                          ApiErrorCode.DevicesNotFound,

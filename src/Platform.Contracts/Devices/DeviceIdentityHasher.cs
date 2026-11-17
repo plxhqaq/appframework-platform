@@ -12,6 +12,8 @@ namespace Platform.Contracts.Devices;
 /// 稳定键 <c>DeviceKey = SHA-256("{PrimaryIdentifier}|{InstallGuid:N}")</c>（小写十六进制）：
 /// 只由机器级主标识与安装 Guid 决定，版本号不参与，升级不会产生幽灵设备。
 /// 主标识缺失时退化为仅安装 Guid——此时同一台机器重装会变成新设备，管理端应提示。
+/// <b>平台设备表以机器码为去重轴</b>（同机多个客户端安装共用一条记录），
+/// 该稳定键仅用于客户端本地指纹/短 ID 与旧接口兼容。
 /// </para>
 /// <para>
 /// 机器码 = SHA-256(seed) 前 10 字节的 Crockford Base32（16 字符），seed 优先用主标识，

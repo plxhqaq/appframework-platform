@@ -57,7 +57,7 @@ public sealed class DeviceHub : Hub
         await base.OnDisconnectedAsync(exception);
     }
 
-    /// <summary>注册或重连设备；同一设备的新连接会顶替旧连接。</summary>
+    /// <summary>注册或重连设备；同一设备同一安装的新连接会顶替旧连接，同机其它客户端可并存。</summary>
     /// <param name="request">设备身份与展示信息。</param>
     public async Task<DeviceRegistrationResponse> RegisterDevice(DeviceRegistrationRequest request)
     {
@@ -65,7 +65,8 @@ public sealed class DeviceHub : Hub
         var appKey = RequireAppKey();
 
         var response = await _registry.RegisterAsync(appKey, request, Context.ConnectionAborted);
-        var replaced = _connections.Register(appKey, response.DeviceId, Context.ConnectionId);
+        var replaced = _connections.Register(
+            appKey, response.DeviceId, request.Identity.InstallGuid, Context.ConnectionId);
 
         await Groups.AddToGroupAsync(
             Context.ConnectionId,

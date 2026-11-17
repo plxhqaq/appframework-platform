@@ -26,8 +26,9 @@ public sealed class DeviceServiceTests
         string autoName = "PC-01",
         string? customName = null,
         string? branch = "full",
-        int? heartbeatSeconds = 10) =>
-        new(Identity(primary), autoName, "10.1.2.3", branch, heartbeatSeconds, customName);
+        int? heartbeatSeconds = 10,
+        Guid? installGuid = null) =>
+        new(Identity(primary, installGuid), autoName, "10.1.2.3", branch, heartbeatSeconds, customName);
 
     private static DeviceRegistry Registry(PlatformDbContext db, IClock clock) =>
         new(db, clock, Options.Create(new DevicesOptions()), NullLogger<DeviceRegistry>.Instance);
@@ -72,6 +73,68 @@ public sealed class DeviceServiceTests
         Assert.Equal("产线A-PC-01", device.DisplayName);
         Assert.Equal("torque", device.Branch);
         Assert.Equal(DeviceOnlineStatuses.Online, device.OnlineStatus);
+    }
+
+    [PostgresFact]
+    public async Task 同一机器码不同安装复用同一条设备()
+    {
+        var connectionString = await PostgresTestEnvironment.GetConnectionStringAsync();
+        var clock = new TestClock();
+        var appKey = NewAppKey();
+        var firstInstall = Guid.NewGuid();
+        var secondInstall = Guid.NewGuid();
+
+        DeviceRegistrationResponse first;
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            first = await Registry(db, clock).RegisterAsync(
+                appKey,
+                Request("SHARED-MACHINE", "PC-full", branch: "full", installGuid: firstInstall));
+        }
+
+        DeviceRegistrationResponse second;
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            second = await Registry(db, clock).RegisterAsync(
+                appKey,
+                Request("SHARED-MACHINE", "PC-torque", branch: "torque", installGuid: secondInstall));
+        }
+
+        await using var verify = PostgresTestEnvironment.CreateDbContext(connectionString, clock);
+        var device = await verify.Set<Platform.Modules.Devices.Domain.Device>()
+            .AsNoTracking()
+            .SingleAsync(x => x.AppKey == appKey);
+
+        Assert.Equal(first.DeviceId, second.DeviceId);
+        Assert.Equal(first.DeviceShortId, second.DeviceShortId);
+        Assert.Equal(device.MachineCode, device.DeviceKey);
+        Assert.Equal(secondInstall, device.InstallGuid);
+        Assert.Equal(1, await verify.Set<Platform.Modules.Devices.Domain.Device>().CountAsync(x => x.AppKey == appKey));
+    }
+
+    [Fact]
+    public void 同机不同安装可并存而同安装重连顶替()
+    {
+        var registry = new DeviceConnectionRegistry();
+        var deviceId = Guid.NewGuid();
+        var installA = Guid.NewGuid();
+        var installB = Guid.NewGuid();
+
+        Assert.Null(registry.Register("app", deviceId, installA, "conn-a1"));
+        Assert.Null(registry.Register("app", deviceId, installB, "conn-b1"));
+        Assert.Equal(1, registry.Count);
+
+        var replaced = registry.Register("app", deviceId, installA, "conn-a2");
+        Assert.Equal("conn-a1", replaced);
+        Assert.False(registry.TryGet("conn-a1", out _));
+        Assert.True(registry.TryGet("conn-a2", out var currentA));
+        Assert.Equal(installA, currentA.InstallGuid);
+
+        registry.Unregister("conn-a2");
+        Assert.True(registry.HasConnection(deviceId));
+        registry.Unregister("conn-b1");
+        Assert.False(registry.HasConnection(deviceId));
+        Assert.Equal(0, registry.Count);
     }
 
     [PostgresFact]
@@ -273,6 +336,53 @@ public sealed class DeviceServiceTests
                 appB, new PageQuery { Keyword = machineCodeOfSecond }, null, null);
             Assert.Equal(0, crossAppKeyword.Total);
         }
+    }
+
+    [PostgresFact]
+    public async Task 已合并的历史重复设备不再出现在管理端()
+    {
+        var connectionString = await PostgresTestEnvironment.GetConnectionStringAsync();
+        var clock = new TestClock();
+        var appKey = NewAppKey();
+        var canonicalId = Guid.NewGuid();
+        var mergedId = Guid.NewGuid();
+        var now = clock.UtcNow;
+
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            db.Set<Platform.Modules.Devices.Domain.Device>().AddRange(
+                new Platform.Modules.Devices.Domain.Device
+                {
+                    Id = canonicalId,
+                    AppKey = appKey,
+                    DeviceKey = "MERGEDCODE000001",
+                    MachineCode = "MERGEDCODE000001",
+                    DisplayName = "主设备",
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                },
+                new Platform.Modules.Devices.Domain.Device
+                {
+                    Id = mergedId,
+                    AppKey = appKey,
+                    DeviceKey = new string('a', 64),
+                    MachineCode = "MERGEDCODE000001",
+                    DisplayName = "历史重复",
+                    MergedIntoDeviceId = canonicalId,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                });
+            await db.SaveChangesAsync();
+        }
+
+        await using var verify = PostgresTestEnvironment.CreateDbContext(connectionString, clock);
+        var admin = Admin(verify);
+        var list = await admin.ListAsync(appKey, new PageQuery { Page = 1, PageSize = 10 }, null, null);
+        Assert.Equal(1, list.Total);
+        Assert.Equal(canonicalId, list.Items[0].Id);
+
+        var exception = await Assert.ThrowsAsync<BusinessException>(() => admin.GetAsync(appKey, mergedId));
+        Assert.Equal(ApiErrorCode.DevicesNotFound, exception.Code);
     }
 
     [PostgresFact]

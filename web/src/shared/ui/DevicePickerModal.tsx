@@ -9,7 +9,7 @@ import { devicesApi } from '../api/devices';
 import type { DeviceSummary } from '../api/types';
 import { responsivePagination, responsiveWidth } from '../responsive';
 import { useResponsive } from '../useResponsive';
-import { isDeviceSelectable } from '../deviceSelection';
+import { isDeviceLicenseSelectable, isDeviceSelectable } from '../deviceSelection';
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -21,14 +21,16 @@ interface DevicePickerModalProps {
   onCancel: () => void;
   /** 单选模式：只允许选一台（如签发授权绑定机器码）。 */
   single?: boolean;
+  /** push：只列在线且待机的设备；license：授权按机器码，离线/运行中设备也可选。 */
+  mode?: 'push' | 'license';
   title?: string;
 }
 
 /**
- * 在线设备选择弹窗。
+ * 设备选择弹窗。
  *
- * 设备可能超过 50 台，所以不使用下拉框：服务端分页 + 关键字/分支筛选，
- * 勾选跨页保留；运行中/停用设备禁止勾选（服务端仍会二次门禁）。
+ * 设备可能超过 50 台，所以不使用下拉框：服务端分页 + 关键字/分支筛选，勾选跨页保留。
+ * push 模式只允许在线待机设备；license 模式允许离线设备（授权主体是机器码，不要求在线）。
  */
 export function DevicePickerModal({
   open,
@@ -37,6 +39,7 @@ export function DevicePickerModal({
   onConfirm,
   onCancel,
   single = false,
+  mode = 'push',
   title,
 }: DevicePickerModalProps) {
   const { isMobile } = useResponsive();
@@ -56,12 +59,23 @@ export function DevicePickerModal({
   }, [open, selected]);
 
   const devices = useQuery({
-    queryKey: ['devices', 'list', 'push-picker', appKey, keyword, branch, page, pageSize],
+    queryKey: ['devices', 'list', 'picker', mode, appKey, keyword, branch, page, pageSize],
     queryFn: ({ signal }) =>
-      devicesApi.listDevices({ onlineStatus: 'online', keyword, branch, page, pageSize }, signal),
+      devicesApi.listDevices(
+        {
+          onlineStatus: mode === 'push' ? 'online' : undefined,
+          keyword,
+          branch,
+          page,
+          pageSize,
+        },
+        signal,
+      ),
     enabled: open && appKey !== null,
-    refetchInterval: open ? 15000 : false,
+    refetchInterval: open && mode === 'push' ? 15000 : false,
   });
+
+  const canSelect = mode === 'license' ? isDeviceLicenseSelectable : isDeviceSelectable;
 
   const columns: TableColumnsType<DeviceSummary> = [
     { title: tr("设备名"), dataIndex: 'displayName', key: 'displayName', ellipsis: true },
@@ -87,14 +101,16 @@ export function DevicePickerModal({
       width: 150,
       render: (_: unknown, row: DeviceSummary) => (
         <Space size={4} wrap>
-          {row.isEnabled ? (
+          {!row.isEnabled ? (
+            <Tag>{tr("已停用")}</Tag>
+          ) : row.onlineStatus === 'offline' ? (
+            <Tag>{tr("离线")}</Tag>
+          ) : (
             <Tag color={row.stationStatus === 'idle' ? 'green' : 'orange'}>
               {row.stationStatus === 'idle' ? tr("在线/待机") : tr("运行中")}
             </Tag>
-          ) : (
-            <Tag>{tr("已停用")}</Tag>
           )}
-          {row.isEnabled && row.stationStatus !== 'idle' ? (
+          {mode === 'push' && row.isEnabled && !isDeviceSelectable(row) ? (
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               {tr("不可下发")}</Typography.Text>
           ) : null}
@@ -113,6 +129,11 @@ export function DevicePickerModal({
 
   // rows 只含当前页仍勾选的行：先保留其它页的选择，再用当前页结果覆盖本页。
   const handleSelectionChange = (_keys: React.Key[], rows: DeviceSummary[]) => {
+    if (single) {
+      setDraft(new Map(rows.map((row) => [row.id, row])));
+      return;
+    }
+
     const currentIds = new Set((devices.data?.items ?? []).map((item) => item.id));
     const next = new Map<string, DeviceSummary>();
     draft.forEach((device, id) => {
@@ -129,7 +150,7 @@ export function DevicePickerModal({
     selectedRowKeys: [...draft.keys()],
     preserveSelectedRowKeys: true,
     onChange: handleSelectionChange,
-    getCheckboxProps: (row: DeviceSummary) => ({ disabled: !isDeviceSelectable(row) }),
+    getCheckboxProps: (row: DeviceSummary) => ({ disabled: !canSelect(row) }),
   };
 
   return (
@@ -170,7 +191,9 @@ export function DevicePickerModal({
             <Button icon={<ReloadOutlined />} onClick={() => void devices.refetch()}>
               {tr("刷新")}</Button>
             <Typography.Text type="secondary" style={{ alignSelf: 'center' }}>
-              {tr("仅显示在线设备；运行中与停用设备不可勾选")}</Typography.Text>
+              {mode === 'push'
+                ? tr("仅显示在线设备；运行中与停用设备不可勾选")
+                : tr("离线与运行中设备也可选择；停用设备不可选")}</Typography.Text>
           </Flex>
 
           {devices.isError ? (
@@ -197,13 +220,21 @@ export function DevicePickerModal({
               current: devices.data?.page ?? page,
               pageSize: devices.data?.pageSize ?? pageSize,
               total: devices.data?.total ?? 0,
-              showTotal: (total: number) => tr("共 {{arg0}} 台在线设备", { arg0: total }),
+              showTotal: (total: number) =>
+                mode === 'push'
+                  ? tr("共 {{arg0}} 台在线设备", { arg0: total })
+                  : tr("共 {{arg0}} 台设备", { arg0: total }),
               onChange: (nextPage: number, nextPageSize: number) => {
                 setPage(nextPageSize === pageSize ? nextPage : 1);
                 setPageSize(nextPageSize);
               },
             })}
-            locale={{ emptyText: tr("没有符合条件的在线设备") }}
+            locale={{
+              emptyText:
+                mode === 'push'
+                  ? tr("没有符合条件的在线设备")
+                  : tr("没有符合条件的设备"),
+            }}
           />
         </Space>
       )}

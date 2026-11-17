@@ -4,8 +4,8 @@ using Platform.Kernel.Abstractions;
 namespace Platform.Modules.Devices.Domain;
 
 /// <summary>
-/// 设备。按 <see cref="AppKey"/> 隔离、按 <see cref="DeviceKey"/> 去重；
-/// 在线/工位状态都存字符串词表，平台不落旧端数字枚举。
+/// 设备（一台物理机）。按 <see cref="AppKey"/> 隔离、按 <see cref="MachineCode"/> 去重：
+/// 同一台机器上的多个客户端安装共用一条记录；在线/工位状态都存字符串词表，平台不落旧端数字枚举。
 /// </summary>
 public sealed class Device : IAuditableEntity
 {
@@ -15,14 +15,17 @@ public sealed class Device : IAuditableEntity
     /// <summary>应用隔离轴（来自令牌，不由客户端传参）。</summary>
     public required string AppKey { get; set; }
 
-    /// <summary>稳定键：<c>SHA-256(primary|installGuid)</c> 小写十六进制；与 <see cref="AppKey"/> 唯一。</summary>
+    /// <summary>设备键（等于机器码，应用内唯一）；短 ID 与历史接口兼容保留。</summary>
     public required string DeviceKey { get; set; }
 
-    /// <summary>机器码（16 字符 Crockford Base32），授权与管理端检索用。</summary>
+    /// <summary>机器码（16 字符 Crockford Base32），授权、去重与管理端检索用。</summary>
     public required string MachineCode { get; set; }
 
-    /// <summary>安装 Guid（对账用；注册时必然非空）。</summary>
+    /// <summary>最近一次注册的安装 Guid（同一设备可能运行多个客户端安装）。</summary>
     public Guid? InstallGuid { get; set; }
+
+    /// <summary>已合并到的主设备；非空表示该行是历史重复记录，只保留供审计。</summary>
+    public Guid? MergedIntoDeviceId { get; set; }
 
     /// <summary>自动设备名（客户端机器名）。</summary>
     public string? AutoName { get; set; }

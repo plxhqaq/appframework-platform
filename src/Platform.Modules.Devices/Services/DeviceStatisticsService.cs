@@ -24,6 +24,7 @@ public sealed class DeviceStatisticsService : IDeviceStatistics
     {
         var counts = await _db.Set<Device>()
             .AsNoTracking()
+            .Where(static x => x.MergedIntoDeviceId == null)
             .GroupBy(static _ => 1)
             .Select(static group => new
             {

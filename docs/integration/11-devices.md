@@ -28,12 +28,16 @@
 
 平台不信任客户端自算的键，统一按契约包里的 `DeviceIdentityHasher` 计算：
 
-- `DeviceKey = SHA-256("{PrimaryIdentifier}|{InstallGuid:N}")`（小写十六进制），
-  版本号不参与，升级不会产生幽灵设备；
-- 主标识缺失时 `DeviceKey` 只由 InstallGuid 决定——**同一台机器重装会变成新设备**，现场应优先提供主标识；
-- 机器码 = SHA-256 前 10 字节的 Crockford Base32（16 字符），主标识优先、缺失时回退 `DeviceKey`，
-  只用于展示与排障，不能当作永久授权锚点；
-- 同一应用内按 `(app_key, device_key)` 唯一（`ux_devices_app_device_key`），重复注册复用同一条记录并刷新连接信息；
+- 机器码 = SHA-256 前 10 字节的 Crockford Base32（16 字符），只由机器级主标识（SMBIOS UUID /
+  系统盘序列号）决定，**不含 InstallGuid**；它同时是授权主体和设备去重锚点；
+- 同一应用内一台物理机只保留一条设备记录：按 `(app_key, machine_code)` 去重，`device_key` 列与机器码同值，
+  唯一索引 `ux_devices_app_device_key` 从数据库层兜底并发注册；
+- `InstallGuid` 表示客户端安装实例：同一台机器可同时运行多个客户端软件（不同安装），它们共用一条设备记录、
+  各自保持连接；只有同一安装的新连接会顶替旧连接；
+- 主标识缺失时机器码回退 `DeviceKey = SHA-256("{PrimaryIdentifier}|{InstallGuid:N}")`，
+  此时机器码随安装变化，同机多客户端仍会各成一条记录——现场应优先提供主标识；
+- 迁移 `MergeDevicesByMachineCode` 会把历史重复行合并到主设备（优先保留有自定义名的行，其次最近心跳），
+  重复行标记为已合并并置离线，历史备份归属改到主设备后不再出现在管理端；
 - 不同应用各自一条记录，互不影响。
 
 设备展示名 `DisplayName = 自定义名-自动名`（`DeviceNaming.Compose`），已带前缀时不重复拼接；
@@ -65,12 +69,16 @@ wss://<服务端>/hubs/devices?access_token=<JWT>
 |---|---|---|
 | `ConfigPush` | `DeviceConfigPush` | 定向下发；大载荷只给 `downloadUrl`，不给内联内容 |
 | `Restart` | `DeviceRestart` | 管理端重启命令，`reason` 透传给设备显示 |
-| `SessionReplaced` | `DeviceSessionReplaced` | 同一设备新连接顶替旧连接，旧连接应停止重连并让位 |
+| `SessionReplaced` | `DeviceSessionReplaced` | 同一安装（InstallGuid）的新连接顶替旧连接，旧连接应停止重连并让位 |
 | `StateChanged` | — | 契约已预留，当前服务端不发送 |
 
-顶号语义：新连接注册成功后加入 `device:{deviceId}` 分组，旧连接被移出分组并收到
-`SessionReplaced`。设备端收到该事件**不要立刻重连**，否则两台进程会互相顶号死循环；
-应先确认本机是否还有另一实例在跑。停用设备注册时返回 `DevicesDisabled`。
+顶号语义：同一安装的新连接注册成功后加入 `device:{deviceId}` 分组，该安装的旧连接被移出分组并收到
+`SessionReplaced`；**不同安装（同机多个客户端软件）可以并存**，不会互相顶号。设备端收到该事件
+**不要立刻重连**，否则同一安装的两个进程会互相顶号死循环；应先确认本机是否还有另一实例在跑。
+停用设备注册时返回 `DevicesDisabled`。
+
+同机多客户端共享一条设备记录：任一心跳都会刷新设备在线状态；`ConfigPush` / `Restart` 发给
+`device:{deviceId}` 分组，所有在线安装都会收到，回执按设备维度只认第一个成功结果。
 
 ### 心跳、工位与在线判定
 
@@ -115,6 +123,7 @@ curl -s -X POST http://localhost:5080/api/v1/admin/devices/$DEVICE_ID/restart \
 ```
 
 - 列表固定按 `lastHeartbeatAt` 倒序、再按展示名排序；`onlineStatus` 只接受 `online`/`offline`；
+- 同一机器码只返回主设备，迁移合并掉的历史行不可见（详情/编辑/重启按旧 id 访问返回 404）；
 - 所有管理端点都要求令牌带应用上下文（无 `app` 返回 403），只返回本应用的设备；
 - 改名/启停写审计 `devices.update`，重启写 `devices.restart`（成功与失败都记，原因进 `message`）；
 - 重启只发给在线设备：设备不存在 404、停用 403、离线 409；
@@ -232,6 +241,7 @@ curl -s http://localhost:5080/api/v1/client/backups/$BACKUP_ID/download -H "Auth
 |---|---|
 | `20261113085954_AddDevices` | `devices` 表、`ux_devices_app_device_key` 唯一索引、心跳/机器码查询索引 |
 | `20261113092424_AddDocumentApplicableVersion` | `documents.applicable_version`（可空，`varchar(64)`） |
+| `20261117073817_MergeDevicesByMachineCode` | 合并同应用同机器码的历史重复设备、回填主设备 `device_key`、备份归属改到主设备 |
 
 ```bash
 # 生成新迁移（必须从 Platform.Api 启动，装配全部模块贡献者；统一 Release）
@@ -262,6 +272,8 @@ curl -s http://localhost:5080/api/v1/platform/modules | jq '.data[] | select(.ke
 
 管理台路径：`/devices`（`device.read`），改名/启停需 `device.manage`，重启需 `device.restart`；
 现场工程师角色默认没有这三条，只能做密钥/扫码登录与读写备份、文档。
+签发授权时的「选择设备」包含离线设备（授权主体是机器码，不要求在线），停用设备不可选；
+备份下发仍只列在线待机设备。
 
 相关文档：[`04-backups.md`](04-backups.md) · [`05-documents.md`](05-documents.md) ·
 [`00-quickstart.md`](00-quickstart.md) · [`07-openapi.md`](07-openapi.md)

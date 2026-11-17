@@ -26,12 +26,14 @@ public sealed class DeviceDirectory : IDeviceDirectory
 
         return await _db.Set<Device>()
             .AsNoTracking()
-            .Where(x => x.AppKey == appKey && x.Id == deviceId)
+            .Where(x => x.AppKey == appKey && x.Id == deviceId && x.MergedIntoDeviceId == null)
             .Select(static x => new DeviceDirectoryEntry(x.Id, x.DisplayName))
             .FirstOrDefaultAsync(cancellationToken);
     }
 
     /// <inheritdoc />
     public Task<bool> ExistsAsync(Guid deviceId, CancellationToken cancellationToken = default) =>
-        _db.Set<Device>().AsNoTracking().AnyAsync(x => x.Id == deviceId, cancellationToken);
+        _db.Set<Device>()
+            .AsNoTracking()
+            .AnyAsync(x => x.Id == deviceId && x.MergedIntoDeviceId == null, cancellationToken);
 }

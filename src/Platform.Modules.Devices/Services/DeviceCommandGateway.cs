@@ -45,7 +45,9 @@ public sealed class DeviceCommandGateway : IDeviceCommandGateway
 
         var device = await _db.Set<Device>()
             .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.AppKey == appKey && x.Id == deviceId, cancellationToken);
+            .FirstOrDefaultAsync(
+                x => x.AppKey == appKey && x.Id == deviceId && x.MergedIntoDeviceId == null,
+                cancellationToken);
         if (device is null)
         {
             return null;
@@ -53,7 +55,7 @@ public sealed class DeviceCommandGateway : IDeviceCommandGateway
 
         var online = string.Equals(
                 device.OnlineStatus, DeviceOnlineStatuses.Online, StringComparison.Ordinal)
-            && _connections.GetConnectionId(device.Id) is not null;
+            && _connections.HasConnection(device.Id);
 
         return new DeviceCommandTarget(
             device.Id,

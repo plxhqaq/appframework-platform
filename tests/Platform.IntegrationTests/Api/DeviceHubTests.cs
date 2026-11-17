@@ -78,6 +78,43 @@ public sealed class DeviceHubTests : IClassFixture<PlatformApiFactory>
     }
 
     [Fact]
+    public async Task 同机不同安装的连接可并存且共享同一条设备()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        var appKey = $"hub-{Guid.NewGuid().ToString("N")[..8]}";
+        await CreateAppAsync(client, admin, appKey);
+        var token = await DevTokenAsync(client, appKey);
+
+        await using var fullClient = CreateConnection(token);
+        await using var toolClient = CreateConnection(token);
+        await fullClient.StartAsync();
+        await toolClient.StartAsync();
+
+        static DeviceRegistrationRequest Request(Guid installGuid, string name) =>
+            new(
+                new DeviceIdentity("AA-BB-CC-DD-EE-FF", installGuid, "1.0.0", "MULTI-INSTALL-PRIMARY"),
+                name,
+                "10.1.2.3",
+                "full");
+
+        var full = await fullClient.InvokeAsync<DeviceRegistrationResponse>(
+            DeviceHubMethods.RegisterDevice, Request(Guid.NewGuid(), "PC-full"));
+        var tool = await toolClient.InvokeAsync<DeviceRegistrationResponse>(
+            DeviceHubMethods.RegisterDevice, Request(Guid.NewGuid(), "PC-tool"));
+
+        Assert.Equal(full.DeviceId, tool.DeviceId);
+        Assert.Equal(full.DeviceShortId, tool.DeviceShortId);
+
+        // 不同安装不会互相顶号：先注册的连接仍可继续心跳。
+        var heartbeat = await fullClient.InvokeAsync<DeviceSummaryDto>(
+            DeviceHubMethods.Heartbeat,
+            new DeviceHeartbeatRequest(DeviceHeartbeatStatuses.Idle, DeviceAlarmLevels.None));
+        Assert.Equal(full.DeviceId, heartbeat.Id);
+        Assert.Equal(DeviceOnlineStatuses.Online, heartbeat.OnlineStatus);
+    }
+
+    [Fact]
     public async Task 未认证连接被拒绝且未注册连接不能发心跳()
     {
         using var client = _factory.CreateClient();

@@ -53,7 +53,9 @@ public sealed class DeviceAdmin : IDeviceAdmin
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        var source = _db.Set<Device>().AsNoTracking().Where(x => x.AppKey == appKey);
+        var source = _db.Set<Device>()
+            .AsNoTracking()
+            .Where(x => x.AppKey == appKey && x.MergedIntoDeviceId == null);
 
         if (!string.IsNullOrWhiteSpace(onlineStatus))
         {
@@ -105,7 +107,9 @@ public sealed class DeviceAdmin : IDeviceAdmin
     {
         var device = await _db.Set<Device>()
                          .AsNoTracking()
-                         .FirstOrDefaultAsync(x => x.AppKey == appKey && x.Id == id, cancellationToken)
+                         .FirstOrDefaultAsync(
+                             x => x.AppKey == appKey && x.Id == id && x.MergedIntoDeviceId == null,
+                             cancellationToken)
                      ?? throw BusinessException.NotFound(
                          ApiErrorCode.DevicesNotFound,
                          $"设备 {id} 不存在。");
@@ -122,7 +126,9 @@ public sealed class DeviceAdmin : IDeviceAdmin
         ArgumentNullException.ThrowIfNull(request);
 
         var device = await _db.Set<Device>()
-                         .FirstOrDefaultAsync(x => x.AppKey == appKey && x.Id == id, cancellationToken)
+                         .FirstOrDefaultAsync(
+                             x => x.AppKey == appKey && x.Id == id && x.MergedIntoDeviceId == null,
+                             cancellationToken)
                      ?? throw BusinessException.NotFound(
                          ApiErrorCode.DevicesNotFound,
                          $"设备 {id} 不存在。");
