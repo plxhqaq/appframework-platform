@@ -54,6 +54,12 @@ public interface IQrLoginService
         Guid approvedBy,
         string? approvedByName,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 客户端放弃本次扫码（离开二维码页、刷新码、关闭登录框）：待审批会话转 cancelled。
+    /// 幂等：已取消、已批准、已拒绝、已过期都原样返回当前状态，不签发也不吊销令牌。
+    /// </summary>
+    Task<QrSessionStatusDto> CancelAsync(Guid requestId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -306,6 +312,75 @@ public sealed class QrLoginService : IQrLoginService
             session.ExpiresAt,
             now,
             approvedName);
+    }
+
+    /// <inheritdoc />
+    public async Task<QrSessionStatusDto> CancelAsync(
+        Guid requestId,
+        CancellationToken cancellationToken = default)
+    {
+        var now = _clock.UtcNow;
+
+        // 条件迁移同一套口径：只有仍待审批且未过期的会话会被取消。
+        // 客户端重试、批准与取消并发时以先落库的状态为准，后到的一方原样读回。
+        if (_db.Database.IsRelational())
+        {
+            await _db.Set<QrLoginSession>()
+                .Where(x => x.Id == requestId
+                            && x.Status == QrLoginStatuses.Pending
+                            && x.ExpiresAt > now)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(static x => x.Status, QrLoginStatuses.Cancelled)
+                        .SetProperty(static x => x.UpdatedAt, now),
+                    cancellationToken);
+        }
+        else
+        {
+            await CancelInMemoryAsync(requestId, now, cancellationToken);
+        }
+
+        var session = await _db.Set<QrLoginSession>()
+                          .AsNoTracking()
+                          .FirstOrDefaultAsync(x => x.Id == requestId, cancellationToken)
+                      ?? throw SessionNotFound(requestId);
+
+        return new QrSessionStatusDto(
+            session.Id,
+            ResolveStatus(session, now),
+            session.CreatedAt,
+            session.ExpiresAt,
+            session.ApprovedAt,
+            Session: null);
+    }
+
+    private async Task CancelInMemoryAsync(
+        Guid requestId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        await InMemoryGate.WaitAsync(cancellationToken);
+        try
+        {
+            var session = await _db.Set<QrLoginSession>()
+                .FirstOrDefaultAsync(x => x.Id == requestId, cancellationToken);
+            if (session is null)
+            {
+                return;
+            }
+
+            if (string.Equals(session.Status, QrLoginStatuses.Pending, StringComparison.Ordinal)
+                && session.ExpiresAt > now)
+            {
+                session.Status = QrLoginStatuses.Cancelled;
+                session.UpdatedAt = now;
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+        }
+        finally
+        {
+            InMemoryGate.Release();
+        }
     }
 
     private async Task<QrLoginSession> LoadPendingAsync(

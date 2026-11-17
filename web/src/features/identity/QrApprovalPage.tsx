@@ -51,6 +51,7 @@ const STATUS_OPTIONS = [
   { value: 'approved', get label() { return tr("已批准"); } },
   { value: 'rejected', get label() { return tr("已拒绝"); } },
   { value: 'expired', get label() { return tr("已过期"); } },
+  { value: 'cancelled', get label() { return tr("已取消"); } },
   { value: '', get label() { return tr("全部"); } },
 ];
 

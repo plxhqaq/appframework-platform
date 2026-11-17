@@ -41,6 +41,7 @@ export const QR_STATUS_META: Record<string, { color: string; label: string }> = 
   approved: { color: 'green', get label() { return tr("已批准"); } },
   rejected: { color: 'red', get label() { return tr("已拒绝"); } },
   expired: { color: 'default', get label() { return tr("已过期"); } },
+  cancelled: { color: 'default', get label() { return tr("已取消"); } },
 };
 
 export function qrStatusMeta(status: string): { color: string; label: string } {

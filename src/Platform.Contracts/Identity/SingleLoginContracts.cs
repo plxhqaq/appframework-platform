@@ -56,9 +56,12 @@ public static class QrLoginStatuses
     /// <summary>未审批即过期（读取时按时间计算）。</summary>
     public const string Expired = "expired";
 
+    /// <summary>客户端主动放弃（离开二维码页 / 刷新码），不再出现在待审批列表。</summary>
+    public const string Cancelled = "cancelled";
+
     /// <summary>是否为合法状态值。</summary>
     public static bool IsValid(string? status) =>
-        status is Pending or Approved or Rejected or Expired;
+        status is Pending or Approved or Rejected or Expired or Cancelled;
 }
 
 /// <summary>签发单次密钥。</summary>

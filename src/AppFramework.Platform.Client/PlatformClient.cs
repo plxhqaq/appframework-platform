@@ -212,9 +212,16 @@ public sealed partial class PlatformClient : IDisposable
         CallAsync<QrSessionCreatedDto>(
             HttpMethod.Post, QrSessionsPath, new CreateQrSessionRequest(deviceFingerprint, clientName), useToken: false, cancellationToken);
 
-    /// <summary>读取扫码会话状态（<c>pending</c>/<c>approved</c>/<c>rejected</c>/<c>expired</c>）。</summary>
+    /// <summary>读取扫码会话状态（<c>pending</c>/<c>approved</c>/<c>rejected</c>/<c>expired</c>/<c>cancelled</c>）。</summary>
     public Task<QrSessionStatusDto> GetQrLoginSessionAsync(Guid requestId, CancellationToken cancellationToken = default) =>
         CallAsync<QrSessionStatusDto>(HttpMethod.Get, $"{QrSessionsPath}/{requestId:D}", body: null, useToken: false, cancellationToken);
+
+    /// <summary>
+    /// 放弃本次扫码：离开二维码页、刷新码或关闭登录框时调用，服务端待审批列表随即移除该单。
+    /// 幂等，已处理或已过期的会话原样返回；调用方不需要处理业务错误。
+    /// </summary>
+    public Task<QrSessionStatusDto> CancelQrLoginSessionAsync(Guid requestId, CancellationToken cancellationToken = default) =>
+        CallAsync<QrSessionStatusDto>(HttpMethod.Post, $"{QrSessionsPath}/{requestId:D}/cancel", body: null, useToken: false, cancellationToken);
 
     /// <summary>
     /// 轮询直到扫码被审批 —— 推送只是提示，客户端必须以轮询结果为准。
@@ -240,6 +247,8 @@ public sealed partial class PlatformClient : IDisposable
                     return session;
                 case QrLoginStatuses.Rejected:
                     throw new PlatformClientException(ApiErrorCode.IdentityQrSessionAlreadyUsed, "扫码登录请求被拒绝。", 0, traceId: null);
+                case QrLoginStatuses.Cancelled:
+                    throw new PlatformClientException(ApiErrorCode.IdentityQrSessionAlreadyUsed, "扫码登录请求已取消。", 0, traceId: null);
                 case QrLoginStatuses.Expired:
                     throw new PlatformClientException(ApiErrorCode.IdentityQrSessionExpired, "扫码登录请求已过期。", 0, traceId: null);
             }

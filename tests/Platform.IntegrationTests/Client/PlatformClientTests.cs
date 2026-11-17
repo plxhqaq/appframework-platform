@@ -186,6 +186,28 @@ public sealed class PlatformClientTests : IClassFixture<PlatformApiFactory>, IDi
     }
 
     [Fact]
+    public async Task 扫码会话取消后等待立即失败且状态为cancelled()
+    {
+        var (raw, sdk) = CreatePair();
+        using (raw)
+        {
+            var created = await sdk.CreateQrLoginSessionAsync("sdk-qr", "SDK 操作台");
+
+            var cancelled = await sdk.CancelQrLoginSessionAsync(created.RequestId);
+            Assert.Equal(QrLoginStatuses.Cancelled, cancelled.Status);
+
+            await Assert.ThrowsAsync<PlatformClientException>(
+                () => sdk.WaitForQrLoginApprovalAsync(
+                    created.RequestId, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(50)));
+
+            // 幂等：重复取消不抛错。
+            Assert.Equal(
+                QrLoginStatuses.Cancelled,
+                (await sdk.CancelQrLoginSessionAsync(created.RequestId)).Status);
+        }
+    }
+
+    [Fact]
     public async Task 检查更新读清单并按内容哈希下载落盘()
     {
         var (raw, sdk) = CreatePair();

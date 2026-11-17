@@ -167,6 +167,14 @@ export function QrSessionDetailPage() {
           description={tr("二维码有效期只有 10 分钟。让现场在客户端重新点「扫码登录」生成一张新的。")}
         />
       ) : null}
+      {session.status === 'cancelled' ? (
+        <Alert
+          type="info"
+          showIcon
+          message={tr("客户端已取消")}
+          description={tr("现场离开了扫码页或刷新了二维码。需要登录请让客户端重新发起扫码。")}
+        />
+      ) : null}
 
       <Card size="small" title={session.clientName ?? tr("未知客户端")}>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>

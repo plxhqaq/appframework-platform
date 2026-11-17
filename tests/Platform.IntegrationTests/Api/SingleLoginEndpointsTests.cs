@@ -241,6 +241,69 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
     }
 
     [Fact]
+    public async Task 客户端取消待审批扫码后从列表移除且不能再审批()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+
+        var created = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
+            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest("qr-device", "取消客户端")));
+
+        var cancelled = await CancelAsync(client, created.RequestId);
+        Assert.Equal(QrLoginStatuses.Cancelled, cancelled.Status);
+        Assert.Null(cancelled.Session);
+
+        // 幂等：客户端重试取消不报错，原样返回当前状态。
+        var again = await CancelAsync(client, created.RequestId);
+        Assert.Equal(QrLoginStatuses.Cancelled, again.Status);
+
+        var status = await GetQrStatusAsync(client, created.RequestId);
+        Assert.Equal(QrLoginStatuses.Cancelled, status.Status);
+
+        // 幽灵审批的源头：离开二维码页后，这一单必须从待审批列表消失。
+        var pending = await IdentityTestHelpers.ReadDataAsync<PageResult<QrSessionSummaryDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, "/api/v1/admin/identity/qr/sessions?status=pending", admin)));
+        Assert.DoesNotContain(pending.Items, x => x.RequestId == created.RequestId);
+
+        var cancelledList = await IdentityTestHelpers.ReadDataAsync<PageResult<QrSessionSummaryDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, "/api/v1/admin/identity/qr/sessions?status=cancelled", admin)));
+        Assert.Contains(cancelledList.Items, x => x.RequestId == created.RequestId);
+
+        var approve = await ApproveRawAsync(client, admin, created.RequestId);
+        Assert.Equal(
+            (int)ApiErrorCode.IdentityQrSessionAlreadyUsed,
+            await IdentityTestHelpers.ReadErrorCodeAsync(approve, HttpStatusCode.Conflict));
+    }
+
+    [Fact]
+    public async Task 取消不吊销已批准会话且过期会话保持原状态()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+
+        var approvedCreated = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
+            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest("qr-device", "已批准客户端")));
+        await ApproveAsync(client, admin, approvedCreated.RequestId);
+
+        var cancelledAfterApprove = await CancelAsync(client, approvedCreated.RequestId);
+        Assert.Equal(QrLoginStatuses.Approved, cancelledAfterApprove.Status);
+
+        var approvedStatus = await GetQrStatusAsync(client, approvedCreated.RequestId);
+        Assert.Equal(QrLoginStatuses.Approved, approvedStatus.Status);
+        Assert.NotNull(approvedStatus.Session);
+
+        var expiredCreated = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
+            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest("qr-device", "过期客户端")));
+        await ExpireQrSessionAsync(expiredCreated.RequestId);
+
+        var cancelledExpired = await CancelAsync(client, expiredCreated.RequestId);
+        Assert.Equal(QrLoginStatuses.Expired, cancelledExpired.Status);
+        Assert.Equal(QrLoginStatuses.Expired, (await GetQrStatusAsync(client, expiredCreated.RequestId)).Status);
+    }
+
+    [Fact]
     public async Task 无权限用户与匿名请求不能签发单次密钥()
     {
         using var client = _factory.CreateClient();
@@ -471,6 +534,10 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
     private static async Task<QrSessionStatusDto> GetQrStatusAsync(HttpClient client, Guid requestId) =>
         await IdentityTestHelpers.ReadDataAsync<QrSessionStatusDto>(
             await client.GetAsync($"{QrCreatePath}/{requestId}"));
+
+    private static async Task<QrSessionStatusDto> CancelAsync(HttpClient client, Guid requestId) =>
+        await IdentityTestHelpers.ReadDataAsync<QrSessionStatusDto>(
+            await client.PostAsync($"{QrCreatePath}/{requestId}/cancel", content: null));
 
     private static async Task<QrSessionSummaryDto> ApproveAsync(
         HttpClient client,

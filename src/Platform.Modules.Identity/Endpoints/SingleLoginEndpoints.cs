@@ -96,6 +96,19 @@ internal static class SingleLoginEndpoints
             .WithSummary("轮询扫码会话状态；批准后领取临时访问令牌")
             .AllowAnonymous()
             .RequireRateLimiting(PlatformRateLimitPolicies.QrSession);
+
+        group.MapPost(
+                "/qr/sessions/{id:guid}/cancel",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    IQrLoginService qr,
+                    CancellationToken cancellationToken) =>
+                    ApiResults.Ok(context, await qr.CancelAsync(id, cancellationToken)))
+            .WithName("identity.qr.sessions.cancel")
+            .WithSummary("客户端放弃扫码：仅取消待审批会话，幂等，不签发令牌")
+            .AllowAnonymous()
+            .RequireRateLimiting(PlatformRateLimitPolicies.QrSession);
     }
 
     public static void MapSingleLoginAdminEndpoints(this IEndpointRouteBuilder api)
