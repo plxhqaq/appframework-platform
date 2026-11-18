@@ -6,8 +6,9 @@ namespace Platform.Contracts.Permissions;
 /// 权限清单注册（见 <c>/api/v1/apps/{appKey}/permissions</c>），平台内核不感知任何具体客户端。
 /// </summary>
 /// <remarks>
-/// 命名规则：<c>{域}.{资源}.{动作}</c>，全部小写点分。域与模块键一致，唯一例外是授权域用
-/// <c>license</c>（语义比 <c>licensing</c> 更贴合"授权实例"，与现网 <c>license.issue</c> 口径一致）。
+/// 命名规则：<c>{域}.{资源}.{动作}</c>，全部小写点分。域通常与模块键同形，已知例外是授权域用
+/// <c>license</c>（语义比 <c>licensing</c> 更贴合"授权实例"，与现网 <c>license.issue</c> 口径一致），
+/// 备份/文档/Webhook 用单数，设备模块的权限域为 <c>installation</c>（应用级安装实例）。
 /// </remarks>
 public static class PermissionCatalog
 {
@@ -68,12 +69,15 @@ public static class PermissionCatalog
     public const string WebhookRead = "webhook.read";
     public const string WebhookManage = "webhook.manage";
 
-    // ━━━ 设备（devices；权限域用单数 device，与管理端习惯口径一致）━━━
-    public const string DeviceRead = "device.read";
-    public const string DeviceManage = "device.manage";
-    public const string DeviceRestart = "device.restart";
+    // ━━━ 安装实例（installation；应用级）━━━
+    public const string InstallationRead = "installation.read";
+    public const string InstallationManage = "installation.manage";
+    public const string InstallationRestart = "installation.restart";
 
     // ━━━ 平台级 ━━━
+    public const string NodeRead = "node.read";
+    public const string NodeManage = "node.manage";
+    public const string NodeRestart = "node.restart";
     public const string AuditRead = "audit.read";
     public const string PlatformApiDocsRead = "platform.apidocs.read";
     public const string PlatformAdmin = "platform.admin";
@@ -128,9 +132,13 @@ public static class PermissionCatalog
         new(WebhookRead, PlatformModuleKeys.Webhooks, "perm.webhook.read", 700),
         new(WebhookManage, PlatformModuleKeys.Webhooks, "perm.webhook.manage", 710),
 
-        new(DeviceRead, PlatformModuleKeys.Devices, "perm.device.read", 800),
-        new(DeviceManage, PlatformModuleKeys.Devices, "perm.device.manage", 810),
-        new(DeviceRestart, PlatformModuleKeys.Devices, "perm.device.restart", 820),
+        new(InstallationRead, PlatformModuleKeys.Devices, "perm.installation.read", 800),
+        new(InstallationManage, PlatformModuleKeys.Devices, "perm.installation.manage", 810),
+        new(InstallationRestart, PlatformModuleKeys.Devices, "perm.installation.restart", 820),
+
+        new(NodeRead, "platform", "perm.node.read", 850),
+        new(NodeManage, "platform", "perm.node.manage", 860),
+        new(NodeRestart, "platform", "perm.node.restart", 870),
 
         new(AuditRead, "platform", "perm.audit.read", 900, PlatformAdminOnly: true),
         new(PlatformApiDocsRead, "platform", "perm.platform.apidocs.read", 905, PlatformAdminOnly: true),

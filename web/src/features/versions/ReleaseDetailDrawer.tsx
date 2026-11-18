@@ -82,6 +82,16 @@ export function ReleaseDetailDrawer({
     onError: (error: Error) => message.error(error.message),
   });
 
+  const activatePackage = useMutation({
+    mutationFn: (id: string) => versionsApi.activatePackage(id),
+    onSuccess: async (activated) => {
+      message.success(tr("已启用发布包 {{arg0}}", { arg0: activated.fileName }));
+      await queryClient.invalidateQueries({ queryKey: ['versions', 'release', releaseId] });
+      onChanged();
+    },
+    onError: (error: Error) => message.error(error.message),
+  });
+
   const retryPackage = useMutation({
     mutationFn: (id: string) => versionsApi.retryPackage(id),
     onSuccess: async (queued) => {
@@ -103,6 +113,17 @@ export function ReleaseDetailDrawer({
     } finally {
       setDownloadingId(null);
     }
+  };
+
+  const confirmArchive = () => {
+    modal.confirm({
+      title: tr("归档版本 {{arg0}}？", { arg0: release?.version ?? '' }),
+      content: tr("归档后客户端 check 会回退到上一个已发布版本。如果只是误操作，重新上传同版本发布包即可恢复为草稿。"),
+      okText: tr("归档"),
+      okButtonProps: { danger: true },
+      cancelText: tr("取消"),
+      onOk: () => archive.mutateAsync(),
+    });
   };
 
   const confirmDelete = (pkg: ReleasePackage) => {
@@ -150,7 +171,7 @@ export function ReleaseDetailDrawer({
                 danger
                 icon={<InboxOutlined />}
                 loading={archive.isPending}
-                onClick={() => archive.mutate()}
+                onClick={confirmArchive}
               >
                 {tr("归档")}</Button>
             ) : null}
@@ -228,6 +249,7 @@ export function ReleaseDetailDrawer({
                 render: (kind: string, row) => (
                   <Space size={4}>
                     <Tag color={packageKindMeta(kind).color}>{packageKindMeta(kind).label}</Tag>
+                    {row.isActive ? <Tag color="green">{tr("启用包")}</Tag> : null}
                     {row.reused ? <Tag>{tr("复用")}</Tag> : null}
                   </Space>
                 ),
@@ -318,10 +340,22 @@ export function ReleaseDetailDrawer({
               {
                 title: tr("操作"),
                 key: 'actions',
-                width: 190,
+                width: 240,
                 fixed: 'right',
                 render: (_: unknown, row) => (
                   <Space size="small">
+                    {canUpload
+                    && !row.isActive
+                    && row.status === 'ready'
+                    && release.status !== 'archived' ? (
+                      <Button
+                        type="link"
+                        size="small"
+                        loading={activatePackage.isPending}
+                        onClick={() => activatePackage.mutate(row.id)}
+                      >
+                        {tr("设为启用")}</Button>
+                    ) : null}
                     {canDownload && row.status === 'ready' ? (
                       <Button
                         type="link"

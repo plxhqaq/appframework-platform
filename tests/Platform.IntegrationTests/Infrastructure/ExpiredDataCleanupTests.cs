@@ -38,13 +38,14 @@ public sealed class ExpiredDataCleanupTests
             ExpiresAt = now.AddDays(10),
         });
 
-        db.Add(new SingleLoginKey { Key = "111111", CreatedBy = Guid.NewGuid(), ExpiresAt = now.AddHours(-30) });
-        db.Add(new SingleLoginKey { Key = "222222", CreatedBy = Guid.NewGuid(), ExpiresAt = now.AddHours(1) });
+        db.Add(new SingleLoginKey { Key = "111111", AppKey = "demo", CreatedBy = Guid.NewGuid(), ExpiresAt = now.AddHours(-30) });
+        db.Add(new SingleLoginKey { Key = "222222", AppKey = "demo", CreatedBy = Guid.NewGuid(), ExpiresAt = now.AddHours(1) });
 
-        db.Add(new QrLoginSession { Status = QrLoginStatuses.Pending, ExpiresAt = now.AddHours(-30) });
+        db.Add(new QrLoginSession { Status = QrLoginStatuses.Pending, AppKey = "demo", ExpiresAt = now.AddHours(-30) });
         db.Add(new QrLoginSession
         {
             Status = QrLoginStatuses.Approved,
+            AppKey = "demo",
             ExpiresAt = now.AddMinutes(-5),
             TokenExpiresAt = now.AddHours(1),
         });

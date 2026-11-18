@@ -131,7 +131,9 @@ public sealed partial class ReleaseService : IReleaseService
         }
 
         var projection = query
-            .OrderByDescending(static x => x.CreatedAt)
+            .OrderBy(x => x.Status == VersionConventions.StatusArchived ? 1 : 0)
+            .ThenByDescending(static x => x.CreatedAt)
+            .ThenByDescending(static x => x.Id)
             .Select(static x => new ReleaseSummaryDto(
                 x.Id,
                 x.Channel.Key,
@@ -669,7 +671,8 @@ public sealed partial class ReleaseService : IReleaseService
 
     private static bool HasReadyInstaller(Release release) =>
         release.Packages.Any(static x => x.Kind == VersionConventions.PackageKindFull
-                                         && x.Status == VersionConventions.PackageStatusReady);
+                                         && x.Status == VersionConventions.PackageStatusReady
+                                         && x.IsActive);
 
     /// <summary>
     /// 未上报更新器版本（首次安装）或版本号无法解析时都按下发处理；
@@ -856,7 +859,8 @@ public sealed partial class ReleaseService : IReleaseService
         var packages = release.Packages
             .OrderBy(static x => x.Kind, StringComparer.Ordinal)
             .ThenBy(static x => x.Target, StringComparer.Ordinal)
-            .ThenBy(static x => x.Format, StringComparer.Ordinal)
+            .ThenByDescending(static x => x.IsActive)
+            .ThenByDescending(static x => x.CreatedAt)
             .Select(x => ReleasePackageService.ToDto(x, release.Channel.Key, release.Version, reused: false))
             .ToList();
 

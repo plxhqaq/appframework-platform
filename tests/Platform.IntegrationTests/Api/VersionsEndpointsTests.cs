@@ -585,6 +585,39 @@ public sealed class VersionsEndpointsTests : IClassFixture<PlatformApiFactory>
             await IdentityTestHelpers.ReadErrorCodeAsync(denied, HttpStatusCode.Forbidden));
     }
 
+    [Fact]
+    public async Task 版本列表把已归档行排在最后()
+    {
+        using var client = _factory.CreateClient();
+        var token = await LoginAsync(client);
+        const string channelKey = "sort-archived";
+
+        await CreateChannelAsync(client, token, channelKey);
+        var sha = await UploadAsync(client, token, LibBytes);
+        var artifact = Artifact("win-x64", ("lib/core.dll", LibBytes, sha));
+
+        var older = await CreateReleaseAsync(client, token, channelKey, "1.0.0", publish: true, artifact);
+        var middle = await CreateReleaseAsync(client, token, channelKey, "2.0.0", publish: true, artifact);
+        var newest = await CreateReleaseAsync(client, token, channelKey, "3.0.0", publish: true, artifact);
+
+        await ReadDataAsync<ReleaseDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/versions/releases/{newest.Id}/archive",
+                token)));
+
+        var listed = await ReadDataAsync<PageResult<ReleaseSummaryDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                $"/api/v1/admin/versions/releases?channelKey={channelKey}",
+                token)));
+
+        Assert.Equal(
+            new[] { middle.Version, older.Version, newest.Version },
+            listed.Items.Select(x => x.Version).ToArray());
+        Assert.Equal(VersionConventions.StatusArchived, listed.Items[^1].Status);
+    }
+
     private static async Task<string> LoginAsync(HttpClient client) =>
         await IdentityTestHelpers.LoginAsAdminAsync(client);
 

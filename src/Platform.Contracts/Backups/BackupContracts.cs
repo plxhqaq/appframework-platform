@@ -72,8 +72,7 @@ public sealed record CreateBackupRequest(
     string? NamespaceKey,
     string? Kind,
     string? Name,
-    Guid? DeviceId,
-    string? DeviceName,
+    Guid? InstallationId,
     string? ModuleId,
     int SchemaVersion,
     string? FrameworkVersion,
@@ -81,14 +80,15 @@ public sealed record CreateBackupRequest(
     string? PayloadJson,
     string? Sha256);
 
-/// <summary>备份摘要（列表与详情共用）。</summary>
+/// <summary>备份摘要（列表与详情共用）。节点字段是创建时快照。</summary>
 public sealed record BackupDto(
     Guid Id,
     string NamespaceKey,
     string Kind,
     string Name,
-    Guid? DeviceId,
-    string? DeviceName,
+    Guid? InstallationId,
+    Guid? NodeId,
+    string? NodeName,
     string? ModuleId,
     int SchemaVersion,
     string FrameworkVersion,
@@ -102,46 +102,48 @@ public sealed record BackupDto(
     DateTimeOffset CreatedAt,
     string? CreatedBy);
 
-/// <summary>下发备份：目标设备/渠道由调用方声明，服务端复核兼容矩阵。</summary>
-/// <param name="TargetDeviceId">单个目标设备（兼容字段，与 <paramref name="TargetDeviceIds"/> 合并去重）。</param>
+/// <summary>下发备份：目标安装实例/渠道由调用方声明，服务端复核兼容矩阵。</summary>
+/// <param name="TargetInstallationId">单个目标安装实例（与 <paramref name="TargetInstallationIds"/> 合并去重）。</param>
 /// <param name="TargetChannel">目标渠道；为空按默认渠道处理。</param>
 /// <param name="TargetFrameworkVersion">目标框架版本；用于主版本兼容判断。</param>
 /// <param name="RestartAfterApply">应用后是否要求重启。</param>
 /// <param name="Force">放宽主版本校验；渠道不一致仍然拒绝。</param>
-/// <param name="CurrentHash">目标当前配置哈希；仅单设备下发时允许，提供时先落一条 pre-push 快照。</param>
-/// <param name="ConfirmCrossDevice">备份来源设备与任一目标设备不一致时，必须显式确认。</param>
-/// <param name="TargetDeviceIds">目标设备集合（多选）。留空且未显式广播时拒绝，不再隐式下发全部在线连接。</param>
-/// <param name="BroadcastToApp">显式请求应用组广播（兼容能力，管理台不提供）；与目标设备互斥。</param>
+/// <param name="CurrentHash">目标当前配置哈希；仅单安装实例下发时允许，提供时先落一条 pre-push 快照。</param>
+/// <param name="ConfirmCrossInstallation">备份来源安装实例与任一目标不一致时，必须显式确认。</param>
+/// <param name="TargetInstallationIds">目标安装实例集合（多选）。留空且未显式广播时拒绝。</param>
+/// <param name="BroadcastToApp">显式请求应用组广播（兼容能力，管理台不提供）；与目标安装实例互斥。</param>
 public sealed record PushBackupRequest(
-    Guid? TargetDeviceId,
+    Guid? TargetInstallationId,
     string? TargetChannel,
     string? TargetFrameworkVersion,
     bool RestartAfterApply,
     bool Force,
     string? CurrentHash,
-    bool ConfirmCrossDevice,
-    IReadOnlyList<Guid>? TargetDeviceIds = null,
+    bool ConfirmCrossInstallation,
+    IReadOnlyList<Guid>? TargetInstallationIds = null,
     bool BroadcastToApp = false);
 
-/// <summary>单台设备的下发结果。</summary>
-/// <param name="DeviceId">目标设备。</param>
-/// <param name="Delivered">命令是否已送达设备连接。</param>
-/// <param name="Acked">设备是否回执。</param>
-/// <param name="Success">回执内容：设备是否应用成功。</param>
-/// <param name="Message">设备回执说明。</param>
+/// <summary>单个安装实例的下发结果。</summary>
+/// <param name="InstallationId">目标安装实例。</param>
+/// <param name="NodeId">目标所在物理节点。</param>
+/// <param name="Delivered">命令是否已送达安装实例连接。</param>
+/// <param name="Acked">安装实例是否回执。</param>
+/// <param name="Success">回执内容：安装实例是否应用成功。</param>
+/// <param name="Message">安装实例回执说明。</param>
 public sealed record PushTargetResult(
-    Guid DeviceId,
+    Guid InstallationId,
+    Guid? NodeId,
     bool Delivered,
     bool Acked,
     bool Success,
     string? Message);
 
-/// <summary>下发结果：多设备下发时 <paramref name="Success"/> 表示全部目标成功。</summary>
+/// <summary>下发结果：多安装实例下发时 <paramref name="Success"/> 表示全部目标成功。</summary>
 /// <param name="Acked">全部目标是否都回执（应用组广播时为唯一回执）。</param>
 /// <param name="Success">全部目标是否都回执并应用成功。</param>
-/// <param name="Message">汇总说明（单设备时为设备回执原文）。</param>
-/// <param name="SnapshotBackupId">下发前落下的快照 id（仅单设备且提供当前哈希时）。</param>
-/// <param name="Targets">逐设备结果；应用组广播时为空。</param>
+/// <param name="Message">汇总说明（单目标时为回执原文）。</param>
+/// <param name="SnapshotBackupId">下发前落下的快照 id（仅单目标且提供当前哈希时）。</param>
+/// <param name="Targets">逐安装实例结果；应用组广播时为空。</param>
 public sealed record PushBackupResult(
     bool Acked,
     bool Success,

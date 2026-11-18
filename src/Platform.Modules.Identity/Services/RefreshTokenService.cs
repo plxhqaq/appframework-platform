@@ -22,10 +22,11 @@ public sealed record RotatedRefreshToken(
     string Plaintext,
     DateTimeOffset ExpiresAt,
     string? AppKey,
-    string? MachineCode);
+    string? MachineCode,
+    Guid? InstallGuid);
 
 /// <summary>会话的应用上下文快照（切换应用时同步刷新令牌记录）。</summary>
-public sealed record RefreshTokenContext(string? AppKey, string? MachineCode);
+public sealed record RefreshTokenContext(string? AppKey, string? MachineCode, Guid? InstallGuid);
 
 /// <summary>刷新令牌生命周期与会话查询。</summary>
 public interface IRefreshTokenService
@@ -35,6 +36,7 @@ public interface IRefreshTokenService
         Guid userId,
         string? appKey,
         string? machineCode,
+        Guid? installGuid,
         string? deviceFingerprint,
         string? ipAddress,
         CancellationToken cancellationToken = default);
@@ -87,16 +89,19 @@ public sealed class RefreshTokenService : IRefreshTokenService
     private readonly PlatformDbContext _db;
     private readonly IClock _clock;
     private readonly IdentityTokenOptions _options;
+    private readonly IDeviceNodeDirectory? _nodes;
 
     /// <summary>构造。</summary>
     public RefreshTokenService(
         PlatformDbContext db,
         IClock clock,
-        IOptions<IdentityTokenOptions> options)
+        IOptions<IdentityTokenOptions> options,
+        IEnumerable<IDeviceNodeDirectory> nodes)
     {
         _db = db;
         _clock = clock;
         _options = options.Value;
+        _nodes = nodes.FirstOrDefault();
     }
 
     /// <inheritdoc />
@@ -104,6 +109,7 @@ public sealed class RefreshTokenService : IRefreshTokenService
         Guid userId,
         string? appKey,
         string? machineCode,
+        Guid? installGuid,
         string? deviceFingerprint,
         string? ipAddress,
         CancellationToken cancellationToken = default)
@@ -117,6 +123,7 @@ public sealed class RefreshTokenService : IRefreshTokenService
             TokenHash = Hash(plaintext),
             AppKey = Normalize(appKey),
             MachineCode = Normalize(machineCode),
+            InstallGuid = Normalize(installGuid),
             DeviceFingerprint = Normalize(deviceFingerprint),
             CreatedByIp = Normalize(ipAddress),
             ExpiresAt = now.AddDays(Math.Max(1, _options.RefreshTokenDays)),
@@ -177,6 +184,7 @@ public sealed class RefreshTokenService : IRefreshTokenService
             TokenHash = Hash(plaintextNew),
             AppKey = token.AppKey,
             MachineCode = token.MachineCode,
+            InstallGuid = token.InstallGuid,
             DeviceFingerprint = token.DeviceFingerprint,
             CreatedByIp = token.CreatedByIp,
             ExpiresAt = now.AddDays(Math.Max(1, _options.RefreshTokenDays)),
@@ -195,7 +203,8 @@ public sealed class RefreshTokenService : IRefreshTokenService
             plaintextNew,
             replacement.ExpiresAt,
             replacement.AppKey,
-            replacement.MachineCode);
+            replacement.MachineCode,
+            replacement.InstallGuid);
     }
 
     /// <inheritdoc />
@@ -217,7 +226,7 @@ public sealed class RefreshTokenService : IRefreshTokenService
 
         token.AppKey = Normalize(appKey);
         await _db.SaveChangesAsync(cancellationToken);
-        return new RefreshTokenContext(token.AppKey, token.MachineCode);
+        return new RefreshTokenContext(token.AppKey, token.MachineCode, token.InstallGuid);
     }
 
     /// <inheritdoc />
@@ -282,7 +291,8 @@ public sealed class RefreshTokenService : IRefreshTokenService
             .OrderByDescending(static x => x.CreatedAt)
             .ToListAsync(cancellationToken);
 
-        return [.. tokens.Select(token => ToSummary(token, now))];
+        var nodes = await LoadNodesAsync(tokens, cancellationToken);
+        return [.. tokens.Select(token => ToSummary(token, now, nodes))];
     }
 
     /// <inheritdoc />
@@ -301,8 +311,9 @@ public sealed class RefreshTokenService : IRefreshTokenService
 
         var now = _clock.UtcNow;
         var page = await source.ToPageResultAsync(query, cancellationToken);
+        var nodes = await LoadNodesAsync(page.Items, cancellationToken);
         return PageResult<SessionSummaryDto>.Create(
-            [.. page.Items.Select(token => ToSummary(token, now))],
+            [.. page.Items.Select(token => ToSummary(token, now, nodes))],
             page.Total,
             query);
     }
@@ -325,7 +336,8 @@ public sealed class RefreshTokenService : IRefreshTokenService
             await _db.SaveChangesAsync(cancellationToken);
         }
 
-        return ToSummary(token, now);
+        var node = await FindNodeAsync(token.MachineCode, cancellationToken);
+        return ToSummary(token, now, node);
     }
 
     private async Task<RefreshToken?> FindAsync(string? plaintext, CancellationToken cancellationToken)
@@ -358,13 +370,66 @@ public sealed class RefreshTokenService : IRefreshTokenService
         }
     }
 
-    private static SessionSummaryDto ToSummary(RefreshToken token, DateTimeOffset now) =>
+    private async Task<IReadOnlyDictionary<string, DeviceNodeDirectoryEntry>> LoadNodesAsync(
+        IEnumerable<RefreshToken> tokens,
+        CancellationToken cancellationToken)
+    {
+        if (_nodes is null)
+        {
+            return EmptyNodes;
+        }
+
+        string[] codes = tokens
+            .Select(static x => x.MachineCode)
+            .Where(static x => !string.IsNullOrWhiteSpace(x))
+            .Select(static x => x!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        return codes.Length == 0
+            ? EmptyNodes
+            : await _nodes.FindByMachineCodesAsync(codes, cancellationToken);
+    }
+
+    private async Task<DeviceNodeDirectoryEntry?> FindNodeAsync(
+        string? machineCode,
+        CancellationToken cancellationToken) =>
+        _nodes is null || string.IsNullOrWhiteSpace(machineCode)
+            ? null
+            : await _nodes.FindByMachineCodeAsync(machineCode, cancellationToken);
+
+    private static readonly IReadOnlyDictionary<string, DeviceNodeDirectoryEntry> EmptyNodes =
+        new Dictionary<string, DeviceNodeDirectoryEntry>(StringComparer.Ordinal);
+
+    private static SessionSummaryDto ToSummary(
+        RefreshToken token,
+        DateTimeOffset now,
+        IReadOnlyDictionary<string, DeviceNodeDirectoryEntry> nodes)
+    {
+        DeviceNodeDirectoryEntry? node = null;
+        if (token.MachineCode is { Length: > 0 } code)
+        {
+            nodes.TryGetValue(code, out node);
+        }
+
+        return ToSummary(token, now, node);
+    }
+
+    private static SessionSummaryDto ToSummary(
+        RefreshToken token,
+        DateTimeOffset now,
+        DeviceNodeDirectoryEntry? node) =>
         new(
             token.Id,
             token.UserId,
             token.User?.UserName ?? string.Empty,
             token.FamilyId,
+            token.AppKey,
             token.DeviceFingerprint,
+            token.MachineCode,
+            token.InstallGuid,
+            node?.NodeId,
+            node?.DisplayName,
             token.CreatedByIp,
             token.CreatedAt,
             token.ExpiresAt,
@@ -401,4 +466,7 @@ public sealed class RefreshTokenService : IRefreshTokenService
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static Guid? Normalize(Guid? value) =>
+        value is { } guid && guid != Guid.Empty ? guid : null;
 }

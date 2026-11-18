@@ -55,9 +55,13 @@ public sealed class PlatformDashboardTests : IClassFixture<PlatformApiFactory>
         Assert.True(board.SystemUptimeSeconds >= 0);
         Assert.True(board.SystemUptimeSeconds >= board.UptimeSeconds);
 
-        Assert.True(board.Devices.Total >= 0);
-        Assert.True(board.Devices.Online <= board.Devices.Total);
-        Assert.True(board.Devices.Connected >= 0);
+        Assert.True(board.Nodes.Total >= 0);
+        Assert.True(board.Nodes.Online <= board.Nodes.Total);
+        Assert.True(board.Nodes.Running <= board.Nodes.Online);
+        Assert.Equal(board.Nodes.Online, board.Nodes.Running + board.Nodes.Idle);
+        Assert.True(board.Installations.Total >= 0);
+        Assert.True(board.Installations.Online <= board.Installations.Total);
+        Assert.True(board.Installations.Connected >= 0);
 
         Assert.False(string.IsNullOrWhiteSpace(board.Platform.MachineName));
         Assert.False(string.IsNullOrWhiteSpace(board.Platform.OsDescription));

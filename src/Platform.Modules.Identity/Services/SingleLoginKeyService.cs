@@ -18,6 +18,7 @@ public interface ISingleLoginKeyService
     /// <summary>签发 6 位一次性密钥；明文只在返回值中出现一次。</summary>
     Task<SingleLoginKeyDto> IssueAsync(
         Guid createdBy,
+        string? principalAppKey,
         IssueSingleLoginKeyRequest request,
         CancellationToken cancellationToken = default);
 
@@ -43,6 +44,7 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
 
     private readonly PlatformDbContext _db;
     private readonly ITemporarySessionFactory _temporary;
+    private readonly IAppDirectory _apps;
     private readonly IClock _clock;
     private readonly SingleLoginOptions _options;
 
@@ -50,11 +52,13 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
     public SingleLoginKeyService(
         PlatformDbContext db,
         ITemporarySessionFactory temporary,
+        IAppDirectory apps,
         IClock clock,
         IOptions<SingleLoginOptions> options)
     {
         _db = db;
         _temporary = temporary;
+        _apps = apps;
         _clock = clock;
         _options = options.Value;
     }
@@ -62,10 +66,13 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
     /// <inheritdoc />
     public async Task<SingleLoginKeyDto> IssueAsync(
         Guid createdBy,
+        string? principalAppKey,
         IssueSingleLoginKeyRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        string appKey = await ResolveAppKeyAsync(principalAppKey, request.AppKey, cancellationToken);
 
         var now = _clock.UtcNow;
         var duration = ClampDuration(request.DurationMinutes);
@@ -84,6 +91,7 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
             var entity = new SingleLoginKey
             {
                 Key = keyText,
+                AppKey = appKey,
                 DeviceFingerprint = fingerprint,
                 CreatedBy = createdBy,
                 ExpiresAt = now.AddMinutes(duration),
@@ -167,11 +175,13 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
             throw new BusinessException(ApiErrorCode.IdentitySingleKeyExpired, ExpiredKeyMessage);
         }
 
-        // 临时会话绑定密钥签发人：客户端登录后拿到的就是该用户在当前应用下的角色与权限。
+        // 临时会话绑定密钥签发人与密钥的目标应用：客户端拿到的是该用户在该应用下的角色与权限。
         var session = await _temporary.IssueAsync(
             record.CreatedBy,
+            record.AppKey,
             lifetime,
             Normalize(request.MachineCode),
+            request.InstallGuid,
             cancellationToken);
 
         return new TemporarySessionResponse(session.AccessToken, session.ExpiresAt, session.User);
@@ -250,6 +260,34 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
         {
             throw new BusinessException(ApiErrorCode.IdentitySingleKeyExpired, ExpiredKeyMessage);
         }
+    }
+
+    private async Task<string> ResolveAppKeyAsync(
+        string? principalAppKey,
+        string? requestedAppKey,
+        CancellationToken cancellationToken)
+    {
+        string? principal = Normalize(principalAppKey);
+        string? requested = Normalize(requestedAppKey);
+
+        if (requested is null && principal is null)
+        {
+            throw BusinessException.Invalid("必须指定应用（AppKey）：平台上下文签发单次密钥时需要显式给出目标应用。");
+        }
+
+        if (requested is not null && principal is not null
+            && !string.Equals(requested, principal, StringComparison.Ordinal))
+        {
+            throw BusinessException.Invalid("只能在当前应用下签发单次密钥。");
+        }
+
+        string appKey = requested ?? principal!;
+        if (!await _apps.IsEnabledAsync(appKey, cancellationToken))
+        {
+            throw BusinessException.Invalid($"应用 {appKey} 不存在或已停用，不能签发单次密钥。");
+        }
+
+        return appKey;
     }
 
     private int ClampDuration(int? requestedMinutes)

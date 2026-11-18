@@ -63,11 +63,14 @@ public sealed class Backup : IAuditableEntity
     /// <summary>备份名称。</summary>
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>来源设备；为空表示全局备份。</summary>
-    public Guid? DeviceId { get; set; }
+    /// <summary>来源安装实例；为空表示全局备份。</summary>
+    public Guid? InstallationId { get; set; }
 
-    /// <summary>来源设备名（列表展示用，设备表在客户端侧）。</summary>
-    public string? DeviceName { get; set; }
+    /// <summary>来源安装实例所在节点（创建时快照，不建外键）。</summary>
+    public Guid? NodeId { get; set; }
+
+    /// <summary>来源节点展示名（创建时快照，列表展示用）。</summary>
+    public string? NodeName { get; set; }
 
     /// <summary>模块标识（可选）。</summary>
     public string? ModuleId { get; set; }

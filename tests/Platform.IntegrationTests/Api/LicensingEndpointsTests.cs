@@ -10,7 +10,9 @@ using Platform.Contracts.Apps;
 using Platform.Contracts.Licensing;
 using Platform.Contracts.Permissions;
 using Platform.Infrastructure.Persistence;
+using Platform.Kernel.Paging;
 using Platform.IntegrationTests.Support;
+using Platform.Modules.Devices.Domain;
 using Platform.Modules.Licensing.Domain;
 
 namespace Platform.IntegrationTests.Api;
@@ -327,6 +329,7 @@ public sealed class LicensingEndpointsTests : IClassFixture<PlatformApiFactory>
         await CreateProductAsync(client, token, "keys-pro", seatLimit: null, trialDays: 0);
         var now = DateTimeOffset.UtcNow;
         string oldCode = OfflineLicenseCodec.Encode(
+            "demo",
             "keys-pro",
             MachineA,
             LicenseConventions.KindOfficial,
@@ -460,6 +463,108 @@ public sealed class LicensingEndpointsTests : IClassFixture<PlatformApiFactory>
         Assert.Equal(
             (int)ApiErrorCode.LicensingProductNotFound,
             await IdentityTestHelpers.ReadErrorCodeAsync(crossApp, HttpStatusCode.NotFound));
+    }
+
+    [Fact]
+    public async Task 授权可按节点签发并回填节点信息且校验机器一致()
+    {
+        using var client = _factory.CreateClient();
+        var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        await CreateProductAsync(client, token, "node-pro", seatLimit: null, trialDays: 0);
+
+        var node = new DeviceNode
+        {
+            MachineCode = MachineA,
+            AutoName = "line-pc-01",
+            DisplayName = "产线一号",
+            FirstSeenAt = DateTimeOffset.UtcNow,
+            LastSeenAt = DateTimeOffset.UtcNow,
+        };
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+            db.Set<DeviceNode>().Add(node);
+            await db.SaveChangesAsync();
+        }
+
+        var issued = await ReadDataAsync<LicenseEntitlementDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                "/api/v1/admin/licensing/entitlements",
+                token,
+                new IssueLicenseRequest("node-pro", null, "NODE-001", null, 30, null, null, node.Id))));
+        Assert.Equal(MachineA, issued.MachineCode);
+        Assert.Equal(node.Id, issued.NodeId);
+        Assert.Equal("产线一号", issued.NodeDisplayName);
+
+        var listed = await ReadDataAsync<PageResult<LicenseEntitlementDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                "/api/v1/admin/licensing/entitlements?productKey=node-pro",
+                token)));
+        var row = Assert.Single(listed.Items);
+        Assert.Equal(node.Id, row.NodeId);
+        Assert.Equal("产线一号", row.NodeDisplayName);
+
+        var status = await StatusAsync(client, token, "node-pro", MachineA);
+        Assert.Equal(node.Id, status.NodeId);
+
+        // 节点与机器码指向不同机器：拒绝
+        var mismatch = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            "/api/v1/admin/licensing/entitlements",
+            token,
+            new IssueLicenseRequest("node-pro", MachineB, null, null, 30, null, null, node.Id)));
+        Assert.Equal(
+            (int)ApiErrorCode.ValidationFailed,
+            await IdentityTestHelpers.ReadErrorCodeAsync(mismatch, HttpStatusCode.BadRequest));
+
+        // 未知节点：809
+        var unknownNode = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            "/api/v1/admin/licensing/entitlements",
+            token,
+            new IssueLicenseRequest("node-pro", null, null, null, 30, null, null, Guid.CreateVersion7())));
+        Assert.Equal(
+            (int)ApiErrorCode.DevicesNodeNotFound,
+            await IdentityTestHelpers.ReadErrorCodeAsync(unknownNode, HttpStatusCode.NotFound));
+
+        // 两个都不给：拒绝（不再允许无节点的匿名授权）
+        var missing = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            "/api/v1/admin/licensing/entitlements",
+            token,
+            new IssueLicenseRequest("node-pro", null, null, null, 30, null, null)));
+        Assert.Equal(
+            (int)ApiErrorCode.LicensingMachineCodeMissing,
+            await IdentityTestHelpers.ReadErrorCodeAsync(missing, HttpStatusCode.BadRequest));
+    }
+
+    [Fact]
+    public async Task 离线码跨应用校验失败()
+    {
+        using var client = _factory.CreateClient();
+        var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        await CreateProductAsync(client, token, "cross-pro", seatLimit: null, trialDays: 0);
+
+        var issued = await ReadDataAsync<OfflineLicenseCodeDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                "/api/v1/admin/licensing/offline-codes",
+                token,
+                new IssueOfflineLicenseCodeRequest("cross-pro", MachineA, null, 30, null, null))));
+        var own = await VerifyOfflineAsync(client, token, issued.Code, MachineA, "cross-pro");
+        Assert.True(own.IsValid);
+        Assert.Equal("demo", own.AppKey);
+
+        var other = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            "/api/v1/client/licensing/offline/verify",
+            token,
+            new VerifyOfflineLicenseCodeRequest(issued.Code, MachineA, "cross-pro", "other-app")));
+        Assert.Equal(
+            (int)ApiErrorCode.LicensingOfflineCodeInvalid,
+            await IdentityTestHelpers.ReadErrorCodeAsync(other, HttpStatusCode.UnprocessableEntity));
     }
 
     private static async Task<LicenseProductDto> CreateProductAsync(

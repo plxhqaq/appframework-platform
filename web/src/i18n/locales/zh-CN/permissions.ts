@@ -4,11 +4,11 @@ export const permissionsZh = {
     identity: '身份与权限',
     versions: '版本与渠道',
     licensing: '授权',
-    devices: '设备',
+    devices: '安装实例',
     backups: '备份',
     documents: '文档',
     webhooks: 'Webhook 订阅',
-    platform: '平台',
+    platform: '平台与节点',
   },
   wildcard: '通配符：拥有全部权限（仅内置平台管理员角色）',
   codes: {
@@ -54,9 +54,9 @@ export const permissionsZh = {
     },
     backup: {
       namespace: { read: '查看备份命名空间与配额', manage: '新建、编辑、删除备份命名空间' },
-      read: '查看备份列表与元数据并下载内容（含设备拉取下发备份）',
+      read: '查看备份列表与元数据并下载内容（含安装实例回拉下发备份）',
       create: '新建备份，或由客户端上传配置备份',
-      push: '向在线设备下发配置备份并等待回执',
+      push: '向在线安装实例下发配置备份并等待回执',
       delete: '删除备份（软删，按保留策略回收）',
     },
     document: {
@@ -66,10 +66,15 @@ export const permissionsZh = {
       delete: '删除文档',
     },
     webhook: { read: '查看 Webhook 订阅与投递记录', manage: '新建、编辑、删除 Webhook 订阅及签名密钥' },
-    device: {
-      read: '查看本应用设备列表、在线状态与设备详情',
-      manage: '修改设备显示名，启用或停用设备',
-      restart: '向在线设备下发重启命令（离线或停用会被拒绝）',
+    node: {
+      read: '查看物理节点列表、节点详情与跨应用安装实例',
+      manage: '修改节点自定义名，启用或停用节点（停用即全应用拒绝）',
+      restart: '重启节点：向该节点全部在线安装实例下发重启命令',
+    },
+    installation: {
+      read: '查看本应用安装实例列表、在线状态与详情',
+      manage: '启用或停用安装实例（节点停用时仍无法注册）',
+      restart: '向在线安装实例下发重启命令（离线或停用会被拒绝）',
     },
     audit: { read: '查看审计日志与操作记录' },
     platform: {

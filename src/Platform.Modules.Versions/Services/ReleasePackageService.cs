@@ -42,6 +42,9 @@ public interface IReleasePackageService
     /// <summary>删除草稿版本下的包（仅删数据库行，Blob 交由孤儿清理）。已发布/已归档版本拒绝删除。</summary>
     Task<ReleasePackageDto> DeleteAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>把就绪的包设为该版本同类型同目标下的启用包，其余同级包自动停用。</summary>
+    Task<ReleasePackageDto> ActivateAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
+
     /// <summary>把摄取失败的包重新置为 <c>pending</c>，交给 Worker 重新处理。</summary>
     Task<ReleasePackageDto> RetryAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
 
@@ -239,26 +242,29 @@ public sealed partial class ReleasePackageService : IReleasePackageService
         {
             if (release.Status == VersionConventions.StatusArchived)
             {
-                throw new BusinessException(
-                    ApiErrorCode.VersionsReleaseImmutable,
-                    $"版本 {version} 已归档，不能再登记发布包。");
+                // 归档常常是误操作：再次上传同版本包即恢复为草稿，核对后可重新发布。
+                release.Status = VersionConventions.StatusDraft;
+                release.ArchivedAt = null;
+                release.PublishedAt = null;
+                if (string.IsNullOrWhiteSpace(release.Notes)
+                    && !string.IsNullOrWhiteSpace(manifest?.Description))
+                {
+                    release.Notes = manifest.Description;
+                }
             }
-
-            EnsureManifestMatchesArtifact(release, manifest, kind, target);
+            else
+            {
+                EnsureManifestMatchesArtifact(release, manifest, kind, target);
+            }
         }
 
         var existing = release?.Packages.FirstOrDefault(
-            x => x.Kind == kind && x.Target == target && x.Format == format);
+            x => x.Kind == kind && x.Target == target && x.Sha256 == sha256);
         if (existing is not null)
         {
-            if (string.Equals(existing.Sha256, sha256, StringComparison.Ordinal))
-            {
-                return ToDto(existing, channelKey, release!.Version, reused: true);
-            }
-
-            throw new BusinessException(
-                ApiErrorCode.VersionsPackageManifestConflict,
-                $"版本 {version} 已有 {kind}/{target}/{format} 包（sha256 {existing.Sha256}），与本次内容冲突。");
+            ActivatePackage(release!, existing);
+            await _db.SaveChangesAsync(cancellationToken);
+            return ToDto(existing, channelKey, release!.Version, reused: true);
         }
 
         var now = _clock.UtcNow;
@@ -308,8 +314,17 @@ public sealed partial class ReleasePackageService : IReleasePackageService
             FileCount = manifest?.HasFiles == true
                 ? manifest.Files.Count
                 : kind == VersionConventions.PackageKindFull ? 1 : null,
+            // 新登记的同级包直接接管启用位，旧包保留可回退或手动切换。
+            IsActive = true,
         };
-        release.Packages.Add(package);
+        foreach (var sibling in release.Packages.Where(
+                     x => x.Kind == kind && x.Target == target))
+        {
+            sibling.IsActive = false;
+        }
+
+        // 主键由初始化器预生成；仅挂导航会被 EF 当成 Modified，必须显式 Add。
+        _db.Set<ReleasePackage>().Add(package);
 
         try
         {
@@ -399,7 +414,9 @@ public sealed partial class ReleasePackageService : IReleasePackageService
         }
 
         return await query
-            .OrderByDescending(static x => x.CreatedAt)
+            .OrderBy(x => x.Release.Status == VersionConventions.StatusArchived ? 1 : 0)
+            .ThenByDescending(static x => x.CreatedAt)
+            .ThenByDescending(static x => x.Id)
             .Select(static x => new ReleasePackageDto(
                 x.Id,
                 x.ReleaseId,
@@ -420,7 +437,8 @@ public sealed partial class ReleasePackageService : IReleasePackageService
                 x.CompletedAt,
                 x.CreatedAt,
                 x.UpdatedAt,
-                x.FileCount))
+                x.FileCount,
+                x.IsActive))
             .ToPageResultAsync(page, cancellationToken);
     }
 
@@ -444,6 +462,40 @@ public sealed partial class ReleasePackageService : IReleasePackageService
         }
 
         _db.Set<ReleasePackage>().Remove(package);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return ToDto(package, package.Release.Channel.Key, package.Release.Version, reused: false);
+    }
+
+    /// <inheritdoc />
+    public async Task<ReleasePackageDto> ActivateAsync(
+        string appKey,
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var package = await _db.Set<ReleasePackage>()
+                          .Include(static x => x.Release)
+                          .ThenInclude(static x => x.Channel)
+                          .Include(static x => x.Release)
+                          .ThenInclude(static x => x.Packages)
+                          .FirstOrDefaultAsync(x => x.Id == id && x.AppKey == appKey, cancellationToken)
+                      ?? throw PackageNotFound(id);
+
+        if (package.Release.Status == VersionConventions.StatusArchived)
+        {
+            throw new BusinessException(
+                ApiErrorCode.VersionsReleaseImmutable,
+                $"版本 {package.Release.Version} 已归档，不能切换启用包。");
+        }
+
+        if (package.Status != VersionConventions.PackageStatusReady)
+        {
+            throw new BusinessException(
+                ApiErrorCode.VersionsPackageStatusInvalid,
+                $"只有就绪的包可以设为启用（当前 {package.Status}）。");
+        }
+
+        ActivatePackage(package.Release, package);
         await _db.SaveChangesAsync(cancellationToken);
 
         return ToDto(package, package.Release.Channel.Key, package.Release.Version, reused: false);
@@ -533,7 +585,8 @@ public sealed partial class ReleasePackageService : IReleasePackageService
 
         return packages
             .Where(static x => x.Kind == VersionConventions.PackageKindFull
-                               && x.Status == VersionConventions.PackageStatusReady)
+                               && x.Status == VersionConventions.PackageStatusReady
+                               && x.IsActive)
             .Where(x => x.Target == runtimeIdentifier || x.Target == VersionConventions.PackageTargetAny)
             .OrderByDescending(x => string.Equals(x.Target, runtimeIdentifier, StringComparison.Ordinal))
             .ThenBy(static x => FormatPriority.GetValueOrDefault(x.Format, int.MaxValue))
@@ -549,7 +602,8 @@ public sealed partial class ReleasePackageService : IReleasePackageService
 
         return packages
             .Where(static x => x.Kind == VersionConventions.PackageKindIncremental
-                               && x.Status == VersionConventions.PackageStatusReady)
+                               && x.Status == VersionConventions.PackageStatusReady
+                               && x.IsActive)
             .Where(x => x.Target == runtimeIdentifier)
             .OrderByDescending(static x => x.CreatedAt)
             .FirstOrDefault();
@@ -581,7 +635,19 @@ public sealed partial class ReleasePackageService : IReleasePackageService
             package.CompletedAt,
             package.CreatedAt,
             package.UpdatedAt,
-            package.FileCount);
+            package.FileCount,
+            package.IsActive);
+
+    private static void ActivatePackage(Release release, ReleasePackage package)
+    {
+        foreach (var sibling in release.Packages.Where(
+                     x => x.Kind == package.Kind && x.Target == package.Target && x.Id != package.Id))
+        {
+            sibling.IsActive = false;
+        }
+
+        package.IsActive = true;
+    }
 
     private static BusinessException PackageNotFound(Guid id) =>
         BusinessException.NotFound(ApiErrorCode.VersionsPackageNotFound, $"发布包 {id} 不存在。");

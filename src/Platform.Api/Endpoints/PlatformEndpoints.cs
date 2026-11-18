@@ -84,13 +84,13 @@ public static class PlatformEndpoints
                     HttpContext context,
                     SystemMetricsSampler metrics,
                     PlatformModuleRegistry registry,
-                    IEnumerable<IDeviceStatistics> deviceStatistics,
+                    IEnumerable<IInventoryStatistics> inventoryStatistics,
                     IEnumerable<IStorageCapacity> storageCapacity,
                     IHostEnvironment hostEnvironment,
                     CancellationToken cancellationToken) =>
                 {
                     var system = metrics.Current;
-                    var devices = await ResolveDeviceStatisticsAsync(deviceStatistics, cancellationToken);
+                    var inventory = await ResolveInventoryStatisticsAsync(inventoryStatistics, cancellationToken);
                     var availableStorage = await ResolveAvailableStorageAsync(storageCapacity, cancellationToken);
 
                     // TickCount64 自系统开机起单调递增，用它同时给出开机时间与系统运行时长；
@@ -117,14 +117,17 @@ public static class PlatformEndpoints
                             system.ServerMemoryUsagePercent,
                             system.ServerTotalMemoryBytes,
                             system.ServerAvailableMemoryBytes),
-                        new DeviceStatisticsDto(
-                            devices.Total,
-                            devices.Online,
-                            devices.Idle,
-                            devices.Running,
-                            devices.Offline,
-                            devices.Disabled,
-                            devices.Connected),
+                        new NodeStatisticsDto(
+                            inventory.NodeTotal,
+                            inventory.NodeOnline,
+                            inventory.NodeRunning,
+                            inventory.NodeIdle,
+                            inventory.NodeOffline,
+                            inventory.NodeDisabled),
+                        new InstallationStatisticsDto(
+                            inventory.InstallationTotal,
+                            inventory.InstallationOnline,
+                            inventory.ConnectedInstallations),
                         new PlatformInfoDto(
                             Environment.MachineName,
                             RuntimeInformation.OSDescription,
@@ -157,13 +160,13 @@ public static class PlatformEndpoints
         return api;
     }
 
-    private static async Task<DeviceStatisticsSnapshot> ResolveDeviceStatisticsAsync(
-        IEnumerable<IDeviceStatistics> sources,
+    private static async Task<InventoryStatisticsSnapshot> ResolveInventoryStatisticsAsync(
+        IEnumerable<IInventoryStatistics> sources,
         CancellationToken cancellationToken)
     {
         var source = sources.FirstOrDefault();
         return source is null
-            ? new DeviceStatisticsSnapshot(0, 0, 0, 0, 0, 0, 0)
+            ? new InventoryStatisticsSnapshot(0, 0, 0, 0, 0, 0, 0, 0, 0)
             : await source.GetAsync(cancellationToken);
     }
 

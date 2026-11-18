@@ -1,15 +1,32 @@
 import { formatDate } from '../../shared/format';
 import { tr } from '../../i18n/translate';
+import { UnorderedListOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
-import { App, DatePicker, Form, Input, InputNumber, Modal, Radio, Select, Space, Typography } from 'antd';
+import {
+  App,
+  Button,
+  DatePicker,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Radio,
+  Select,
+  Space,
+  Typography,
+} from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { licensingApi } from '../../shared/api/licensing';
 import type {
   IssueOfflineLicenseCodeRequest,
   LicenseProduct,
+  NodeSummary,
   OfflineLicenseCode,
 } from '../../shared/api/types';
+import { PERMISSIONS } from '../../shared/permissions';
+import { NodePickerModal } from '../../shared/ui/NodePickerModal';
+import { useAuthStore } from '../../stores/auth';
 
 interface OfflineFormValues {
   productKey: string;
@@ -29,19 +46,29 @@ interface OfflineCodeModalProps {
 }
 
 /**
- * 签发离线授权码（无联网现场）。码与机器码、产品键绑定，复制到别的机器无效；
+ * 签发离线授权码（无联网现场）。码与机器码、产品键、应用键绑定，复制到别的机器无效；
  * 台账删除不影响已发出的码（离线码没有吊销通道，到期自然失效）。
+ * 有 node.read 时可直接选节点，回填机器码并带上 nodeId。
  */
 export function OfflineCodeModal({ open, products, onClose, onIssued }: OfflineCodeModalProps) {
   const { message } = App.useApp();
   const [form] = Form.useForm<OfflineFormValues>();
   const [issued, setIssued] = useState<OfflineLicenseCode | null>(null);
+  const canPickNode = useAuthStore((state) => state.hasPermission(PERMISSIONS.nodeRead));
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickedNode, setPickedNode] = useState<NodeSummary | null>(null);
+
+  const pickerSelection = useMemo(
+    () => new Map<string, NodeSummary>(pickedNode ? [[pickedNode.id, pickedNode]] : []),
+    [pickedNode],
+  );
 
   const mutation = useMutation({
     mutationFn: (values: OfflineFormValues) => {
       const body: IssueOfflineLicenseCodeRequest = {
         productKey: values.productKey,
         machineCode: values.machineCode.trim(),
+        nodeId: pickedNode?.id ?? null,
         addDays: values.validity === 'days' ? (values.addDays ?? null) : null,
         notAfter:
           values.validity === 'date' && values.notAfter
@@ -91,6 +118,8 @@ export function OfflineCodeModal({ open, products, onClose, onIssued }: OfflineC
         mutation.reset();
         form.resetFields();
         setIssued(null);
+        setPickerOpen(false);
+        setPickedNode(null);
       }}
     >
       {issued ? (
@@ -131,6 +160,7 @@ export function OfflineCodeModal({ open, products, onClose, onIssued }: OfflineC
           <Form.Item
             name="machineCode"
             label={tr("机器码")}
+            extra={pickedNode ? tr("已绑定节点：{{arg0}}", { arg0: pickedNode.displayName }) : undefined}
             rules={[
               { required: true, message: tr("请输入机器码") },
               {
@@ -139,7 +169,22 @@ export function OfflineCodeModal({ open, products, onClose, onIssued }: OfflineC
               },
             ]}
           >
-            <Input placeholder={tr("客户端「授权」页展示的 16 位机器码")} autoComplete="off" />
+            <Input
+              placeholder={tr("客户端「授权」页展示的 16 位机器码")}
+              autoComplete="off"
+              addonAfter={
+                canPickNode ? (
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<UnorderedListOutlined />}
+                    onClick={() => setPickerOpen(true)}
+                  >
+                    {tr("选择节点")}
+                  </Button>
+                ) : undefined
+              }
+            />
           </Form.Item>
 
           <Form.Item name="validity" label={tr("有效期")}>
@@ -192,6 +237,20 @@ export function OfflineCodeModal({ open, products, onClose, onIssued }: OfflineC
           </Form.Item>
         </Form>
       )}
+
+      <NodePickerModal
+        open={pickerOpen}
+        selected={pickerSelection}
+        onConfirm={(next) => {
+          const node = [...next.values()][0];
+          if (node) {
+            setPickedNode(node);
+            form.setFieldValue('machineCode', node.machineCode);
+          }
+          setPickerOpen(false);
+        }}
+        onCancel={() => setPickerOpen(false)}
+      />
     </Modal>
   );
 }

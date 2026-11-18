@@ -1,6 +1,7 @@
 import {
   AppstoreOutlined,
   BranchesOutlined,
+  ClusterOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   DesktopOutlined,
@@ -34,8 +35,8 @@ export const HOME_PATH = '/overview';
 /**
  * 导航与路由守卫的同一份事实源。
  *
- * 顺序即分组：总览 → 现场作业（密钥、扫码）→ 平台管理（身份与权限、应用接入）
- * → 应用级页面（版本、设备、备份等）→ 审计日志收尾。
+ * 顺序即分组：总览 → 现场作业（密钥、扫码）→ 平台管理（身份与权限、应用接入、节点）
+ * → 应用级页面（版本、安装实例、备份等）→ 审计日志收尾。
  * 现场工程师排在最前：他们进管理台基本只做两件事——发密钥、批扫码，
  * 这两个页面不该埋在「身份与权限」的标签页里。
  * 隐藏只是不打扰用户，越权请求仍由服务端 `RequirePermission` 拒绝。
@@ -66,6 +67,12 @@ export const NAV_ITEMS: NavItem[] = [
   },
   { key: '/apps', icon: <AppstoreOutlined />, labelKey: 'apps', anyOf: [PERMISSIONS.appsRead] },
   {
+    key: '/nodes',
+    icon: <ClusterOutlined />,
+    labelKey: 'nodes',
+    anyOf: [PERMISSIONS.nodeRead],
+  },
+  {
     key: '/versions',
     icon: <BranchesOutlined />,
     labelKey: 'versions',
@@ -80,10 +87,10 @@ export const NAV_ITEMS: NavItem[] = [
     requiresApp: true,
   },
   {
-    key: '/devices',
+    key: '/installations',
     icon: <DesktopOutlined />,
-    labelKey: 'devices',
-    anyOf: [PERMISSIONS.deviceRead],
+    labelKey: 'installations',
+    anyOf: [PERMISSIONS.installationRead],
     requiresApp: true,
   },
   {

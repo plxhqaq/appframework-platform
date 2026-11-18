@@ -131,6 +131,9 @@ public sealed class RefreshToken : IAuditableEntity
     /// <summary>绑定的机器码（可空）。</summary>
     public string? MachineCode { get; set; }
 
+    /// <summary>绑定的安装实例标识（可空；桌面端登录应尽量上报）。</summary>
+    public Guid? InstallGuid { get; set; }
+
     /// <summary>签发时的客户端 IP。</summary>
     public string? CreatedByIp { get; set; }
 
@@ -184,6 +187,9 @@ public sealed class SingleLoginKey : IAuditableEntity
     /// <summary>6 位数字密钥（主键）。</summary>
     public required string Key { get; set; }
 
+    /// <summary>目标应用键：兑换后的临时令牌固定落到该应用。</summary>
+    public required string AppKey { get; set; }
+
     /// <summary>绑定设备指纹；为空表示不限制设备。</summary>
     public string? DeviceFingerprint { get; set; }
 
@@ -223,6 +229,15 @@ public sealed class QrLoginSession : IAuditableEntity
 
     /// <summary>设备指纹（展示给审批人）。</summary>
     public string? DeviceFingerprint { get; set; }
+
+    /// <summary>目标应用键：审批通过的临时令牌固定落到该应用。</summary>
+    public required string AppKey { get; set; }
+
+    /// <summary>机器码（临时令牌与授权绑定使用）。</summary>
+    public string? MachineCode { get; set; }
+
+    /// <summary>安装实例标识。</summary>
+    public Guid? InstallGuid { get; set; }
 
     /// <summary>SignalR 连接 id（预留：定向推送审批结果）。</summary>
     public string? ConnectionId { get; set; }

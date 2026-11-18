@@ -10,7 +10,7 @@ using Platform.IntegrationTests.Support;
 
 namespace Platform.IntegrationTests.Api;
 
-/// <summary>设备 Hub：鉴权、注册去重、顶号与心跳。令牌只从查询参数读取，验证客户端真实连接方式。</summary>
+/// <summary>设备 Hub：鉴权、安装实例注册去重、顶号与心跳。令牌只从查询参数读取，验证客户端真实连接方式。</summary>
 public sealed class DeviceHubTests : IClassFixture<PlatformApiFactory>
 {
     private static readonly Guid InstallGuid = Guid.Parse("a1b2c3d4-e5f6-4789-9abc-def012345678");
@@ -23,7 +23,7 @@ public sealed class DeviceHubTests : IClassFixture<PlatformApiFactory>
     }
 
     [Fact]
-    public async Task 令牌连接后可注册心跳且同设备新连接顶替旧连接()
+    public async Task 令牌连接后可注册心跳且同安装新连接顶替旧连接()
     {
         using var client = _factory.CreateClient();
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
@@ -34,25 +34,27 @@ public sealed class DeviceHubTests : IClassFixture<PlatformApiFactory>
         await using var first = CreateConnection(token);
         await using var second = CreateConnection(token);
 
-        var replaced = new TaskCompletionSource<DeviceSessionReplaced>(
+        var replaced = new TaskCompletionSource<InstallationSessionReplaced>(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        first.On<DeviceSessionReplaced>(
+        first.On<InstallationSessionReplaced>(
             DeviceHubEvents.SessionReplaced,
             session => replaced.TrySetResult(session));
 
         await first.StartAsync();
         var request = new DeviceRegistrationRequest(
-            new DeviceIdentity("AA-BB-CC-DD-EE-FF", InstallGuid, "1.0.0", "HUB-PRIMARY"),
+            new DeviceIdentity(InstallGuid, "HUB-PRIMARY", null, "AA-BB-CC-DD-EE-FF", "1.0.0"),
             "PC-01",
             "10.1.2.3",
             "full");
 
         var registered = await first.InvokeAsync<DeviceRegistrationResponse>(
-            DeviceHubMethods.RegisterDevice, request);
-        Assert.NotEqual(Guid.Empty, registered.DeviceId);
-        Assert.Equal(16, registered.DeviceShortId.Length);
+            DeviceHubMethods.RegisterInstallation, request);
+        Assert.NotEqual(Guid.Empty, registered.InstallationId);
+        Assert.NotEqual(Guid.Empty, registered.NodeId);
+        Assert.Equal(16, registered.NodeShortId.Length);
+        Assert.Equal(16, registered.InstallationShortId.Length);
 
-        var heartbeat = await first.InvokeAsync<DeviceSummaryDto>(
+        var heartbeat = await first.InvokeAsync<InstallationSummaryDto>(
             DeviceHubMethods.Heartbeat,
             new DeviceHeartbeatRequest(
                 DeviceHeartbeatStatuses.Online,
@@ -62,56 +64,63 @@ public sealed class DeviceHubTests : IClassFixture<PlatformApiFactory>
         Assert.Equal(DeviceStationStatuses.Online, heartbeat.StationStatus);
         Assert.Equal(DeviceAlarmLevels.Warning, heartbeat.AlarmLevel);
 
-        // 同身份再连：返回同一设备 id，旧连接收到 SessionReplaced
+        // 同安装再连：返回同一安装/节点 id，旧连接收到 SessionReplaced
         await second.StartAsync();
         var reconnected = await second.InvokeAsync<DeviceRegistrationResponse>(
-            DeviceHubMethods.RegisterDevice, request);
-        Assert.Equal(registered.DeviceId, reconnected.DeviceId);
+            DeviceHubMethods.RegisterInstallation, request);
+        Assert.Equal(registered.InstallationId, reconnected.InstallationId);
+        Assert.Equal(registered.NodeId, reconnected.NodeId);
 
         var session = await replaced.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal("replaced", session.Reason);
 
         // 已被顶替的旧连接不能再改状态
-        await Assert.ThrowsAnyAsync<Exception>(() => first.InvokeAsync<DeviceSummaryDto>(
+        await Assert.ThrowsAnyAsync<Exception>(() => first.InvokeAsync<InstallationSummaryDto>(
             DeviceHubMethods.Heartbeat,
             new DeviceHeartbeatRequest(DeviceHeartbeatStatuses.Idle, DeviceAlarmLevels.None)));
     }
 
     [Fact]
-    public async Task 同机不同安装的连接可并存且共享同一条设备()
+    public async Task 同机不同应用共享节点但各自独立注册()
     {
         using var client = _factory.CreateClient();
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
-        var appKey = $"hub-{Guid.NewGuid().ToString("N")[..8]}";
-        await CreateAppAsync(client, admin, appKey);
-        var token = await DevTokenAsync(client, appKey);
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var appA = $"hub-a-{suffix}";
+        var appB = $"hub-b-{suffix}";
+        await CreateAppAsync(client, admin, appA);
+        await CreateAppAsync(client, admin, appB);
+        var tokenA = await DevTokenAsync(client, appA);
+        var tokenB = await DevTokenAsync(client, appB);
 
-        await using var fullClient = CreateConnection(token);
-        await using var toolClient = CreateConnection(token);
-        await fullClient.StartAsync();
-        await toolClient.StartAsync();
+        await using var clientA = CreateConnection(tokenA);
+        await using var clientB = CreateConnection(tokenB);
+        await clientA.StartAsync();
+        await clientB.StartAsync();
 
         static DeviceRegistrationRequest Request(Guid installGuid, string name) =>
             new(
-                new DeviceIdentity("AA-BB-CC-DD-EE-FF", installGuid, "1.0.0", "MULTI-INSTALL-PRIMARY"),
+                new DeviceIdentity(installGuid, "MULTI-APP-PRIMARY", "SYSTEM-DISK", "AA-BB-CC-DD-EE-FF", "1.0.0"),
                 name,
                 "10.1.2.3",
                 "full");
 
-        var full = await fullClient.InvokeAsync<DeviceRegistrationResponse>(
-            DeviceHubMethods.RegisterDevice, Request(Guid.NewGuid(), "PC-full"));
-        var tool = await toolClient.InvokeAsync<DeviceRegistrationResponse>(
-            DeviceHubMethods.RegisterDevice, Request(Guid.NewGuid(), "PC-tool"));
+        var installationA = await clientA.InvokeAsync<DeviceRegistrationResponse>(
+            DeviceHubMethods.RegisterInstallation, Request(Guid.NewGuid(), "PC-app-a"));
+        var installationB = await clientB.InvokeAsync<DeviceRegistrationResponse>(
+            DeviceHubMethods.RegisterInstallation, Request(Guid.NewGuid(), "PC-app-b"));
 
-        Assert.Equal(full.DeviceId, tool.DeviceId);
-        Assert.Equal(full.DeviceShortId, tool.DeviceShortId);
+        // 同一物理机 = 同一节点；应用不同 = 不同安装实例，互不顶号
+        Assert.Equal(installationA.NodeId, installationB.NodeId);
+        Assert.NotEqual(installationA.InstallationId, installationB.InstallationId);
+        Assert.Equal(installationA.MachineCode, installationB.MachineCode);
 
-        // 不同安装不会互相顶号：先注册的连接仍可继续心跳。
-        var heartbeat = await fullClient.InvokeAsync<DeviceSummaryDto>(
+        var heartbeat = await clientA.InvokeAsync<InstallationSummaryDto>(
             DeviceHubMethods.Heartbeat,
             new DeviceHeartbeatRequest(DeviceHeartbeatStatuses.Idle, DeviceAlarmLevels.None));
-        Assert.Equal(full.DeviceId, heartbeat.Id);
+        Assert.Equal(installationA.InstallationId, heartbeat.Id);
         Assert.Equal(DeviceOnlineStatuses.Online, heartbeat.OnlineStatus);
+        Assert.Equal(DeviceStationStatuses.Idle, heartbeat.StationStatus);
     }
 
     [Fact]
@@ -128,7 +137,7 @@ public sealed class DeviceHubTests : IClassFixture<PlatformApiFactory>
 
         await using var connection = CreateConnection(token);
         await connection.StartAsync();
-        var heartbeat = connection.InvokeAsync<DeviceSummaryDto>(
+        var heartbeat = connection.InvokeAsync<InstallationSummaryDto>(
             DeviceHubMethods.Heartbeat,
             new DeviceHeartbeatRequest(DeviceHeartbeatStatuses.Idle, DeviceAlarmLevels.None));
         await Assert.ThrowsAsync<HubException>(() => heartbeat);

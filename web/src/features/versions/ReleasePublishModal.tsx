@@ -161,7 +161,7 @@ export function ReleasePublishModal({
             <Alert
               type="info"
               showIcon
-              style={{ marginTop: 12 }}
+              style={{ marginTop: 40 }}
               message={tr("发布后客户端 check 才会下发该版本")}
               description={tr("确认渠道、版本与发布包信息无误后再发布；已发布版本不能再改说明。")}
             />

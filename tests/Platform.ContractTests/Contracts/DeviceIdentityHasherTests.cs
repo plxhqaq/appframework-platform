@@ -3,103 +3,116 @@ using Platform.Contracts.Devices;
 namespace Platform.ContractTests.Contracts;
 
 /// <summary>
-/// 设备稳定键/机器码向量。两侧（客户端 SDK、服务端）必须得到同一结果；
+/// 机器码/安装指纹向量。两侧（老客户端、服务端）必须得到同一结果；
 /// 期望值由独立脚本按文档公式算出，不是从实现里回抄的。
 /// </summary>
 public sealed class DeviceIdentityHasherTests
 {
     private static readonly Guid InstallGuid = Guid.Parse("a1b2c3d4-e5f6-4789-9abc-def012345678");
 
+    private const string SmbiosUuid = "4C4C4544-0039-3510-8054-B4C04F4A4D32";
+    private const string SmbiosMachineCode = "JE6WM5F584Z596W9";
+    private const string DiskSerialMachineCode = "VK49EX3F2K82XCJ5";
+
     [Fact]
-    public void 主标识与安装Guid决定稳定键和机器码()
+    public void 机器码优先SMBIOS且忽略磁盘序列号与MAC()
     {
         var identity = new DeviceIdentity(
+            InstallGuid,
+            SmbiosUuid,
+            "C4B4A1D2",
             "AA-BB-CC-DD-EE-FF",
-            InstallGuid,
-            "1.0.0",
-            "AA-BB-CC-DD-EE-FF");
+            "1.0.0");
 
-        var (deviceKey, machineCode) = DeviceIdentityHasher.Compute(identity);
+        Assert.Equal(SmbiosMachineCode, DeviceIdentityHasher.MachineCode(identity));
 
-        Assert.Equal("9fbba2397410c76759e96d2684d238635390fb17e464dbb49c1ad2e3993f88c2", deviceKey);
-        Assert.Equal("BB420AMFHDQWW1QD", machineCode);
-        Assert.Equal(DeviceIdentityHasher.ShortIdLength, DeviceIdentityHasher.ShortId(deviceKey).Length);
-        Assert.StartsWith(DeviceIdentityHasher.ShortId(deviceKey), deviceKey, StringComparison.Ordinal);
+        var changed = identity with
+        {
+            SystemDiskSerial = "OTHER-DISK",
+            MacAddress = "11-22-33-44-55-66",
+            FrameworkVersion = "9.9.9",
+        };
+
+        Assert.Equal(SmbiosMachineCode, DeviceIdentityHasher.MachineCode(changed));
     }
 
     [Fact]
-    public void 带连字符的Smbios标识按规范化结果计算()
+    public void SMBIOS缺失时回退到系统盘序列号()
     {
-        var identity = new DeviceIdentity(
-            null,
-            InstallGuid,
-            "1.0.0",
-            "4C4C4544-0039-3510-8054-B4C04F4A4D32");
+        var identity = new DeviceIdentity(InstallGuid, null, "C4B4A1D2");
 
-        var (deviceKey, machineCode) = DeviceIdentityHasher.Compute(identity);
+        Assert.Equal(DiskSerialMachineCode, DeviceIdentityHasher.MachineCode(identity));
+    }
 
-        Assert.Equal("a4a949cfb99cf984773f1b751c00e7ddf7ff24fb166c96d9d873ebda9c65fefd", deviceKey);
-        Assert.Equal("JE6WM5F584Z596W9", machineCode);
+    [Theory]
+    [InlineData("Default string")]
+    [InlineData("To be filled by O.E.M.")]
+    [InlineData("00000000-0000-0000-0000-000000000000")]
+    [InlineData("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")]
+    [InlineData("   ")]
+    public void SMBIOS为无效占位值时回退到系统盘序列号(string smbios)
+    {
+        var identity = new DeviceIdentity(InstallGuid, smbios, "C4B4A1D2");
+
+        Assert.Equal(DiskSerialMachineCode, DeviceIdentityHasher.MachineCode(identity));
     }
 
     [Fact]
-    public void 主标识缺失时稳定键只由安装Guid决定且机器码回退()
+    public void 两个主标识都不可用时拒绝计算()
     {
-        var identity = new DeviceIdentity("AA-BB-CC-DD-EE-FF", InstallGuid);
+        var identity = new DeviceIdentity(InstallGuid, "Default string", "FFFFFFFFFFFF");
 
-        var (deviceKey, machineCode) = DeviceIdentityHasher.Compute(identity);
-
-        // 老客户端在同一情形下算出的指纹就是 SHA256("|installGuid")；平台必须与之一致
-        Assert.Equal("808ee4d8801857c02bf719fc9e56e75902b9d2ceb812ed2a749117ca2dac8033", deviceKey);
-        Assert.Equal("R84QHYM4GBER1FP7", machineCode);
+        Assert.Throws<InvalidOperationException>(() => DeviceIdentityHasher.MachineCode(identity));
     }
 
     [Fact]
-    public void 版本号与MAC不参与身份计算()
+    public void 主标识格式变化不影响机器码()
     {
-        var baseline = DeviceIdentityHasher.Compute(new DeviceIdentity(
-            "AA-BB-CC-DD-EE-FF", InstallGuid, "1.0.0", "4C4C4544-0039-3510-8054-B4C04F4A4D32"));
+        var canonical = new DeviceIdentity(InstallGuid, "4C4C4544003935108054B4C04F4A4D32", null);
+        var formatted = new DeviceIdentity(InstallGuid, "4c4c4544-0039-3510-8054-b4c04f4a4d32", null);
 
-        var changed = DeviceIdentityHasher.Compute(new DeviceIdentity(
-            "11-22-33-44-55-66", InstallGuid, "9.9.9", "4C4C4544-0039-3510-8054-B4C04F4A4D32"));
-
-        Assert.Equal(baseline, changed);
+        Assert.Equal(
+            DeviceIdentityHasher.MachineCode(canonical),
+            DeviceIdentityHasher.MachineCode(formatted));
     }
 
     [Fact]
-    public void 主标识格式变化不影响稳定键()
+    public void 安装指纹由主标识与安装Guid决定()
     {
-        var canonical = DeviceIdentityHasher.Compute(new DeviceIdentity(
-            null, InstallGuid, "1.0.0", "4C4C4544003935108054B4C04F4A4D32"));
-        var formatted = DeviceIdentityHasher.Compute(new DeviceIdentity(
-            null, InstallGuid, "1.0.0", "4c4c4544-0039-3510-8054-b4c04f4a4d32"));
+        Assert.Equal(
+            "a4a949cfb99cf984773f1b751c00e7ddf7ff24fb166c96d9d873ebda9c65fefd",
+            DeviceIdentityHasher.InstallationFingerprint(SmbiosUuid, InstallGuid));
 
-        Assert.Equal(canonical, formatted);
+        // 老客户端在无主标识时算出的指纹就是 SHA256("|installGuid")；平台必须与之一致
+        Assert.Equal(
+            "808ee4d8801857c02bf719fc9e56e75902b9d2ceb812ed2a749117ca2dac8033",
+            DeviceIdentityHasher.InstallationFingerprint(null, InstallGuid));
     }
 
     [Fact]
-    public void 安装Guid为空被视为身份不可用()
+    public void 安装Guid为空视为身份不可用()
     {
-        var identity = new DeviceIdentity("AA-BB-CC-DD-EE-FF", Guid.Empty, "1.0.0", "AABBCCDDEEFF");
-
-        Assert.Throws<ArgumentException>(() => DeviceIdentityHasher.Compute(identity));
+        Assert.Throws<ArgumentException>(
+            () => DeviceIdentityHasher.InstallationFingerprint(SmbiosUuid, Guid.Empty));
     }
 
     [Fact]
     public void 机器码为16位Crockford字符()
     {
-        var (_, machineCode) = DeviceIdentityHasher.Compute(new DeviceIdentity(
-            null, InstallGuid, "1.0.0", "C4B4A1D2"));
+        var machineCode = DeviceIdentityHasher.MachineCode(
+            new DeviceIdentity(InstallGuid, SmbiosUuid, null));
 
         Assert.Equal(DeviceIdentityHasher.MachineCodeLength, machineCode.Length);
         Assert.Matches("^[0-9A-HJKMNP-TV-Z]{16}$", machineCode);
     }
 
     [Fact]
-    public void 主标识与回退指纹都为空时机器码为空()
+    public void 短ID取Guid前16位十六进制()
     {
-        Assert.Equal(string.Empty, DeviceIdentityHasher.ComputeMachineCode(null, null));
-        Assert.Equal(string.Empty, DeviceIdentityHasher.ComputeMachineCode("  ", " "));
+        var shortId = DeviceIdentityHasher.ShortId(InstallGuid);
+
+        Assert.Equal(DeviceIdentityHasher.ShortIdLength, shortId.Length);
+        Assert.Equal("a1b2c3d4e5f64789", shortId);
     }
 
     [Theory]

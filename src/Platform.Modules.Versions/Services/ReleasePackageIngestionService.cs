@@ -651,6 +651,7 @@ public sealed partial class ReleasePackageIngestionService : IReleasePackageInge
             package.LockedBy = null;
 
             if (package.PublishRequested
+                && package.IsActive
                 && package.Release.Status == VersionConventions.StatusDraft)
             {
                 package.Release.Status = VersionConventions.StatusPublished;

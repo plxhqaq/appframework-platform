@@ -41,7 +41,7 @@ const STATUS_META: Record<ReleaseStatus, { label: string; color?: string }> = {
  * 上下文切换统一在顶部 Header 完成（见 AppContextSelect）。
  */
 export function VersionsPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const session = useAuthStore((state) => state.session);
@@ -102,6 +102,17 @@ export function VersionsPage() {
     } catch (error) {
       message.error(error instanceof Error ? error.message : tr("操作失败"));
     }
+  };
+
+  const confirmArchive = (row: ReleaseSummary) => {
+    modal.confirm({
+      title: tr("归档版本 {{arg0}}？", { arg0: row.version }),
+      content: tr("归档后客户端 check 会回退到上一个已发布版本。如果只是误操作，重新上传同版本发布包即可恢复为草稿。"),
+      okText: tr("归档"),
+      okButtonProps: { danger: true },
+      cancelText: tr("取消"),
+      onOk: () => archiveRelease(row),
+    });
   };
 
   const channelColumns: TableColumnsType<ReleaseChannel> = [
@@ -261,7 +272,7 @@ export function VersionsPage() {
               {tr("发布")}</Button>
           ) : null}
           {canArchive && row.status !== 'archived' ? (
-            <Button type="link" size="small" danger onClick={() => void archiveRelease(row)}>
+            <Button type="link" size="small" danger onClick={() => confirmArchive(row)}>
               {tr("归档")}</Button>
           ) : null}
         </Space>

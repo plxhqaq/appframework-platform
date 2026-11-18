@@ -50,6 +50,10 @@ public sealed class HttpCurrentPrincipal : ICurrentPrincipal
     public string? AppKey => AppKeys.Count > 0 ? AppKeys[0] : null;
 
     /// <inheritdoc />
+    public Guid? InstallGuid =>
+        Guid.TryParse(User?.FindFirst(PlatformClaimTypes.InstallGuid)?.Value, out var value) ? value : null;
+
+    /// <inheritdoc />
     public bool IsTemporary => string.Equals(
         User?.FindFirst(PlatformClaimTypes.Temporary)?.Value,
         "true",

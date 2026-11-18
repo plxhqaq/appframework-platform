@@ -22,13 +22,13 @@ import type { TableColumnsType } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { backupsApi } from '../../shared/api/backups';
 import { requestBlob } from '../../shared/api/client';
-import { devicesApi } from '../../shared/api/devices';
+import { installationsApi } from '../../shared/api/installations';
 import type {
   BackupKind,
   BackupNamespace,
   BackupSummary,
   CreateBackupNamespaceRequest,
-  DeviceSummary,
+  InstallationSummary,
   PushBackupRequest,
   PushBackupResult,
   PushTargetResult,
@@ -39,8 +39,8 @@ import { formatBytes, formatDateTime } from '../../shared/format';
 import { PERMISSIONS } from '../../shared/permissions';
 import { responsivePagination, responsiveWidth } from '../../shared/responsive';
 import { useResponsive } from '../../shared/useResponsive';
-import { DevicePickerModal } from '../../shared/ui/DevicePickerModal';
-import { isDeviceSelectable } from '../../shared/deviceSelection';
+import { InstallationPickerModal } from '../../shared/ui/InstallationPickerModal';
+import { isInstallationSelectable } from '../../shared/installationSelection';
 import { useAuthStore } from '../../stores/auth';
 
 interface NamespaceFormValues {
@@ -58,7 +58,6 @@ interface BackupFormValues {
   name: string;
   frameworkVersion: string;
   schemaVersion: number;
-  deviceName?: string;
   payloadJson: string;
 }
 
@@ -67,7 +66,7 @@ interface PushFormValues {
   targetFrameworkVersion?: string;
   force: boolean;
   currentHash?: string;
-  confirmCrossDevice: boolean;
+  confirmCrossInstallation: boolean;
 }
 
 /**
@@ -99,12 +98,16 @@ export function BackupsPage() {
   const [editingNamespace, setEditingNamespace] = useState<BackupNamespace | null>(null);
   const [backupOpen, setBackupOpen] = useState(false);
   const [pushTarget, setPushTarget] = useState<BackupSummary | null>(null);
-  const [selectedDevices, setSelectedDevices] = useState<Map<string, DeviceSummary>>(new Map());
+  const [sourceInstallation, setSourceInstallation] = useState<InstallationSummary | null>(null);
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
+  const [selectedInstallations, setSelectedInstallations] = useState<
+    Map<string, InstallationSummary>
+  >(new Map());
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [sourceDeviceHint, setSourceDeviceHint] = useState<string | null>(null);
+  const [sourceInstallationHint, setSourceInstallationHint] = useState<string | null>(null);
   const [pushResult, setPushResult] = useState<{
     result: PushBackupResult;
-    devices: Map<string, DeviceSummary>;
+    installations: Map<string, InstallationSummary>;
   } | null>(null);
   const pushOpenToken = useRef(0);
   const [namespaceFilter, setNamespaceFilter] = useState<string | undefined>();
@@ -197,9 +200,9 @@ export function BackupsPage() {
       name: '',
       frameworkVersion: '1.0.0',
       schemaVersion: 1,
-      deviceName: '',
       payloadJson: '{}',
     });
+    setSourceInstallation(null);
     setBackupOpen(true);
   };
 
@@ -217,7 +220,7 @@ export function BackupsPage() {
         name: values.name,
         frameworkVersion: values.frameworkVersion,
         schemaVersion: values.schemaVersion,
-        deviceName: values.deviceName || null,
+        installationId: sourceInstallation?.id ?? null,
         payloadJson: values.payloadJson,
       });
       message.success(tr("备份已创建"));
@@ -233,8 +236,8 @@ export function BackupsPage() {
   const openPushForm = (row: BackupSummary) => {
     const token = ++pushOpenToken.current;
     setPushTarget(row);
-    setSelectedDevices(new Map());
-    setSourceDeviceHint(null);
+    setSelectedInstallations(new Map());
+    setSourceInstallationHint(null);
     setPickerOpen(false);
     pushForm.resetFields();
     pushForm.setFieldsValue({
@@ -242,29 +245,31 @@ export function BackupsPage() {
       targetFrameworkVersion: row.frameworkVersion,
       force: false,
       currentHash: '',
-      confirmCrossDevice: false,
+      confirmCrossInstallation: false,
     });
 
-    // 默认选中备份上传时的来源设备；手动添加的备份没有来源设备，保持留空。
-    if (row.deviceId) {
-      devicesApi
-        .getDevice(row.deviceId)
-        .then((device) => {
+    // 默认选中备份登记时的来源安装实例；手动添加的备份没有来源，保持留空。
+    if (row.installationId) {
+      installationsApi
+        .getInstallation(row.installationId)
+        .then((installation) => {
           if (token !== pushOpenToken.current) {
             return;
           }
 
-          if (isDeviceSelectable(device)) {
-            setSelectedDevices(new Map([[device.id, device]]));
+          if (isInstallationSelectable(installation)) {
+            setSelectedInstallations(new Map([[installation.id, installation]]));
           } else {
-            setSourceDeviceHint(
-              tr("来源设备「{{arg0}}」当前不可下发（需启用且在线待机），未默认选中。", { arg0: device.displayName }),
+            setSourceInstallationHint(
+              tr("来源安装实例「{{arg0}}」当前不可下发（需启用且在线待机），未默认选中。", {
+                arg0: installation.nodeDisplayName,
+              }),
             );
           }
         })
         .catch(() => {
           if (token === pushOpenToken.current) {
-            setSourceDeviceHint(tr("备份来源设备不存在或已删除，未默认选中。"));
+            setSourceInstallationHint(tr("备份来源安装实例不存在或已删除，未默认选中。"));
           }
         });
     }
@@ -276,10 +281,10 @@ export function BackupsPage() {
     setPickerOpen(false);
   };
 
-  const removeSelectedDevice = (deviceId: string) => {
-    setSelectedDevices((previous) => {
+  const removeSelectedInstallation = (installationId: string) => {
+    setSelectedInstallations((previous) => {
       const next = new Map(previous);
-      next.delete(deviceId);
+      next.delete(installationId);
       return next;
     });
   };
@@ -294,47 +299,51 @@ export function BackupsPage() {
       return;
     }
 
-    const targets = [...selectedDevices.values()];
+    const targets = [...selectedInstallations.values()];
     if (targets.length === 0) {
-      message.warning(tr("请选择至少一台目标设备"));
+      message.warning(tr("请选择至少一个目标安装实例"));
       return;
     }
 
-    const unavailable = targets.find((device) => !isDeviceSelectable(device));
+    const unavailable = targets.find((installation) => !isInstallationSelectable(installation));
     if (unavailable) {
-      message.warning(tr("设备「{{arg0}}」当前不可下发（需启用且在线待机）", { arg0: unavailable.displayName }));
+      message.warning(
+        tr("安装实例「{{arg0}}」当前不可下发（需启用且在线待机）", {
+          arg0: unavailable.nodeDisplayName,
+        }),
+      );
       return;
     }
 
     if (
-      pushTarget.deviceId &&
-      targets.some((device) => device.id !== pushTarget.deviceId) &&
-      !values.confirmCrossDevice
+      pushTarget.installationId &&
+      targets.some((installation) => installation.id !== pushTarget.installationId) &&
+      !values.confirmCrossInstallation
     ) {
-      message.warning(tr("这是跨设备下发，请勾选「确认跨设备下发」"));
+      message.warning(tr("这是跨安装实例下发，请勾选「确认跨安装实例下发」"));
       return;
     }
 
     if (targets.length > 1 && values.currentHash?.trim()) {
-      message.warning(tr("多设备下发不支持目标当前配置哈希，请改用单设备下发"));
+      message.warning(tr("多安装实例下发不支持目标当前配置哈希，请改用单安装实例下发"));
       return;
     }
 
     setSaving(true);
     try {
       const body: PushBackupRequest = {
-        targetDeviceId: null,
-        targetDeviceIds: targets.map((device) => device.id),
+        targetInstallationId: null,
+        targetInstallationIds: targets.map((installation) => installation.id),
         broadcastToApp: false,
         targetChannel: values.targetChannel ?? null,
         targetFrameworkVersion: values.targetFrameworkVersion ?? null,
         restartAfterApply: false,
         force: values.force,
         currentHash: targets.length === 1 ? values.currentHash?.trim() || null : null,
-        confirmCrossDevice: values.confirmCrossDevice,
+        confirmCrossInstallation: values.confirmCrossInstallation,
       };
       const result = await backupsApi.pushBackup(pushTarget.id, body);
-      setPushResult({ result, devices: selectedDevices });
+      setPushResult({ result, installations: selectedInstallations });
       closePushForm();
       await refresh();
     } catch (error) {
@@ -434,6 +443,14 @@ export function BackupsPage() {
       responsive: ['md'],
     },
     {
+      title: tr("来源节点"),
+      dataIndex: 'nodeName',
+      key: 'nodeName',
+      width: 160,
+      responsive: ['md'],
+      render: (value: string | null) => value ?? '-',
+    },
+    {
       title: tr("框架版本"),
       dataIndex: 'frameworkVersion',
       key: 'frameworkVersion',
@@ -486,19 +503,19 @@ export function BackupsPage() {
     },
   ];
 
-  const selectedList = [...selectedDevices.values()];
-  const needsCrossDeviceConfirm =
-    pushTarget?.deviceId != null
-    && selectedList.some((device) => device.id !== pushTarget.deviceId);
+  const selectedList = [...selectedInstallations.values()];
+  const needsCrossInstallationConfirm =
+    pushTarget?.installationId != null
+    && selectedList.some((installation) => installation.id !== pushTarget.installationId);
 
   const targetResultColumns: TableColumnsType<PushTargetResult> = [
     {
-      title: tr("设备"),
-      dataIndex: 'deviceId',
-      key: 'deviceId',
+      title: tr("安装实例"),
+      dataIndex: 'installationId',
+      key: 'installationId',
       ellipsis: true,
-      render: (deviceId: string) =>
-        pushResult?.devices.get(deviceId)?.displayName ?? deviceId,
+      render: (installationId: string) =>
+        pushResult?.installations.get(installationId)?.nodeDisplayName ?? installationId,
     },
     {
       title: tr("状态"),
@@ -719,8 +736,22 @@ export function BackupsPage() {
               <InputNumber min={0} style={{ width: '100%' }} />
             </Form.Item>
           </Flex>
-          <Form.Item name="deviceName" label={tr("来源设备名（可选）")}>
-            <Input />
+          <Form.Item label={tr("来源安装实例（可选，仅用于登记来源节点）")}>
+            <Space direction="vertical" size={8} style={{ display: 'flex' }}>
+              {sourceInstallation ? (
+                <Tag
+                  closable
+                  color="blue"
+                  onClose={() => setSourceInstallation(null)}
+                >
+                  {sourceInstallation.nodeDisplayName} · {sourceInstallation.shortId}
+                </Tag>
+              ) : (
+                <Typography.Text type="secondary">{tr("未指定来源（手动上传）")}</Typography.Text>
+              )}
+              <Button icon={<SelectOutlined />} onClick={() => setSourcePickerOpen(true)}>
+                {tr("选择来源安装实例")}</Button>
+            </Space>
           </Form.Item>
           <Form.Item name="payloadJson" label={tr("负载 JSON")} rules={[{ required: true }]}>
             <Input.TextArea rows={10} spellCheck={false} />
@@ -740,31 +771,31 @@ export function BackupsPage() {
       >
         <Form form={pushForm} layout="vertical">
           <Form.Item
-            label={tr("目标设备")}
+            label={tr("目标安装实例")}
             required
-            extra={tr("只允许启用且在线待机的设备；设备较多时可筛选，勾选跨页保留。")}
+            extra={tr("只允许启用且在线待机的安装实例；实例较多时可筛选，勾选跨页保留。")}
           >
             <Space direction="vertical" size={8} style={{ display: 'flex' }}>
               <Flex wrap gap={4}>
                 {selectedList.length === 0 ? (
-                  <Typography.Text type="secondary">{tr("尚未选择目标设备")}</Typography.Text>
+                  <Typography.Text type="secondary">{tr("尚未选择目标安装实例")}</Typography.Text>
                 ) : (
-                  selectedList.map((device) => (
+                  selectedList.map((installation) => (
                     <Tag
-                      key={device.id}
+                      key={installation.id}
                       closable
-                      color={isDeviceSelectable(device) ? 'blue' : 'default'}
-                      onClose={() => removeSelectedDevice(device.id)}
+                      color={isInstallationSelectable(installation) ? 'blue' : 'default'}
+                      onClose={() => removeSelectedInstallation(installation.id)}
                     >
-                      {device.displayName}
+                      {installation.nodeDisplayName} · {installation.shortId}
                     </Tag>
                   ))
                 )}
               </Flex>
               <Button icon={<SelectOutlined />} onClick={() => setPickerOpen(true)}>
-                {tr("选择在线设备")}</Button>
-              {sourceDeviceHint ? (
-                <Typography.Text type="warning">{sourceDeviceHint}</Typography.Text>
+                {tr("选择在线安装实例")}</Button>
+              {sourceInstallationHint ? (
+                <Typography.Text type="warning">{sourceInstallationHint}</Typography.Text>
               ) : null}
             </Space>
           </Form.Item>
@@ -777,15 +808,19 @@ export function BackupsPage() {
           <Form.Item
             name="currentHash"
             label={tr("目标当前配置哈希（可选，提供时先落快照）")}
-            extra={selectedList.length > 1 ? tr("多设备下发不支持快照：仅单选时可填。") : undefined}
+            extra={selectedList.length > 1 ? tr("多安装实例下发不支持快照：仅单选时可填。") : undefined}
           >
             <Input placeholder={tr("64 位十六进制")} disabled={selectedList.length > 1} />
           </Form.Item>
           <Form.Item name="force" label={tr("放宽主版本校验（渠道不一致仍拒绝）")} valuePropName="checked">
             <Switch />
           </Form.Item>
-          {needsCrossDeviceConfirm ? (
-            <Form.Item name="confirmCrossDevice" label={tr("确认跨设备下发")} valuePropName="checked">
+          {needsCrossInstallationConfirm ? (
+            <Form.Item
+              name="confirmCrossInstallation"
+              label={tr("确认跨安装实例下发")}
+              valuePropName="checked"
+            >
               <Switch />
             </Form.Item>
           ) : null}
@@ -794,12 +829,30 @@ export function BackupsPage() {
         </Form>
       </Modal>
 
-      <DevicePickerModal
+      <InstallationPickerModal
+        open={sourcePickerOpen && backupOpen}
+        appKey={appKey}
+        selected={
+          new Map<string, InstallationSummary>(
+            sourceInstallation ? [[sourceInstallation.id, sourceInstallation]] : [],
+          )
+        }
+        single
+        mode="any"
+        title={tr("选择来源安装实例")}
+        onConfirm={(next) => {
+          setSourceInstallation([...next.values()][0] ?? null);
+          setSourcePickerOpen(false);
+        }}
+        onCancel={() => setSourcePickerOpen(false)}
+      />
+
+      <InstallationPickerModal
         open={pickerOpen && pushTarget !== null}
         appKey={appKey}
-        selected={selectedDevices}
+        selected={selectedInstallations}
         onConfirm={(next) => {
-          setSelectedDevices(next);
+          setSelectedInstallations(next);
           setPickerOpen(false);
         }}
         onCancel={() => setPickerOpen(false)}
@@ -828,7 +881,7 @@ export function BackupsPage() {
             />
             {pushResult.result.targets?.length ? (
               <Table<PushTargetResult>
-                rowKey="deviceId"
+                rowKey="installationId"
                 size="small"
                 pagination={false}
                 dataSource={pushResult.result.targets}

@@ -162,7 +162,7 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         var created = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
             await client.PostAsJsonAsync(
                 QrCreatePath,
-                new CreateQrSessionRequest("qr-device", "产线-PC-01")));
+                new CreateQrSessionRequest(AppKey: "demo", DeviceFingerprint: "qr-device", ClientName: "产线-PC-01")));
         Assert.StartsWith("http", created.Payload, StringComparison.Ordinal);
         Assert.EndsWith(
             QrLoginConventions.ApprovalPath + created.RequestId.ToString("N"),
@@ -202,7 +202,7 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
 
         var created = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
-            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest("qr-device", "可疑客户端")));
+            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest(AppKey: "demo", DeviceFingerprint: "qr-device", ClientName: "可疑客户端")));
 
         var rejected = await IdentityTestHelpers.ReadDataAsync<QrSessionSummaryDto>(
             await client.SendAsync(IdentityTestHelpers.Authorized(
@@ -228,7 +228,7 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
 
         var created = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
-            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest("qr-device", "过期客户端")));
+            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest(AppKey: "demo", DeviceFingerprint: "qr-device", ClientName: "过期客户端")));
         await ExpireQrSessionAsync(created.RequestId);
 
         var status = await GetQrStatusAsync(client, created.RequestId);
@@ -247,7 +247,7 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
 
         var created = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
-            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest("qr-device", "取消客户端")));
+            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest(AppKey: "demo", DeviceFingerprint: "qr-device", ClientName: "取消客户端")));
 
         var cancelled = await CancelAsync(client, created.RequestId);
         Assert.Equal(QrLoginStatuses.Cancelled, cancelled.Status);
@@ -284,7 +284,7 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
 
         var approvedCreated = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
-            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest("qr-device", "已批准客户端")));
+            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest(AppKey: "demo", DeviceFingerprint: "qr-device", ClientName: "已批准客户端")));
         await ApproveAsync(client, admin, approvedCreated.RequestId);
 
         var cancelledAfterApprove = await CancelAsync(client, approvedCreated.RequestId);
@@ -295,7 +295,7 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         Assert.NotNull(approvedStatus.Session);
 
         var expiredCreated = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
-            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest("qr-device", "过期客户端")));
+            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest(AppKey: "demo", DeviceFingerprint: "qr-device", ClientName: "过期客户端")));
         await ExpireQrSessionAsync(expiredCreated.RequestId);
 
         var cancelledExpired = await CancelAsync(client, expiredCreated.RequestId);
@@ -323,12 +323,12 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
             HttpMethod.Post,
             "/api/v1/admin/identity/singlekeys",
             viewerLogin.AccessToken,
-            new IssueSingleLoginKeyRequest()));
+            new IssueSingleLoginKeyRequest(AppKey: "demo")));
         Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
 
         var anonymous = await client.PostAsJsonAsync(
             "/api/v1/admin/identity/singlekeys",
-            new IssueSingleLoginKeyRequest());
+            new IssueSingleLoginKeyRequest(AppKey: "demo"));
         Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
     }
 
@@ -349,7 +349,7 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         Assert.Contains(PermissionCatalog.IdentitySingleKeyIssue, redeemed.User.Permissions);
 
         var created = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
-            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest("qr-device", "产线-PC-07")));
+            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest(AppKey: "demo", DeviceFingerprint: "qr-device", ClientName: "产线-PC-07")));
 
         var detail = await IdentityTestHelpers.ReadDataAsync<QrSessionSummaryDto>(
             await client.SendAsync(IdentityTestHelpers.Authorized(
@@ -394,12 +394,12 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
                     Temporary: true)));
 
         var created = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
-            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest("qr-device", "自我续期尝试")));
+            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest(AppKey: "demo", DeviceFingerprint: "qr-device", ClientName: "自我续期尝试")));
 
         foreach (var token in new[] { redeemed.AccessToken, granted.AccessToken })
         {
             var issue = await client.SendAsync(IdentityTestHelpers.Authorized(
-                HttpMethod.Post, "/api/v1/admin/identity/singlekeys", token, new IssueSingleLoginKeyRequest()));
+                HttpMethod.Post, "/api/v1/admin/identity/singlekeys", token, new IssueSingleLoginKeyRequest(AppKey: "demo")));
             Assert.Equal(HttpStatusCode.Forbidden, issue.StatusCode);
 
             var list = await client.SendAsync(IdentityTestHelpers.Authorized(
@@ -441,7 +441,7 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         Assert.Equal(120, clamped.DurationMinutes);
 
         var created = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
-            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest("qr-device", "长班次客户端")));
+            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest(AppKey: "demo", DeviceFingerprint: "qr-device", ClientName: "长班次客户端")));
         await ApproveAsync(client, admin, created.RequestId, durationMinutes: 600);
 
         var status = await GetQrStatusAsync(client, created.RequestId);
@@ -462,7 +462,7 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         using var client = configured.CreateClient();
 
         var created = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
-            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest("qr-device", "手机扫码")));
+            await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest(AppKey: "demo", DeviceFingerprint: "qr-device", ClientName: "手机扫码")));
 
         // 反代会把 Host 改成不带端口的主机名，所以配置的基址必须赢过请求推导，末尾斜杠也不能重复。
         Assert.Equal(
@@ -490,7 +490,7 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         var upgraded = await IdentityTestHelpers.GetRoleAsync(client, admin, SingleLoginConventions.EngineerRole);
         Assert.Contains(PermissionCatalog.IdentitySingleKeyIssue, upgraded.Permissions);
         Assert.Contains(PermissionCatalog.IdentityQrApprove, upgraded.Permissions);
-        Assert.Contains(PermissionCatalog.DeviceRead, upgraded.Permissions);
+        Assert.Contains(PermissionCatalog.InstallationRead, upgraded.Permissions);
         Assert.Contains("custom.manual", upgraded.Permissions);
         Assert.Equal("现场工程师", upgraded.DisplayName);
     }
@@ -498,38 +498,126 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
     private static async Task<string> LoginAsEngineerAsync(HttpClient client, string admin, string userName)
     {
         var role = await IdentityTestHelpers.GetRoleAsync(client, admin, SingleLoginConventions.EngineerRole);
+        var appRole = await IdentityTestHelpers.ReadDataAsync<RoleSummaryDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                "/api/v1/admin/identity/roles",
+                admin,
+                new CreateRoleRequest(
+                    $"engineer-{userName}",
+                    DisplayName: $"工程师（{userName}）",
+                    Scope: IdentityConventions.ScopeApp,
+                    AppKey: "demo",
+                    Permissions: [PermissionCatalog.IdentitySingleKeyIssue, PermissionCatalog.IdentityQrApprove]))));
         await IdentityTestHelpers.CreateUserAsync(
             client,
             admin,
             userName,
             "Engineer@12345",
             "现场工程师",
-            roleIds: [role.Id]);
+            roleIds: [role.Id, appRole.Id]);
         return (await IdentityTestHelpers.LoginAsync(client, userName, "Engineer@12345")).AccessToken;
+    }
+
+    [Fact]
+    public async Task 单次密钥必须显式绑定应用且兑换写入机器码与安装实例()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+
+        var unknownApp = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            "/api/v1/admin/identity/singlekeys",
+            admin,
+            new IssueSingleLoginKeyRequest(AppKey: "no-such-app")));
+        Assert.Equal(
+            (int)ApiErrorCode.ValidationFailed,
+            await IdentityTestHelpers.ReadErrorCodeAsync(unknownApp, HttpStatusCode.BadRequest));
+
+        var missingQrApp = await client.PostAsJsonAsync(QrCreatePath, new CreateQrSessionRequest());
+        Assert.Equal(
+            (int)ApiErrorCode.ValidationFailed,
+            await IdentityTestHelpers.ReadErrorCodeAsync(missingQrApp, HttpStatusCode.BadRequest));
+
+        var issued = await IssueKeyAsync(client, admin);
+        var installGuid = Guid.CreateVersion7();
+        var redeemed = await RedeemAsync(
+            client,
+            issued.Key,
+            fingerprint: "device-a",
+            machineCode: "0011223344556677",
+            installGuid: installGuid);
+        Assert.Equal("demo", redeemed.User.AppKey);
+
+        var whoami = await IdentityTestHelpers.ReadDataAsync<WhoAmIResponse>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, "/api/v1/platform/whoami", redeemed.AccessToken)));
+        Assert.Equal("demo", whoami.AppKey);
+        Assert.True(whoami.IsTemporary);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+        var row = await db.Set<SingleLoginKey>().AsNoTracking().SingleAsync(x => x.Key == issued.Key);
+        Assert.Equal("demo", row.AppKey);
+    }
+
+    [Fact]
+    public async Task 扫码会话语义绑定应用与机器码并随临时令牌延续()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        var engineer = await LoginAsEngineerAsync(client, admin, "qr-engineer");
+        var installGuid = Guid.CreateVersion7();
+
+        var created = await IdentityTestHelpers.ReadDataAsync<QrSessionCreatedDto>(
+            await client.PostAsJsonAsync(
+                QrCreatePath,
+                new CreateQrSessionRequest(
+                    AppKey: "demo",
+                    DeviceFingerprint: "qr-device",
+                    ClientName: "产线-PC-08",
+                    MachineCode: "0011223344556677",
+                    InstallGuid: installGuid)));
+
+        var detail = await IdentityTestHelpers.ReadDataAsync<QrSessionSummaryDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                $"/api/v1/admin/identity/qr/sessions/{created.RequestId}",
+                engineer)));
+        Assert.Equal("demo", detail.AppKey);
+        Assert.Equal(installGuid, detail.InstallGuid);
+
+        await ApproveAsync(client, engineer, created.RequestId);
+        var approved = await GetQrStatusAsync(client, created.RequestId);
+        Assert.NotNull(approved.Session);
+        Assert.Equal("demo", approved.Session!.User.AppKey);
     }
 
     private static async Task<SingleLoginKeyDto> IssueKeyAsync(
         HttpClient client,
         string token,
         int? durationMinutes = null,
-        string? fingerprint = null)
+        string? fingerprint = null,
+        string appKey = "demo")
     {
         var response = await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Post,
             "/api/v1/admin/identity/singlekeys",
             token,
-            new IssueSingleLoginKeyRequest(durationMinutes, fingerprint)));
+            new IssueSingleLoginKeyRequest(durationMinutes, fingerprint, appKey)));
         return await IdentityTestHelpers.ReadDataAsync<SingleLoginKeyDto>(response);
     }
 
     private static async Task<TemporarySessionResponse> RedeemAsync(
         HttpClient client,
         string key,
-        string? fingerprint = null) =>
+        string? fingerprint = null,
+        string? machineCode = null,
+        Guid? installGuid = null) =>
         await IdentityTestHelpers.ReadDataAsync<TemporarySessionResponse>(
             await client.PostAsJsonAsync(
                 RedeemPath,
-                new RedeemSingleLoginKeyRequest(key, fingerprint)));
+                new RedeemSingleLoginKeyRequest(key, fingerprint, machineCode, installGuid)));
 
     private static async Task<QrSessionStatusDto> GetQrStatusAsync(HttpClient client, Guid requestId) =>
         await IdentityTestHelpers.ReadDataAsync<QrSessionStatusDto>(

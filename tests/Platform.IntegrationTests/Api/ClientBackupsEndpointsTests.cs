@@ -18,7 +18,7 @@ using Platform.IntegrationTests.Support;
 namespace Platform.IntegrationTests.Api;
 
 /// <summary>
-/// 客户端备份端点：按设备上传/列表/下载、device-backups 自动创建、设备名/分支回填、
+/// 客户端备份端点：按安装实例上传/列表/下载、device-backups 自动创建、节点名回填、
 /// 跨应用拒绝与 Idempotency-Key。
 /// </summary>
 public sealed class ClientBackupsEndpointsTests : IClassFixture<PlatformApiFactory>
@@ -31,23 +31,22 @@ public sealed class ClientBackupsEndpointsTests : IClassFixture<PlatformApiFacto
     }
 
     [Fact]
-    public async Task 按设备上传自动建命名空间并回填设备名()
+    public async Task 按安装实例上传自动建命名空间并回填节点名()
     {
         using var client = _factory.CreateClient();
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
         var appKey = await CreateAppAsync(client, admin);
         var token = await DevTokenAsync(
             client, appKey, [PermissionCatalog.BackupCreate, PermissionCatalog.BackupRead]);
-        var device = await RegisterDeviceAsync(client, appKey, "CLIENT-01");
-        await using var connection = device.Connection;
+        var installation = await RegisterInstallationAsync(client, appKey, "CLIENT-01");
+        await using var connection = installation.Connection;
 
         const string payload = """{"theme":"light"}""";
         var backup = await UploadAsync(client, token, new CreateBackupRequest(
             NamespaceKey: null,
             Kind: BackupConventions.KindConfig,
             Name: "client-backup",
-            DeviceId: device.DeviceId,
-            DeviceName: null,
+            InstallationId: installation.InstallationId,
             ModuleId: null,
             SchemaVersion: 1,
             FrameworkVersion: "1.0.0",
@@ -56,46 +55,55 @@ public sealed class ClientBackupsEndpointsTests : IClassFixture<PlatformApiFacto
             Sha256: null));
 
         Assert.Equal(BackupConventions.DeviceBackupsNamespaceKey, backup.NamespaceKey);
-        Assert.Equal("CLIENT-01", backup.DeviceName);
+        Assert.Equal(installation.NodeId, backup.NodeId);
+        Assert.Equal("CLIENT-01", backup.NodeName);
         Assert.Equal(BackupConventions.DefaultChannel, backup.Channel);
         Assert.True(backup.HasInline);
         Assert.Equal(payload, await DownloadAsync(client, token, backup.Id));
 
-        var list = await ListAsync(client, token, $"deviceId={device.DeviceId}");
+        var list = await ListAsync(client, token, $"installationId={installation.InstallationId}");
         Assert.Equal(1, list.Total);
         Assert.Equal(backup.Id, list.Items[0].Id);
     }
 
     [Fact]
-    public async Task 大载荷转存且列表支持设备类型与分页过滤()
+    public async Task 大载荷转存且列表支持安装实例与分页过滤()
     {
         using var client = _factory.CreateClient();
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
         var appKey = await CreateAppAsync(client, admin);
         var token = await DevTokenAsync(
             client, appKey, [PermissionCatalog.BackupCreate, PermissionCatalog.BackupRead]);
-        var device = await RegisterDeviceAsync(client, appKey, "CLIENT-02");
-        await using var connection = device.Connection;
+        var installation = await RegisterInstallationAsync(client, appKey, "CLIENT-02");
+        await using var connection = installation.Connection;
 
         var largePayload = "\"" + new string('x', BackupConventions.InlineMaxBytes + 1024) + "\"";
-        var config = await UploadAsync(client, token, NewRequest(device.DeviceId, "big-config", largePayload, BackupConventions.KindConfig));
+        var config = await UploadAsync(
+            client,
+            token,
+            NewRequest(installation.InstallationId, "big-config", largePayload, BackupConventions.KindConfig));
         Assert.True(config.HasFile);
         Assert.False(config.HasInline);
         Assert.Equal(largePayload, await DownloadAsync(client, token, config.Id));
 
-        var profile = await UploadAsync(client, token, NewRequest(device.DeviceId, "small-profile", """{"p":1}""", BackupConventions.KindProfile));
+        var profile = await UploadAsync(
+            client,
+            token,
+            NewRequest(installation.InstallationId, "small-profile", """{"p":1}""", BackupConventions.KindProfile));
 
-        var profiles = await ListAsync(client, token, $"deviceId={device.DeviceId}&kind=profile");
+        var profiles = await ListAsync(
+            client, token, $"installationId={installation.InstallationId}&kind=profile");
         var item = Assert.Single(profiles.Items);
         Assert.Equal(profile.Id, item.Id);
 
-        var page = await ListAsync(client, token, $"deviceId={device.DeviceId}&page=1&pageSize=1");
+        var page = await ListAsync(
+            client, token, $"installationId={installation.InstallationId}&page=1&pageSize=1");
         Assert.Equal(2, page.Total);
         Assert.Single(page.Items);
     }
 
     [Fact]
-    public async Task 跨应用未注册设备与幂等上传分别处理()
+    public async Task 跨应用与未注册安装实例一律不可见并可幂等上传()
     {
         using var client = _factory.CreateClient();
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
@@ -104,45 +112,45 @@ public sealed class ClientBackupsEndpointsTests : IClassFixture<PlatformApiFacto
         var tokenA = await DevTokenAsync(
             client, appA, [PermissionCatalog.BackupCreate, PermissionCatalog.BackupRead]);
         var tokenB = await DevTokenAsync(client, appB, [PermissionCatalog.BackupCreate]);
-        var device = await RegisterDeviceAsync(client, appA, "CLIENT-03");
-        await using var connection = device.Connection;
+        var installation = await RegisterInstallationAsync(client, appA, "CLIENT-03");
+        await using var connection = installation.Connection;
 
-        // 跨应用：设备存在但不属于当前应用
+        // 跨应用：安装实例存在但不属于当前应用，对外表现为 404
         var foreign = await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Post,
             "/api/v1/client/backups",
             tokenB,
-            NewRequest(device.DeviceId, "foreign", """{"a":1}""", BackupConventions.KindConfig)));
+            NewRequest(installation.InstallationId, "foreign", """{"a":1}""", BackupConventions.KindConfig)));
         Assert.Equal(
-            (int)ApiErrorCode.Forbidden,
-            await IdentityTestHelpers.ReadErrorCodeAsync(foreign, HttpStatusCode.Forbidden));
+            (int)ApiErrorCode.DevicesInstallationNotFound,
+            await IdentityTestHelpers.ReadErrorCodeAsync(foreign, HttpStatusCode.NotFound));
 
-        // 未注册设备
+        // 未注册安装实例
         var missing = await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Post,
             "/api/v1/client/backups",
             tokenA,
             NewRequest(Guid.NewGuid(), "missing", """{"a":1}""", BackupConventions.KindConfig)));
         Assert.Equal(
-            (int)ApiErrorCode.DevicesNotFound,
+            (int)ApiErrorCode.DevicesInstallationNotFound,
             await IdentityTestHelpers.ReadErrorCodeAsync(missing, HttpStatusCode.NotFound));
 
-        // 缺 deviceId
-        var noDevice = await client.SendAsync(IdentityTestHelpers.Authorized(
+        // 缺 installationId
+        var noInstallation = await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Post,
             "/api/v1/client/backups",
             tokenA,
-            NewRequest(null, "no-device", """{"a":1}""", BackupConventions.KindConfig)));
+            NewRequest(null, "no-installation", """{"a":1}""", BackupConventions.KindConfig)));
         Assert.Equal(
             (int)ApiErrorCode.ValidationFailed,
-            await IdentityTestHelpers.ReadErrorCodeAsync(noDevice, HttpStatusCode.BadRequest));
+            await IdentityTestHelpers.ReadErrorCodeAsync(noInstallation, HttpStatusCode.BadRequest));
 
         // 显式指定不存在的命名空间：不自动创建
         var missingNamespace = await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Post,
             "/api/v1/client/backups",
             tokenA,
-            NewRequest(device.DeviceId, "bad-namespace", """{"a":1}""", BackupConventions.KindConfig) with
+            NewRequest(installation.InstallationId, "bad-namespace", """{"a":1}""", BackupConventions.KindConfig) with
             {
                 NamespaceKey = $"missing-{Guid.NewGuid():N}"[..20],
             }));
@@ -154,15 +162,15 @@ public sealed class ClientBackupsEndpointsTests : IClassFixture<PlatformApiFacto
         var key = Guid.NewGuid().ToString("N");
         var first = await UploadAsync(
             client, tokenA,
-            NewRequest(device.DeviceId, "idem", """{"a":1}""", BackupConventions.KindConfig),
+            NewRequest(installation.InstallationId, "idem", """{"a":1}""", BackupConventions.KindConfig),
             idempotencyKey: key);
         var second = await UploadAsync(
             client, tokenA,
-            NewRequest(device.DeviceId, "idem", """{"a":1}""", BackupConventions.KindConfig),
+            NewRequest(installation.InstallationId, "idem", """{"a":1}""", BackupConventions.KindConfig),
             idempotencyKey: key);
         Assert.Equal(first.Id, second.Id);
 
-        var list = await ListAsync(client, tokenA, $"deviceId={device.DeviceId}");
+        var list = await ListAsync(client, tokenA, $"installationId={installation.InstallationId}");
         Assert.Equal(1, list.Total);
 
         using var scope = _factory.Services.CreateScope();
@@ -176,7 +184,7 @@ public sealed class ClientBackupsEndpointsTests : IClassFixture<PlatformApiFacto
     }
 
     private static CreateBackupRequest NewRequest(
-        Guid? deviceId,
+        Guid? installationId,
         string name,
         string payload,
         string kind) =>
@@ -184,8 +192,7 @@ public sealed class ClientBackupsEndpointsTests : IClassFixture<PlatformApiFacto
             NamespaceKey: null,
             Kind: kind,
             Name: name,
-            DeviceId: deviceId,
-            DeviceName: null,
+            InstallationId: installationId,
             ModuleId: null,
             SchemaVersion: 1,
             FrameworkVersion: "1.0.0",
@@ -253,7 +260,7 @@ public sealed class ClientBackupsEndpointsTests : IClassFixture<PlatformApiFacto
         return (await IdentityTestHelpers.ReadDataAsync<DevTokenResponse>(response)).AccessToken;
     }
 
-    private async Task<TestDevice> RegisterDeviceAsync(
+    private async Task<TestInstallation> RegisterInstallationAsync(
         HttpClient client,
         string appKey,
         string displayName)
@@ -273,17 +280,17 @@ public sealed class ClientBackupsEndpointsTests : IClassFixture<PlatformApiFacto
         await connection.StartAsync();
         var installGuid = Guid.NewGuid();
         var registered = await connection.InvokeAsync<DeviceRegistrationResponse>(
-            DeviceHubMethods.RegisterDevice,
+            DeviceHubMethods.RegisterInstallation,
             new DeviceRegistrationRequest(
                 new DeviceIdentity(
-                    MacAddress: null,
                     InstallGuid: installGuid,
-                    FrameworkVersion: "1.0.0",
-                    PrimaryIdentifier: $"client-{installGuid:N}"),
+                    SmbiosUuid: null,
+                    SystemDiskSerial: $"client-{installGuid:N}",
+                    FrameworkVersion: "1.0.0"),
                 displayName,
                 IpAddress: "10.7.6.5"));
-        return new TestDevice(connection, registered.DeviceId);
+        return new TestInstallation(connection, registered.InstallationId, registered.NodeId);
     }
 
-    private sealed record TestDevice(HubConnection Connection, Guid DeviceId);
+    private sealed record TestInstallation(HubConnection Connection, Guid InstallationId, Guid NodeId);
 }

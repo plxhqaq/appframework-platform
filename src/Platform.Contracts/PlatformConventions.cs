@@ -115,6 +115,9 @@ public static class PlatformClaimTypes
 
     /// <summary>绑定的机器码（可空）。</summary>
     public const string MachineCode = "machine";
+
+    /// <summary>绑定的安装实例标识（可空）。</summary>
+    public const string InstallGuid = "install";
 }
 
 /// <summary><see cref="PlatformClaimTypes.PrincipalKind"/> 取值。</summary>

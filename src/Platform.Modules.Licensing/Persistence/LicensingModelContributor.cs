@@ -65,6 +65,8 @@ public sealed class LicensingModelContributor : IPlatformModelContributor
                 .HasDatabaseName("ix_license_entitlements_app_expires");
             builder.HasIndex(static x => new { x.AppKey, x.RevokedAt })
                 .HasDatabaseName("ix_license_entitlements_app_revoked");
+            builder.HasIndex(static x => x.MachineCode)
+                .HasDatabaseName("ix_license_entitlements_machine_code");
 
             builder.HasOne(static x => x.Product)
                 .WithMany(static x => x.Entitlements)

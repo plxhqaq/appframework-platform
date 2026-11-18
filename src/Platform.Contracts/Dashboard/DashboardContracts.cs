@@ -1,13 +1,14 @@
 namespace Platform.Contracts.Dashboard;
 
-/// <summary>总览仪表盘快照：系统状态、运行环境、资源占用与设备统计。</summary>
+/// <summary>总览仪表盘快照：系统状态、运行环境、资源占用与节点/安装实例统计。</summary>
 /// <param name="ServerTime">服务端当前时间。</param>
 /// <param name="StartedAt">平台进程启动时间。</param>
 /// <param name="UptimeSeconds">平台进程已运行秒数。</param>
 /// <param name="BootTime">服务器操作系统开机时间。</param>
 /// <param name="SystemUptimeSeconds">服务器自开机以来已运行秒数。</param>
 /// <param name="System">进程与资源状态。</param>
-/// <param name="Devices">设备统计。</param>
+/// <param name="Nodes">物理节点统计。</param>
+/// <param name="Installations">安装实例统计。</param>
 /// <param name="Platform">运行平台信息。</param>
 public sealed record PlatformDashboardDto(
     DateTimeOffset ServerTime,
@@ -16,7 +17,8 @@ public sealed record PlatformDashboardDto(
     DateTimeOffset BootTime,
     long SystemUptimeSeconds,
     SystemStatusDto System,
-    DeviceStatisticsDto Devices,
+    NodeStatisticsDto Nodes,
+    InstallationStatisticsDto Installations,
     PlatformInfoDto Platform);
 
 /// <summary>系统状态与资源占用。</summary>
@@ -46,14 +48,19 @@ public sealed record SystemStatusDto(
     long? ServerTotalMemoryBytes,
     long? ServerAvailableMemoryBytes);
 
-/// <summary>设备统计：在线/离线以数据库状态为准，<paramref name="Connected"/> 为实时连接数。</summary>
-public sealed record DeviceStatisticsDto(
+/// <summary>物理节点统计：状态由安装实例聚合而来，在线/运行/待机互斥。</summary>
+public sealed record NodeStatisticsDto(
     int Total,
     int Online,
-    int Idle,
     int Running,
+    int Idle,
     int Offline,
-    int Disabled,
+    int Disabled);
+
+/// <summary>安装实例统计：<paramref name="Connected"/> 为实时连接数。</summary>
+public sealed record InstallationStatisticsDto(
+    int Total,
+    int Online,
     int Connected);
 
 /// <summary>运行平台信息。</summary>

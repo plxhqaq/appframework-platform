@@ -84,6 +84,7 @@ public sealed class IdentityModelContributor : IPlatformModelContributor
             builder.Property(static x => x.DeviceFingerprint).HasColumnName("device_fingerprint").HasMaxLength(256);
             builder.Property(static x => x.AppKey).HasColumnName("app_key").HasMaxLength(64);
             builder.Property(static x => x.MachineCode).HasColumnName("machine_code").HasMaxLength(128);
+            builder.Property(static x => x.InstallGuid).HasColumnName("install_guid");
             builder.Property(static x => x.CreatedByIp).HasColumnName("created_by_ip").HasMaxLength(64);
             builder.Property(static x => x.ExpiresAt).HasColumnName("expires_at");
             builder.Property(static x => x.RevokedAt).HasColumnName("revoked_at");
@@ -126,6 +127,7 @@ public sealed class IdentityModelContributor : IPlatformModelContributor
             builder.HasKey(static x => x.Key);
 
             builder.Property(static x => x.Key).HasColumnName("key").HasMaxLength(16).IsRequired();
+            builder.Property(static x => x.AppKey).HasColumnName("app_key").HasMaxLength(64).IsRequired();
             builder.Property(static x => x.DeviceFingerprint).HasColumnName("device_fingerprint").HasMaxLength(256);
             builder.Property(static x => x.CreatedBy).HasColumnName("created_by");
             builder.Property(static x => x.ExpiresAt).HasColumnName("expires_at");
@@ -146,6 +148,9 @@ public sealed class IdentityModelContributor : IPlatformModelContributor
             builder.Property(static x => x.Status).HasColumnName("status").HasMaxLength(16).IsRequired();
             builder.Property(static x => x.ClientName).HasColumnName("client_name").HasMaxLength(256);
             builder.Property(static x => x.DeviceFingerprint).HasColumnName("device_fingerprint").HasMaxLength(256);
+            builder.Property(static x => x.AppKey).HasColumnName("app_key").HasMaxLength(64).IsRequired();
+            builder.Property(static x => x.MachineCode).HasColumnName("machine_code").HasMaxLength(32);
+            builder.Property(static x => x.InstallGuid).HasColumnName("install_guid");
             builder.Property(static x => x.ConnectionId).HasColumnName("connection_id").HasMaxLength(128);
             builder.Property(static x => x.CreatedByIp).HasColumnName("created_by_ip").HasMaxLength(64);
             builder.Property(static x => x.ExpiresAt).HasColumnName("expires_at");

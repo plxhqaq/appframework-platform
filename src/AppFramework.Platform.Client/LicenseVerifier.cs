@@ -91,16 +91,18 @@ public static class LicenseVerifier
     }
 
     /// <summary>
-    /// 离线授权码本地校验：产品键 + 机器码绑定，跨机复制必然失败。
+    /// 离线授权码本地校验：应用键 + 产品键 + 机器码绑定，跨应用/跨机复制必然失败。
     /// </summary>
     /// <param name="code">服务端签发的原始码（带分隔符的形态也可以）。</param>
     /// <param name="machineCode">本机机器码。</param>
     /// <param name="productKey">产品键。</param>
+    /// <param name="expectedAppKey">当前应用键。</param>
     /// <param name="trustedPublicKeys">受信任公钥（SPKI Base64）集合，可内置于安装包。</param>
     public static OfflineCodeVerification VerifyOfflineCode(
         string code,
         string machineCode,
         string productKey,
+        string expectedAppKey,
         IReadOnlyCollection<string> trustedPublicKeys)
     {
         ArgumentNullException.ThrowIfNull(trustedPublicKeys);
@@ -108,6 +110,11 @@ public static class LicenseVerifier
         if (!OfflineLicenseCodec.TryParse(code, trustedPublicKeys, out var content, out var error))
         {
             return new OfflineCodeVerification(false, null, error ?? "离线码校验失败。");
+        }
+
+        if (!string.Equals(content.AppKey, expectedAppKey, StringComparison.Ordinal))
+        {
+            return new OfflineCodeVerification(false, content, $"离线码属于应用 {content.AppKey}。");
         }
 
         if (!string.Equals(content.ProductKey, productKey, StringComparison.Ordinal))

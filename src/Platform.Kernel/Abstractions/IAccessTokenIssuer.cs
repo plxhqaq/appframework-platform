@@ -42,6 +42,9 @@ public sealed record AccessTokenSpec
     /// <summary>绑定机器码。</summary>
     public string? MachineCode { get; init; }
 
+    /// <summary>绑定的安装实例标识。</summary>
+    public Guid? InstallGuid { get; init; }
+
     /// <summary>有效期；为空取宿主配置。</summary>
     public TimeSpan? Lifetime { get; init; }
 }

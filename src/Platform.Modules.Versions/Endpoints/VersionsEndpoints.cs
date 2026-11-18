@@ -519,6 +519,45 @@ internal static class VersionsEndpoints
             .WithName("versions.packages.retry")
             .WithSummary("重试失败的增量包摄取（failed → pending）")
             .RequirePermission(PermissionCatalog.VersionsArtifactUpload);
+
+        admin.MapPost(
+                "/packages/{id:guid}/activate",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IReleasePackageService packages,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var activated = await packages.ActivateAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.package.activate",
+                            targetType: "release_package",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: $"{activated.Kind}/{activated.Target} {activated.FileName}");
+                        return ApiResults.Ok(context, activated);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.package.activate",
+                            targetType: "release_package",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("versions.packages.activate")
+            .WithSummary("把就绪的包设为启用包（同版本同类型同目标只下发启用包）")
+            .RequirePermission(PermissionCatalog.VersionsArtifactUpload);
     }
 
     private static void MapUpdaterEndpoints(RouteGroupBuilder admin)

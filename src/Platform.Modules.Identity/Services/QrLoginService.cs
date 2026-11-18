@@ -78,6 +78,7 @@ public sealed class QrLoginService : IQrLoginService
     private readonly PlatformDbContext _db;
     private readonly ITemporarySessionFactory _temporary;
     private readonly IHubContext<PlatformHub> _hub;
+    private readonly IAppDirectory _apps;
     private readonly IClock _clock;
     private readonly QrLoginOptions _options;
     private readonly ILogger<QrLoginService> _logger;
@@ -87,6 +88,7 @@ public sealed class QrLoginService : IQrLoginService
         PlatformDbContext db,
         ITemporarySessionFactory temporary,
         IHubContext<PlatformHub> hub,
+        IAppDirectory apps,
         IClock clock,
         IOptions<QrLoginOptions> options,
         ILogger<QrLoginService> logger)
@@ -94,6 +96,7 @@ public sealed class QrLoginService : IQrLoginService
         _db = db;
         _temporary = temporary;
         _hub = hub;
+        _apps = apps;
         _clock = clock;
         _options = options.Value;
         _logger = logger;
@@ -108,12 +111,22 @@ public sealed class QrLoginService : IQrLoginService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        string appKey = Normalize(request.AppKey)
+            ?? throw BusinessException.Invalid("必须指定应用（AppKey）：扫码登录需要明确目标应用。");
+        if (!await _apps.IsEnabledAsync(appKey, cancellationToken))
+        {
+            throw BusinessException.Invalid($"应用 {appKey} 不存在或已停用，不能发起扫码登录。");
+        }
+
         var now = _clock.UtcNow;
         var session = new QrLoginSession
         {
             Status = QrLoginStatuses.Pending,
+            AppKey = appKey,
             ClientName = Normalize(request.ClientName),
             DeviceFingerprint = Normalize(request.DeviceFingerprint),
+            MachineCode = Normalize(request.MachineCode),
+            InstallGuid = request.InstallGuid is { } install && install != Guid.Empty ? install : null,
             CreatedByIp = Normalize(ipAddress),
             ExpiresAt = now.AddMinutes(Math.Max(1, _options.ExpireMinutes)),
         };
@@ -157,7 +170,7 @@ public sealed class QrLoginService : IQrLoginService
             && session.TokenExpiresAt > now
             && session.TemporaryUserId is not null)
         {
-            var user = await _temporary.BuildUserAsync(session.TemporaryUserId.Value, cancellationToken);
+            var user = await _temporary.BuildUserAsync(session.TemporaryUserId.Value, session.AppKey, cancellationToken);
             temporary = new TemporarySessionResponse(session.AccessToken, session.TokenExpiresAt.Value, user);
         }
 
@@ -214,11 +227,14 @@ public sealed class QrLoginService : IQrLoginService
         var session = await LoadPendingAsync(requestId, now, cancellationToken);
 
         var lifetime = TimeSpan.FromMinutes(ClampDuration(request.DurationMinutes));
-        // 临时会话绑定审批人：客户端登录后拿到的就是该用户在当前应用下的角色与权限。
+        // 临时会话绑定审批人与会话记录中的应用/机器/安装：客户端拿到的是该用户在该应用下的角色与权限。
+        // BuildAsync 会校验审批人可访问该应用，无权即 403。
         var temporary = await _temporary.IssueAsync(
             approvedBy,
+            session.AppKey,
             lifetime,
-            machineCode: null,
+            session.MachineCode,
+            session.InstallGuid,
             cancellationToken);
 
         var approvedName = Normalize(approvedByName);
@@ -255,8 +271,10 @@ public sealed class QrLoginService : IQrLoginService
         return new QrSessionSummaryDto(
             session.Id,
             QrLoginStatuses.Approved,
+            session.AppKey,
             session.ClientName,
             session.DeviceFingerprint,
+            session.InstallGuid,
             session.CreatedByIp,
             session.CreatedAt,
             session.ExpiresAt,
@@ -305,8 +323,10 @@ public sealed class QrLoginService : IQrLoginService
         return new QrSessionSummaryDto(
             session.Id,
             QrLoginStatuses.Rejected,
+            session.AppKey,
             session.ClientName,
             session.DeviceFingerprint,
+            session.InstallGuid,
             session.CreatedByIp,
             session.CreatedAt,
             session.ExpiresAt,
@@ -550,8 +570,10 @@ public sealed class QrLoginService : IQrLoginService
         new(
             session.Id,
             ResolveStatus(session, now),
+            session.AppKey,
             session.ClientName,
             session.DeviceFingerprint,
+            session.InstallGuid,
             session.CreatedByIp,
             session.CreatedAt,
             session.ExpiresAt,

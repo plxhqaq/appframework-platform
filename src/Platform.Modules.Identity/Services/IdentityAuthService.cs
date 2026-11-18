@@ -134,7 +134,7 @@ public sealed class IdentityAuthService : IIdentityAuthService
 
         var rotated = await _refreshTokens.RotateAsync(refreshToken, ipAddress, cancellationToken);
         var context = await _sessions.BuildAsync(rotated.UserId, rotated.AppKey, cancellationToken);
-        var access = IssueAccessToken(context, rotated.MachineCode);
+        var access = IssueAccessToken(context, rotated.MachineCode, rotated.InstallGuid);
 
         return new IssuedSession(
             access.AccessToken,
@@ -163,14 +163,16 @@ public sealed class IdentityAuthService : IIdentityAuthService
         var context = await _sessions.BuildAsync(userId, appKey, cancellationToken);
 
         string? machineCode = null;
+        Guid? installGuid = null;
         if (!string.IsNullOrWhiteSpace(refreshToken))
         {
             var stored = await _refreshTokens.SetAppKeyAsync(
                 refreshToken, userId, context.AppKey, cancellationToken);
             machineCode = stored?.MachineCode;
+            installGuid = stored?.InstallGuid;
         }
 
-        var access = IssueAccessToken(context, machineCode);
+        var access = IssueAccessToken(context, machineCode, installGuid);
         return new SwitchedSession(access.AccessToken, access.ExpiresAt, context.Session);
     }
 
@@ -264,10 +266,11 @@ public sealed class IdentityAuthService : IIdentityAuthService
             user.Id,
             context.AppKey,
             request.MachineCode,
+            request.InstallGuid,
             request.DeviceFingerprint,
             ipAddress,
             cancellationToken);
-        var access = IssueAccessToken(context, request.MachineCode);
+        var access = IssueAccessToken(context, request.MachineCode, request.InstallGuid);
 
         return new IssuedSession(
             access.AccessToken,
@@ -277,7 +280,10 @@ public sealed class IdentityAuthService : IIdentityAuthService
             context.Session);
     }
 
-    private IssuedToken IssueAccessToken(UserSessionContext context, string? machineCode) =>
+    private IssuedToken IssueAccessToken(
+        UserSessionContext context,
+        string? machineCode,
+        Guid? installGuid = null) =>
         _issuer.Issue(new AccessTokenSpec
         {
             Subject = context.Session.UserId.ToString(),
@@ -288,5 +294,6 @@ public sealed class IdentityAuthService : IIdentityAuthService
             AppKey = context.AppKey,
             PrincipalKind = PlatformPrincipalKinds.User,
             MachineCode = machineCode,
+            InstallGuid = installGuid,
         });
 }

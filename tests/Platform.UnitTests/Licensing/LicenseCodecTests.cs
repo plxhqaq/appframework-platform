@@ -4,7 +4,7 @@ using Platform.Contracts.Licensing;
 namespace Platform.UnitTests.Licensing;
 
 /// <summary>
-/// 授权编解码：Crockford Base32、AF3 离线码（校验位/签名/产品与机器码绑定）、
+/// 授权编解码：Crockford Base32、AF4 离线码（签名/应用/产品/机器码绑定）、
 /// 在线快照签名与验签。私钥只在测试进程内生成，不落盘。
 /// </summary>
 public sealed class LicenseCodecTests
@@ -21,12 +21,13 @@ public sealed class LicenseCodecTests
         var notAfter = issued.AddDays(365);
 
         string code = OfflineLicenseCodec.Encode(
-            "erp-pro", MachineA, LicenseConventions.KindOfficial, issued, notAfter, 0, Keys.Value.PrivateKey, "LIC-001");
+            "demo", "erp-pro", MachineA, LicenseConventions.KindOfficial, issued, notAfter, 0, Keys.Value.PrivateKey, "LIC-001");
 
         Assert.StartsWith(OfflineLicenseCodec.Prefix, code);
         Assert.True(
             OfflineLicenseCodec.TryParse(code, [Keys.Value.PublicKey], out OfflineLicenseCodeContent content, out string? error),
             error);
+        Assert.Equal("demo", content.AppKey);
         Assert.Equal("erp-pro", content.ProductKey);
         Assert.Equal(MachineA, content.MachineCode);
         Assert.Equal(LicenseConventions.KindOfficial, content.Kind);
@@ -44,7 +45,7 @@ public sealed class LicenseCodecTests
     {
         var issued = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
         string code = OfflineLicenseCodec.Encode(
-            "erp-pro", MachineA, LicenseConventions.KindOfficial, issued, issued.AddDays(30), 0,
+            "demo", "erp-pro", MachineA, LicenseConventions.KindOfficial, issued, issued.AddDays(30), 0,
             Keys.Value.PrivateKey);
 
         int index = OfflineLicenseCodec.Prefix.Length + 10;
@@ -61,7 +62,7 @@ public sealed class LicenseCodecTests
     {
         var issued = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
         string code = OfflineLicenseCodec.Encode(
-            "erp-pro", MachineA, LicenseConventions.KindOfficial, issued, issued.AddDays(30), 0,
+            "demo", "erp-pro", MachineA, LicenseConventions.KindOfficial, issued, issued.AddDays(30), 0,
             Keys.Value.PrivateKey);
 
         using ECDsa other = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -76,13 +77,31 @@ public sealed class LicenseCodecTests
     {
         var issued = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
         string code = OfflineLicenseCodec.Encode(
-            "erp-pro", MachineA, LicenseConventions.KindTrial, issued, issued.AddDays(7), 0,
+            "demo", "erp-pro", MachineA, LicenseConventions.KindTrial, issued, issued.AddDays(7), 0,
             Keys.Value.PrivateKey);
 
         Assert.True(
             OfflineLicenseCodec.TryParse(code, [Keys.Value.PublicKey], out OfflineLicenseCodeContent content, out _));
         Assert.NotEqual(MachineB, content.MachineCode);
         Assert.Equal(LicenseConventions.KindTrial, content.Kind);
+        Assert.Equal("demo", content.AppKey);
+    }
+
+    [Fact]
+    public void 应用键不合法的离线码被拒绝()
+    {
+        var issued = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
+
+        Assert.ThrowsAny<ArgumentException>(() => OfflineLicenseCodec.Encode(
+            "Demo", "erp-pro", MachineA, LicenseConventions.KindOfficial, issued, issued.AddDays(30), 0,
+            Keys.Value.PrivateKey));
+    }
+
+    [Fact]
+    public void AF3离线码按版本不支持拒绝()
+    {
+        Assert.False(OfflineLicenseCodec.TryParse("AF3ABCDEFGHIJ", [Keys.Value.PublicKey], out _, out string? error));
+        Assert.Contains("版本不支持", error);
     }
 
     [Fact]

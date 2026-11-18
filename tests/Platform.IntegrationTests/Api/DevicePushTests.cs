@@ -17,8 +17,8 @@ using Platform.IntegrationTests.Support;
 namespace Platform.IntegrationTests.Api;
 
 /// <summary>
-/// 设备定向下发：在线/待机门禁、通用命令形状、Ack 成功/失败/超时、管理端重启。
-/// 设备用真实 SignalR 客户端连接，覆盖 Hub 与命令网关的完整链路。
+/// 安装实例定向下发：在线/待机门禁、通用命令形状、Ack 成功/失败/超时、管理端重启。
+/// 安装实例用真实 SignalR 客户端连接，覆盖 Hub 与命令网关的完整链路。
 /// </summary>
 public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
 {
@@ -32,15 +32,15 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
     }
 
     [Fact]
-    public async Task 在线待机设备收到通用命令并可回执成功()
+    public async Task 在线待机安装实例收到通用命令并可回执成功()
     {
         using var client = _factory.CreateClient();
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
         var backup = await CreateBackupAsync(client, admin);
         var token = await DevTokenAsync(client, [PermissionCatalog.BackupPush]);
 
-        var device = await RegisterDeviceAsync(token, "PUSH-OK");
-        await using var connection = device.Connection;
+        var installation = await RegisterInstallationAsync(token, "PUSH-OK");
+        await using var connection = installation.Connection;
         var received = new TaskCompletionSource<DeviceConfigPush>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         connection.On<DeviceConfigPush>(
@@ -53,7 +53,8 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
                     new DeviceConfigPushAck(command.BackupId, true, "applied"));
             });
 
-        var result = await PushAsync(client, admin, backup.Id, device.DeviceId, restartAfterApply: true);
+        var result = await PushAsync(
+            client, admin, backup.Id, installation.InstallationId, restartAfterApply: true);
 
         var command = await received.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(backup.Id, command.BackupId);
@@ -70,7 +71,7 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
     }
 
     [Fact]
-    public async Task 目标留空被拒绝且多设备逐台汇总回执()
+    public async Task 目标留空被拒绝且多安装实例逐个汇总回执()
     {
         using var client = _factory.CreateClient();
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
@@ -86,7 +87,7 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
             (int)ApiErrorCode.ValidationFailed,
             await IdentityTestHelpers.ReadErrorCodeAsync(blank, HttpStatusCode.BadRequest));
 
-        var applied = await RegisterDeviceAsync(token, "PUSH-MULTI-OK");
+        var applied = await RegisterInstallationAsync(token, "PUSH-MULTI-OK");
         await using var appliedConnection = applied.Connection;
         applied.Connection.On<DeviceConfigPush>(
             DeviceHubEvents.ConfigPush,
@@ -94,7 +95,7 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
                 DeviceHubMethods.AcknowledgeConfigPush,
                 new DeviceConfigPushAck(command.BackupId, true, "applied")));
 
-        var failed = await RegisterDeviceAsync(token, "PUSH-MULTI-FAIL");
+        var failed = await RegisterInstallationAsync(token, "PUSH-MULTI-FAIL");
         await using var failedConnection = failed.Connection;
         failed.Connection.On<DeviceConfigPush>(
             DeviceHubEvents.ConfigPush,
@@ -109,7 +110,7 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
                 admin,
                 new PushBackupRequest(
                     null, null, "1.0.0", false, false, null, false,
-                    TargetDeviceIds: [applied.DeviceId, failed.DeviceId]))));
+                    TargetInstallationIds: [applied.InstallationId, failed.InstallationId]))));
 
         Assert.True(result.Acked);
         Assert.False(result.Success);
@@ -117,25 +118,25 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
         Assert.Equal(2, result.Targets!.Count);
         Assert.Contains(
             result.Targets,
-            x => x.DeviceId == applied.DeviceId && x.Delivered && x.Acked && x.Success);
+            x => x.InstallationId == applied.InstallationId && x.Delivered && x.Acked && x.Success);
         Assert.Contains(
             result.Targets,
-            x => x.DeviceId == failed.DeviceId && x.Delivered && x.Acked && !x.Success
+            x => x.InstallationId == failed.InstallationId && x.Delivered && x.Acked && !x.Success
                  && x.Message == "disk-full");
     }
 
     [Fact]
-    public async Task 运行中与离线设备分别被门禁拒绝()
+    public async Task 运行中与离线安装实例分别被门禁拒绝()
     {
         using var client = _factory.CreateClient();
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
         var backup = await CreateBackupAsync(client, admin);
         var token = await DevTokenAsync(client, [PermissionCatalog.BackupPush]);
 
-        var gate = await RegisterDeviceAsync(token, "PUSH-GATE");
+        var gate = await RegisterInstallationAsync(token, "PUSH-GATE");
         await using var connection = gate.Connection;
 
-        await connection.InvokeAsync<DeviceSummaryDto>(
+        await connection.InvokeAsync<InstallationSummaryDto>(
             DeviceHubMethods.ReportStationState,
             new DeviceStationStateRequest(DeviceStationStatuses.Online));
 
@@ -143,12 +144,12 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
             HttpMethod.Post,
             $"/api/v1/admin/backups/{backup.Id}/push",
             admin,
-            new PushBackupRequest(gate.DeviceId, null, "1.0.0", false, false, null, false)));
+            new PushBackupRequest(gate.InstallationId, null, "1.0.0", false, false, null, false)));
         Assert.Equal(
             (int)ApiErrorCode.DevicesBusy,
             await IdentityTestHelpers.ReadErrorCodeAsync(busy, HttpStatusCode.Conflict));
 
-        await connection.InvokeAsync<DeviceSummaryDto>(
+        await connection.InvokeAsync<InstallationSummaryDto>(
             DeviceHubMethods.ReportStationState,
             new DeviceStationStateRequest(DeviceStationStatuses.Idle));
         await connection.StopAsync();
@@ -157,56 +158,58 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
             HttpMethod.Post,
             $"/api/v1/admin/backups/{backup.Id}/push",
             admin,
-            new PushBackupRequest(gate.DeviceId, null, "1.0.0", false, false, null, false)));
+            new PushBackupRequest(gate.InstallationId, null, "1.0.0", false, false, null, false)));
         Assert.Equal(
             (int)ApiErrorCode.DevicesOffline,
             await IdentityTestHelpers.ReadErrorCodeAsync(offline, HttpStatusCode.Conflict));
     }
 
     [Fact]
-    public async Task 设备不回执按超时返回且失败回执不算成功()
+    public async Task 不回执按超时返回且失败回执不算成功()
     {
         using var client = _factory.CreateClient();
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
         var backup = await CreateBackupAsync(client, admin);
         var token = await DevTokenAsync(client, [PermissionCatalog.BackupPush]);
 
-        var silentDevice = await RegisterDeviceAsync(token, "PUSH-SILENT");
-        await using var silent = silentDevice.Connection;
+        var silentInstallation = await RegisterInstallationAsync(token, "PUSH-SILENT");
+        await using var silent = silentInstallation.Connection;
         var timeout = await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Post,
             $"/api/v1/admin/backups/{backup.Id}/push",
             admin,
-            new PushBackupRequest(silentDevice.DeviceId, null, "1.0.0", false, false, null, false)));
+            new PushBackupRequest(silentInstallation.InstallationId, null, "1.0.0", false, false, null, false)));
         Assert.Equal(
             (int)ApiErrorCode.BackupsAckTimeout,
             await IdentityTestHelpers.ReadErrorCodeAsync(timeout, HttpStatusCode.GatewayTimeout));
         await silent.StopAsync();
 
-        var failingDevice = await RegisterDeviceAsync(token, "PUSH-FAIL");
-        await using var failing = failingDevice.Connection;
+        var failingInstallation = await RegisterInstallationAsync(token, "PUSH-FAIL");
+        await using var failing = failingInstallation.Connection;
         failing.On<DeviceConfigPush>(
             DeviceHubEvents.ConfigPush,
             async command => await failing.InvokeAsync(
                 DeviceHubMethods.AcknowledgeConfigPush,
                 new DeviceConfigPushAck(command.BackupId, false, "disk-full")));
 
-        var result = await PushAsync(client, admin, backup.Id, failingDevice.DeviceId, restartAfterApply: false);
+        var result = await PushAsync(
+            client, admin, backup.Id, failingInstallation.InstallationId, restartAfterApply: false);
         Assert.True(result.Acked);
         Assert.False(result.Success);
         Assert.Equal("disk-full", result.Message);
     }
 
     [Fact]
-    public async Task 管理端重启在线设备并拒绝离线与无权限令牌()
+    public async Task 管理端重启在线安装实例并拒绝离线与无权限令牌()
     {
         using var client = _factory.CreateClient();
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
-        var token = await DevTokenAsync(client, [PermissionCatalog.DeviceRead, PermissionCatalog.DeviceRestart]);
-        var viewer = await DevTokenAsync(client, [PermissionCatalog.DeviceRead]);
+        var token = await DevTokenAsync(
+            client, [PermissionCatalog.InstallationRead, PermissionCatalog.InstallationRestart]);
+        var viewer = await DevTokenAsync(client, [PermissionCatalog.InstallationRead]);
 
-        var device = await RegisterDeviceAsync(token, "PUSH-RESTART");
-        await using var connection = device.Connection;
+        var installation = await RegisterInstallationAsync(token, "PUSH-RESTART");
+        await using var connection = installation.Connection;
         var restarted = new TaskCompletionSource<DeviceRestart>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         connection.On<DeviceRestart>(
@@ -215,20 +218,20 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
 
         var denied = await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Post,
-            $"/api/v1/admin/devices/{device.DeviceId}/restart",
+            $"/api/v1/admin/installations/{installation.InstallationId}/restart",
             viewer,
-            new DeviceRestartRequest("维护窗口")));
+            new InstallationRestartRequest("维护窗口")));
         Assert.Equal(
             (int)ApiErrorCode.Forbidden,
             await IdentityTestHelpers.ReadErrorCodeAsync(denied, HttpStatusCode.Forbidden));
 
-        var accepted = await IdentityTestHelpers.ReadDataAsync<DeviceRestartAccepted>(
+        var accepted = await IdentityTestHelpers.ReadDataAsync<InstallationRestartAccepted>(
             await client.SendAsync(IdentityTestHelpers.Authorized(
                 HttpMethod.Post,
-                $"/api/v1/admin/devices/{device.DeviceId}/restart",
+                $"/api/v1/admin/installations/{installation.InstallationId}/restart",
                 admin,
-                new DeviceRestartRequest("升级维护"))));
-        Assert.Equal(device.DeviceId, accepted.DeviceId);
+                new InstallationRestartRequest("升级维护"))));
+        Assert.Equal(installation.InstallationId, accepted.InstallationId);
 
         var command = await restarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal("升级维护", command.Reason);
@@ -236,9 +239,9 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
         await connection.StopAsync();
         var offline = await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Post,
-            $"/api/v1/admin/devices/{device.DeviceId}/restart",
+            $"/api/v1/admin/installations/{installation.InstallationId}/restart",
             admin,
-            new DeviceRestartRequest("离线重启")));
+            new InstallationRestartRequest("离线重启")));
         Assert.Equal(
             (int)ApiErrorCode.DevicesOffline,
             await IdentityTestHelpers.ReadErrorCodeAsync(offline, HttpStatusCode.Conflict));
@@ -246,44 +249,48 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
         var audits = await db.Set<AuditLog>()
-            .Where(x => x.Action == "devices.restart" && x.TargetType == "device")
+            .Where(x => x.Action == "installations.restart" && x.TargetType == "device_installation")
             .ToListAsync();
         Assert.Contains(
             audits,
             x => x.Result == AuditResults.Success
-                 && x.TargetId == device.DeviceId.ToString());
+                 && x.TargetId == installation.InstallationId.ToString());
         Assert.Contains(audits, x => x.Result == AuditResults.Failure);
     }
 
     [Fact]
-    public async Task 大备份只下发下载地址且跨设备需显式确认()
+    public async Task 大备份只下发下载地址且跨安装实例需显式确认()
     {
         using var client = _factory.CreateClient();
         var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
-        var payload = "\"" + new string('x', BackupConventions.InlineMaxBytes + 1024) + "\"";
-        var backup = await CreateBackupAsync(client, admin, payload, Guid.NewGuid());
-        Assert.True(backup.HasFile);
-
         var token = await DevTokenAsync(client, [PermissionCatalog.BackupPush]);
-        var device = await RegisterDeviceAsync(token, "PUSH-CROSS");
-        await using var connection = device.Connection;
+
+        var source = await RegisterInstallationAsync(token, "PUSH-CROSS-SRC");
+        await using var sourceConnection = source.Connection;
+        var target = await RegisterInstallationAsync(token, "PUSH-CROSS-DST");
+        await using var targetConnection = target.Connection;
+
         var received = new TaskCompletionSource<DeviceConfigPush>(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        connection.On<DeviceConfigPush>(
+        targetConnection.On<DeviceConfigPush>(
             DeviceHubEvents.ConfigPush,
             async command =>
             {
                 received.TrySetResult(command);
-                await connection.InvokeAsync(
+                await targetConnection.InvokeAsync(
                     DeviceHubMethods.AcknowledgeConfigPush,
                     new DeviceConfigPushAck(command.BackupId, true, null));
             });
+
+        var payload = "\"" + new string('x', BackupConventions.InlineMaxBytes + 1024) + "\"";
+        var backup = await CreateBackupAsync(client, admin, payload, source.InstallationId);
+        Assert.True(backup.HasFile);
 
         var unconfirmed = await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Post,
             $"/api/v1/admin/backups/{backup.Id}/push",
             admin,
-            new PushBackupRequest(device.DeviceId, null, "1.0.0", false, false, null, false)));
+            new PushBackupRequest(target.InstallationId, null, "1.0.0", false, false, null, false)));
         Assert.Equal(
             (int)ApiErrorCode.BackupsPushRejected,
             await IdentityTestHelpers.ReadErrorCodeAsync(unconfirmed, HttpStatusCode.Conflict));
@@ -293,7 +300,7 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
                 HttpMethod.Post,
                 $"/api/v1/admin/backups/{backup.Id}/push",
                 admin,
-                new PushBackupRequest(device.DeviceId, null, "1.0.0", false, false, null, true))));
+                new PushBackupRequest(target.InstallationId, null, "1.0.0", false, false, null, true))));
         Assert.True(result.Acked);
 
         var command = await received.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -302,9 +309,9 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
         Assert.Equal(backup.Sha256, command.Sha256);
     }
 
-    private sealed record TestDevice(HubConnection Connection, Guid DeviceId);
+    private sealed record TestInstallation(HubConnection Connection, Guid InstallationId);
 
-    private async Task<TestDevice> RegisterDeviceAsync(string token, string displayName)
+    private async Task<TestInstallation> RegisterInstallationAsync(string token, string displayName)
     {
         var connection = new HubConnectionBuilder()
             .WithUrl(
@@ -320,16 +327,16 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
         await connection.StartAsync();
         var installGuid = Guid.NewGuid();
         var registered = await connection.InvokeAsync<DeviceRegistrationResponse>(
-            DeviceHubMethods.RegisterDevice,
+            DeviceHubMethods.RegisterInstallation,
             new DeviceRegistrationRequest(
                 new DeviceIdentity(
-                    MacAddress: null,
                     InstallGuid: installGuid,
-                    FrameworkVersion: "1.0.0",
-                    PrimaryIdentifier: $"push-{installGuid:N}"),
+                    SmbiosUuid: null,
+                    SystemDiskSerial: $"push-{installGuid:N}",
+                    FrameworkVersion: "1.0.0"),
                 displayName,
                 IpAddress: "10.9.8.7"));
-        return new TestDevice(connection, registered.DeviceId);
+        return new TestInstallation(connection, registered.InstallationId);
     }
 
     private static async Task<string> DevTokenAsync(HttpClient client, string[] permissions)
@@ -349,7 +356,7 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
         HttpClient client,
         string token,
         string payload = """{"theme":"dark"}""",
-        Guid? deviceId = null)
+        Guid? installationId = null)
     {
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var namespaceKey = $"push-{suffix}";
@@ -358,7 +365,7 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
                 HttpMethod.Post,
                 "/api/v1/admin/backups/namespaces",
                 token,
-                new CreateBackupNamespaceRequest(namespaceKey, "设备下发", "集成测试", null, null))));
+                new CreateBackupNamespaceRequest(namespaceKey, "安装实例下发", "集成测试", null, null))));
 
         return await IdentityTestHelpers.ReadDataAsync<BackupDto>(
             await client.SendAsync(IdentityTestHelpers.Authorized(
@@ -368,9 +375,8 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
                 new CreateBackupRequest(
                     namespaceKey,
                     BackupConventions.KindConfig,
-                    "device-push",
-                    DeviceId: deviceId,
-                    DeviceName: null,
+                    "installation-push",
+                    InstallationId: installationId,
                     ModuleId: null,
                     SchemaVersion: 1,
                     FrameworkVersion: "1.0.0",
@@ -383,7 +389,7 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
         HttpClient client,
         string token,
         Guid backupId,
-        Guid? deviceId,
+        Guid? installationId,
         bool restartAfterApply)
     {
         return await IdentityTestHelpers.ReadDataAsync<PushBackupResult>(
@@ -391,6 +397,6 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
                 HttpMethod.Post,
                 $"/api/v1/admin/backups/{backupId}/push",
                 token,
-                new PushBackupRequest(deviceId, null, "1.0.0", restartAfterApply, false, null, false))));
+                new PushBackupRequest(installationId, null, "1.0.0", restartAfterApply, false, null, false))));
     }
 }

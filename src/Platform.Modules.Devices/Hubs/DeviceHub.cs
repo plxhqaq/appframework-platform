@@ -8,11 +8,11 @@ using Platform.Modules.Devices.Services;
 namespace Platform.Modules.Devices.Hubs;
 
 /// <summary>
-/// 通用设备 Hub：注册、心跳、工位状态与下发回执。
+/// 通用设备 Hub：安装实例注册、心跳、工位状态与下发回执。
 /// </summary>
 /// <remarks>
-/// 设备 id 只从连接登记表取，不接受客户端在心跳/工位调用里自报——否则持有一个应用令牌的
-/// 设备可以改写同应用下其它设备的状态。应用隔离轴同样只认令牌声明。
+/// 安装实例 id 只从连接登记表取，不接受客户端在心跳/工位调用里自报——否则持有一个应用令牌的
+/// 安装实例可以改写同应用下其它安装实例的状态。应用隔离轴同样只认令牌声明。
 /// </remarks>
 [Authorize]
 public sealed class DeviceHub : Hub
@@ -21,26 +21,26 @@ public sealed class DeviceHub : Hub
         LoggerMessage.Define<Guid, string>(
             LogLevel.Information,
             new EventId(1, "DeviceHubRegistered"),
-            "设备 {DeviceId} 在 Hub 注册（连接 {ConnectionId}）。");
+            "安装实例 {InstallationId} 在 Hub 注册（连接 {ConnectionId}）。");
 
     private static readonly Action<ILogger, Guid, string, Exception?> ReplacedLog =
         LoggerMessage.Define<Guid, string>(
             LogLevel.Information,
-            new EventId(2, "DeviceSessionReplaced"),
-            "设备 {DeviceId} 顶替旧连接 {ConnectionId}。");
+            new EventId(2, "InstallationSessionReplaced"),
+            "安装实例 {InstallationId} 顶替旧连接 {ConnectionId}。");
 
-    private readonly IDeviceRegistry _registry;
-    private readonly IDevicePresence _presence;
-    private readonly DeviceConnectionRegistry _connections;
-    private readonly IDeviceCommandAcks _acks;
+    private readonly IInstallationRegistry _registry;
+    private readonly IInstallationPresence _presence;
+    private readonly InstallationConnectionRegistry _connections;
+    private readonly IInstallationCommandAcks _acks;
     private readonly ILogger<DeviceHub> _logger;
 
     /// <summary>构造。</summary>
     public DeviceHub(
-        IDeviceRegistry registry,
-        IDevicePresence presence,
-        DeviceConnectionRegistry connections,
-        IDeviceCommandAcks acks,
+        IInstallationRegistry registry,
+        IInstallationPresence presence,
+        InstallationConnectionRegistry connections,
+        IInstallationCommandAcks acks,
         ILogger<DeviceHub> logger)
     {
         _registry = registry;
@@ -57,57 +57,69 @@ public sealed class DeviceHub : Hub
         await base.OnDisconnectedAsync(exception);
     }
 
-    /// <summary>注册或重连设备；同一设备同一安装的新连接会顶替旧连接，同机其它客户端可并存。</summary>
+    /// <summary>注册或重连安装实例；同一安装的新连接会顶替旧连接，同机其它应用可并存。</summary>
     /// <param name="request">设备身份与展示信息。</param>
-    public async Task<DeviceRegistrationResponse> RegisterDevice(DeviceRegistrationRequest request)
+    public async Task<DeviceRegistrationResponse> RegisterInstallation(DeviceRegistrationRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         var appKey = RequireAppKey();
 
         var response = await _registry.RegisterAsync(appKey, request, Context.ConnectionAborted);
         var replaced = _connections.Register(
-            appKey, response.DeviceId, request.Identity.InstallGuid, Context.ConnectionId);
+            appKey,
+            response.InstallationId,
+            response.NodeId,
+            request.Identity.InstallGuid,
+            Context.ConnectionId);
 
         await Groups.AddToGroupAsync(
             Context.ConnectionId,
-            DeviceHubPaths.DeviceGroup(response.DeviceId),
+            DeviceHubPaths.InstallationGroup(response.InstallationId),
+            Context.ConnectionAborted);
+        await Groups.AddToGroupAsync(
+            Context.ConnectionId,
+            DeviceHubPaths.NodeGroup(response.NodeId),
             Context.ConnectionAborted);
 
         if (!string.IsNullOrEmpty(replaced))
         {
             await Groups.RemoveFromGroupAsync(
                 replaced,
-                DeviceHubPaths.DeviceGroup(response.DeviceId),
+                DeviceHubPaths.InstallationGroup(response.InstallationId),
+                Context.ConnectionAborted);
+            await Groups.RemoveFromGroupAsync(
+                replaced,
+                DeviceHubPaths.NodeGroup(response.NodeId),
                 Context.ConnectionAborted);
             await Clients.Client(replaced).SendAsync(
                 DeviceHubEvents.SessionReplaced,
-                new DeviceSessionReplaced("replaced"),
+                new InstallationSessionReplaced("replaced"),
                 Context.ConnectionAborted);
-            ReplacedLog(_logger, response.DeviceId, replaced, null);
+            ReplacedLog(_logger, response.InstallationId, replaced, null);
         }
 
-        RegisteredLog(_logger, response.DeviceId, Context.ConnectionId, null);
+        RegisteredLog(_logger, response.InstallationId, Context.ConnectionId, null);
         return response;
     }
 
     /// <summary>心跳：在线/工位/报警一次上报。</summary>
     /// <param name="request">心跳内容。</param>
-    public async Task<DeviceSummaryDto> Heartbeat(DeviceHeartbeatRequest request)
+    public async Task<InstallationSummaryDto> Heartbeat(DeviceHeartbeatRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         var connection = RequireConnection();
         return await _presence.HeartbeatAsync(
-            connection.AppKey, connection.DeviceId, request, Context.ConnectionAborted);
+            connection.AppKey, connection.InstallationId, request, Context.ConnectionAborted);
     }
 
-    /// <summary>工位状态变化（供 S3 门禁判断是否允许下发）。</summary>
+    /// <summary>工位状态变化（供下发门禁判断是否允许下发）。</summary>
     /// <param name="request">工位状态。</param>
-    public async Task<DeviceSummaryDto> ReportStationState(DeviceStationStateRequest request)
+    public async Task<InstallationSummaryDto> ReportStationState(DeviceStationStateRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         var connection = RequireConnection();
         return await _presence.ReportStationStateAsync(
-            connection.AppKey, connection.DeviceId, request, Context.ConnectionAborted);
+            connection.AppKey, connection.InstallationId, request, Context.ConnectionAborted);
     }
 
     /// <summary>配置下发回执：完成命令网关的等待；无等待者时忽略（超时后才到）。</summary>
@@ -116,7 +128,7 @@ public sealed class DeviceHub : Hub
     {
         ArgumentNullException.ThrowIfNull(ack);
         var connection = RequireConnection();
-        _acks.Complete(connection.AppKey, connection.DeviceId, ack);
+        _acks.Complete(connection.AppKey, connection.InstallationId, ack);
         return Task.CompletedTask;
     }
 
@@ -128,8 +140,8 @@ public sealed class DeviceHub : Hub
             : appKey;
     }
 
-    private DeviceConnection RequireConnection() =>
+    private InstallationConnection RequireConnection() =>
         _connections.TryGet(Context.ConnectionId, out var connection)
             ? connection
-            : throw new HubException("连接尚未注册设备，请先调用 RegisterDevice。");
+            : throw new HubException("连接尚未注册安装实例，请先调用 RegisterInstallation。");
 }

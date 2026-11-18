@@ -135,9 +135,10 @@ public sealed partial class PlatformClient : IDisposable
         string? appKey = null,
         string? deviceFingerprint = null,
         string? machineCode = null,
+        Guid? installGuid = null,
         CancellationToken cancellationToken = default)
     {
-        var body = new LoginRequest(userName, password, appKey, deviceFingerprint, machineCode);
+        var body = new LoginRequest(userName, password, appKey, deviceFingerprint, machineCode, installGuid);
         var result = await CallAsync<LoginResponse>(HttpMethod.Post, LoginPath, body, useToken: false, cancellationToken);
         ApplyCredentials(result.AccessToken, result.ExpiresAt, result.RefreshToken, result.User);
         return result;
@@ -195,9 +196,10 @@ public sealed partial class PlatformClient : IDisposable
         string key,
         string? deviceFingerprint = null,
         string? machineCode = null,
+        Guid? installGuid = null,
         CancellationToken cancellationToken = default)
     {
-        var body = new RedeemSingleLoginKeyRequest(key, deviceFingerprint, machineCode);
+        var body = new RedeemSingleLoginKeyRequest(key, deviceFingerprint, machineCode, installGuid);
         var result = await CallAsync<TemporarySessionResponse>(
             HttpMethod.Post, SingleKeyRedeemPath, body, useToken: false, cancellationToken);
         ApplyCredentials(result.AccessToken, result.ExpiresAt, refreshToken: null, user: result.User);
@@ -208,9 +210,16 @@ public sealed partial class PlatformClient : IDisposable
     public Task<QrSessionCreatedDto> CreateQrLoginSessionAsync(
         string? deviceFingerprint = null,
         string? clientName = null,
+        string? appKey = null,
+        string? machineCode = null,
+        Guid? installGuid = null,
         CancellationToken cancellationToken = default) =>
         CallAsync<QrSessionCreatedDto>(
-            HttpMethod.Post, QrSessionsPath, new CreateQrSessionRequest(deviceFingerprint, clientName), useToken: false, cancellationToken);
+            HttpMethod.Post,
+            QrSessionsPath,
+            new CreateQrSessionRequest(appKey, deviceFingerprint, clientName, machineCode, installGuid),
+            useToken: false,
+            cancellationToken);
 
     /// <summary>读取扫码会话状态（<c>pending</c>/<c>approved</c>/<c>rejected</c>/<c>expired</c>/<c>cancelled</c>）。</summary>
     public Task<QrSessionStatusDto> GetQrLoginSessionAsync(Guid requestId, CancellationToken cancellationToken = default) =>

@@ -15,10 +15,10 @@ using Platform.Modules.Devices.Services;
 namespace Platform.Modules.Devices;
 
 /// <summary>
-/// 通用设备域：设备注册/心跳/工位/在线状态与管理端查询。
+/// 设备接入域：节点（物理机）+ 安装实例（appKey + installGuid）注册/心跳/工位与管理端查询。
 /// </summary>
 /// <remarks>
-/// 设备注册/心跳后续通过 <c>/hubs/devices</c> 提供；本模块只维护一份设备事实，
+/// 注册/心跳通过 <c>/hubs/devices</c> 提供；本模块维护节点与安装实例两份事实，
 /// 其它模块需要设备信息时走 Kernel 窄接口，不引用本模块实体。
 /// </remarks>
 public sealed class DevicesModule : IPlatformModule
@@ -32,9 +32,9 @@ public sealed class DevicesModule : IPlatformModule
     /// <inheritdoc />
     public IReadOnlyList<string> RequiredPermissions { get; } =
     [
-        PermissionCatalog.DeviceRead,
-        PermissionCatalog.DeviceManage,
-        PermissionCatalog.DeviceRestart,
+        PermissionCatalog.InstallationRead,
+        PermissionCatalog.InstallationManage,
+        PermissionCatalog.InstallationRestart,
     ];
 
     /// <inheritdoc />
@@ -45,19 +45,21 @@ public sealed class DevicesModule : IPlatformModule
 
         services.Configure<DevicesOptions>(configuration.GetSection(DevicesOptions.SectionName));
 
-        services.AddScoped<IDeviceRegistry, DeviceRegistry>();
-        services.AddScoped<IDevicePresence, DevicePresence>();
-        services.AddScoped<IDeviceAdmin, DeviceAdmin>();
-        services.AddScoped<IDeviceDirectory, DeviceDirectory>();
-        services.AddScoped<IDeviceCommandGateway, DeviceCommandGateway>();
-        services.AddScoped<IDeviceStatistics, DeviceStatisticsService>();
-        services.AddSingleton<DeviceConnectionRegistry>();
-        services.AddSingleton<IDeviceCommandAcks, DeviceCommandAcks>();
+        services.AddScoped<IInstallationRegistry, InstallationRegistry>();
+        services.AddScoped<IInstallationPresence, InstallationPresence>();
+        services.AddScoped<INodeAdmin, NodeAdmin>();
+        services.AddScoped<IInstallationAdmin, InstallationAdmin>();
+        services.AddScoped<IInstallationDirectory, InstallationDirectory>();
+        services.AddScoped<IDeviceNodeDirectory, DeviceNodeDirectory>();
+        services.AddScoped<IInstallationCommandGateway, InstallationCommandGateway>();
+        services.AddScoped<IInventoryStatistics, InventoryStatisticsService>();
+        services.AddSingleton<InstallationConnectionRegistry>();
+        services.AddSingleton<IInstallationCommandAcks, InstallationCommandAcks>();
 
         services.TryAddEnumerable(
             ServiceDescriptor.Scoped<IPlatformModelContributor, DevicesModelContributor>());
 
-        services.AddHostedService<DeviceOfflineWorker>();
+        services.AddHostedService<InstallationOfflineWorker>();
     }
 
     /// <inheritdoc />
@@ -65,6 +67,7 @@ public sealed class DevicesModule : IPlatformModule
     {
         ArgumentNullException.ThrowIfNull(api);
         api.MapModuleInfo(this);
-        api.MapDeviceEndpoints();
+        api.MapNodeEndpoints();
+        api.MapInstallationEndpoints();
     }
 }

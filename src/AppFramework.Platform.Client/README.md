@@ -7,7 +7,7 @@
 ## 安装
 
 ```bash
-dotnet add package AppFramework.Platform.Client --version 0.4.0-preview.1
+dotnet add package AppFramework.Platform.Client --version 0.5.0-preview.1
 ```
 
 客户端仓库必须**精确 pin 版本**（不要用 `*` 或范围）。它与 `AppFramework.Platform.Contracts`
@@ -124,7 +124,7 @@ if (!verdict.IsValid)
 var keys = await client.GetTrustedSigningKeysAsync();
 IReadOnlyCollection<string> publicKeys = [.. keys.Select(static k => k.PublicKey)];
 
-var offline = LicenseVerifier.VerifyOfflineCode(code, machineCode, "erp-pro", publicKeys);
+var offline = LicenseVerifier.VerifyOfflineCode(code, machineCode, "erp-pro", "demo", publicKeys);
 ```
 
 在线时也可以让服务端校验：`VerifyOfflineLicenseCodeAsync`。两者结论一致，离线时用本地那条。

@@ -6,6 +6,7 @@ using Platform.Contracts.Devices;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
+using Platform.Modules.Devices.Domain;
 using Platform.Modules.Devices.Options;
 using Platform.Modules.Devices.Services;
 using Platform.PostgresTests.Support;
@@ -13,155 +14,127 @@ using Xunit;
 
 namespace Platform.PostgresTests.Devices;
 
-/// <summary>设备域的真实 PostgreSQL 契约：去重、状态、离线扫描、跨应用隔离与管理端查询。</summary>
+/// <summary>设备域的真实 PostgreSQL 契约：节点/安装实例去重、状态、离线扫描、跨应用隔离与管理端查询。</summary>
 public sealed class DeviceServiceTests
 {
     private static readonly Guid InstallGuid = Guid.Parse("a1b2c3d4-e5f6-4789-9abc-def012345678");
 
     private static DeviceIdentity Identity(string primary, Guid? installGuid = null) =>
-        new("AA-BB-CC-DD-EE-FF", installGuid ?? InstallGuid, "1.0.0", primary);
+        new(installGuid ?? InstallGuid, primary, SystemDiskSerial: null, MacAddress: "AA-BB-CC-DD-EE-FF", FrameworkVersion: "1.0.0");
 
     private static DeviceRegistrationRequest Request(
         string primary,
         string autoName = "PC-01",
-        string? customName = null,
         string? branch = "full",
         int? heartbeatSeconds = 10,
         Guid? installGuid = null) =>
-        new(Identity(primary, installGuid), autoName, "10.1.2.3", branch, heartbeatSeconds, customName);
+        new(Identity(primary, installGuid), autoName, "10.1.2.3", branch, heartbeatSeconds);
 
-    private static DeviceRegistry Registry(PlatformDbContext db, IClock clock) =>
-        new(db, clock, Options.Create(new DevicesOptions()), NullLogger<DeviceRegistry>.Instance);
+    private static InstallationRegistry Registry(PlatformDbContext db, IClock clock) =>
+        new(db, clock, Options.Create(new DevicesOptions()), NullLogger<InstallationRegistry>.Instance);
 
-    private static DevicePresence Presence(PlatformDbContext db, IClock clock) =>
-        new(db, clock, Options.Create(new DevicesOptions()), NullLogger<DevicePresence>.Instance);
+    private static InstallationPresence Presence(PlatformDbContext db, IClock clock) =>
+        new(db, clock, Options.Create(new DevicesOptions()), NullLogger<InstallationPresence>.Instance);
 
-    private static DeviceAdmin Admin(PlatformDbContext db) => new(db);
+    private static InstallationAdmin Installations(PlatformDbContext db) => new(db);
+
+    private static NodeAdmin Nodes(PlatformDbContext db) => new(db);
 
     private static string NewAppKey() => "dev-" + Guid.NewGuid().ToString("N")[..12];
 
     [PostgresFact]
-    public async Task 同一应用内重复注册复用同一条设备()
+    public async Task 同一应用同一安装重复注册复用同一安装实例()
     {
         var connectionString = await PostgresTestEnvironment.GetConnectionStringAsync();
         var clock = new TestClock();
         var appKey = NewAppKey();
 
         Guid firstId;
+        Guid nodeId;
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
-            var first = await Registry(db, clock).RegisterAsync(
-                appKey, Request("PRIMARY-1", customName: "产线A"));
-            firstId = first.DeviceId;
-            Assert.Equal(16, first.DeviceShortId.Length);
+            var first = await Registry(db, clock).RegisterAsync(appKey, Request("PRIMARY-1"));
+            firstId = first.InstallationId;
+            nodeId = first.NodeId;
+            Assert.Equal(16, first.InstallationShortId.Length);
+            Assert.Equal(16, first.NodeShortId.Length);
         }
 
         DeviceRegistrationResponse second;
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
             second = await Registry(db, clock).RegisterAsync(
-                appKey,
-                Request("PRIMARY-1", branch: "torque") with { CustomName = null });
+                appKey, Request("PRIMARY-1", branch: "torque"));
         }
 
         await using var verify = PostgresTestEnvironment.CreateDbContext(connectionString, clock);
-        var device = await verify.Set<Platform.Modules.Devices.Domain.Device>()
+        var installation = await verify.Set<DeviceInstallation>()
+            .Include(static x => x.Node)
             .AsNoTracking()
             .SingleAsync(x => x.AppKey == appKey);
 
-        Assert.Equal(firstId, second.DeviceId);
-        Assert.Equal("产线A-PC-01", device.DisplayName);
-        Assert.Equal("torque", device.Branch);
-        Assert.Equal(DeviceOnlineStatuses.Online, device.OnlineStatus);
+        Assert.Equal(firstId, second.InstallationId);
+        Assert.Equal(nodeId, second.NodeId);
+        Assert.Equal("PC-01", installation.Node.DisplayName);
+        Assert.Equal("torque", installation.Branch);
+        Assert.Equal(DeviceOnlineStatuses.Online, installation.OnlineStatus);
+        Assert.Equal(1, await verify.Set<DeviceNode>().CountAsync(x => x.Id == nodeId));
     }
 
     [PostgresFact]
-    public async Task 同一机器码不同安装复用同一条设备()
-    {
-        var connectionString = await PostgresTestEnvironment.GetConnectionStringAsync();
-        var clock = new TestClock();
-        var appKey = NewAppKey();
-        var firstInstall = Guid.NewGuid();
-        var secondInstall = Guid.NewGuid();
-
-        DeviceRegistrationResponse first;
-        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
-        {
-            first = await Registry(db, clock).RegisterAsync(
-                appKey,
-                Request("SHARED-MACHINE", "PC-full", branch: "full", installGuid: firstInstall));
-        }
-
-        DeviceRegistrationResponse second;
-        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
-        {
-            second = await Registry(db, clock).RegisterAsync(
-                appKey,
-                Request("SHARED-MACHINE", "PC-torque", branch: "torque", installGuid: secondInstall));
-        }
-
-        await using var verify = PostgresTestEnvironment.CreateDbContext(connectionString, clock);
-        var device = await verify.Set<Platform.Modules.Devices.Domain.Device>()
-            .AsNoTracking()
-            .SingleAsync(x => x.AppKey == appKey);
-
-        Assert.Equal(first.DeviceId, second.DeviceId);
-        Assert.Equal(first.DeviceShortId, second.DeviceShortId);
-        Assert.Equal(device.MachineCode, device.DeviceKey);
-        Assert.Equal(secondInstall, device.InstallGuid);
-        Assert.Equal(1, await verify.Set<Platform.Modules.Devices.Domain.Device>().CountAsync(x => x.AppKey == appKey));
-    }
-
-    [Fact]
-    public void 同机不同安装可并存而同安装重连顶替()
-    {
-        var registry = new DeviceConnectionRegistry();
-        var deviceId = Guid.NewGuid();
-        var installA = Guid.NewGuid();
-        var installB = Guid.NewGuid();
-
-        Assert.Null(registry.Register("app", deviceId, installA, "conn-a1"));
-        Assert.Null(registry.Register("app", deviceId, installB, "conn-b1"));
-        Assert.Equal(1, registry.Count);
-
-        var replaced = registry.Register("app", deviceId, installA, "conn-a2");
-        Assert.Equal("conn-a1", replaced);
-        Assert.False(registry.TryGet("conn-a1", out _));
-        Assert.True(registry.TryGet("conn-a2", out var currentA));
-        Assert.Equal(installA, currentA.InstallGuid);
-
-        registry.Unregister("conn-a2");
-        Assert.True(registry.HasConnection(deviceId));
-        registry.Unregister("conn-b1");
-        Assert.False(registry.HasConnection(deviceId));
-        Assert.Equal(0, registry.Count);
-    }
-
-    [PostgresFact]
-    public async Task 同一台设备在不同应用下互不影响()
+    public async Task 同机不同应用是一个节点两个安装实例()
     {
         var connectionString = await PostgresTestEnvironment.GetConnectionStringAsync();
         var clock = new TestClock();
         var appA = NewAppKey();
         var appB = NewAppKey();
 
-        Guid idA;
-        Guid idB;
+        DeviceRegistrationResponse first;
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
-            idA = (await Registry(db, clock).RegisterAsync(appA, Request("SHARED-PRIMARY"))).DeviceId;
+            first = await Registry(db, clock).RegisterAsync(
+                appA, Request("SHARED-MACHINE", "PC-a", installGuid: Guid.NewGuid()));
         }
 
+        DeviceRegistrationResponse second;
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
-            idB = (await Registry(db, clock).RegisterAsync(appB, Request("SHARED-PRIMARY"))).DeviceId;
+            second = await Registry(db, clock).RegisterAsync(
+                appB, Request("SHARED-MACHINE", "PC-b", installGuid: Guid.NewGuid()));
         }
 
-        Assert.NotEqual(idA, idB);
+        Assert.Equal(first.NodeId, second.NodeId);
+        Assert.NotEqual(first.InstallationId, second.InstallationId);
+        Assert.Equal(first.MachineCode, second.MachineCode);
 
         await using var verify = PostgresTestEnvironment.CreateDbContext(connectionString, clock);
-        Assert.Equal(1, await verify.Set<Platform.Modules.Devices.Domain.Device>().CountAsync(x => x.AppKey == appA));
-        Assert.Equal(1, await verify.Set<Platform.Modules.Devices.Domain.Device>().CountAsync(x => x.AppKey == appB));
+        Assert.Equal(1, await verify.Set<DeviceNode>().CountAsync(x => x.MachineCode == first.MachineCode));
+        Assert.Equal(2, await verify.Set<DeviceInstallation>().CountAsync(x => x.NodeId == first.NodeId));
+    }
+
+    [Fact]
+    public void 同机不同安装可并存而同安装重连顶替()
+    {
+        var registry = new InstallationConnectionRegistry();
+        var installationA = Guid.NewGuid();
+        var installationB = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
+
+        Assert.Null(registry.Register("app-a", installationA, nodeId, InstallGuid, "conn-a1"));
+        Assert.Null(registry.Register("app-b", installationB, nodeId, InstallGuid, "conn-b1"));
+        Assert.Equal(2, registry.CountNodeConnections(nodeId));
+
+        var replaced = registry.Register("app-a", installationA, nodeId, InstallGuid, "conn-a2");
+        Assert.Equal("conn-a1", replaced);
+        Assert.False(registry.TryGet("conn-a1", out _));
+        Assert.True(registry.TryGet("conn-a2", out var currentA));
+        Assert.Equal(installationA, currentA.InstallationId);
+
+        registry.Unregister("conn-a2");
+        Assert.True(registry.HasConnection(installationB));
+        registry.Unregister("conn-b1");
+        Assert.False(registry.HasConnection(installationB));
+        Assert.Equal(0, registry.Count);
     }
 
     [PostgresFact]
@@ -171,17 +144,18 @@ public sealed class DeviceServiceTests
         var clock = new TestClock();
         var appKey = NewAppKey();
 
-        Guid deviceId;
+        Guid installationId;
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
-            deviceId = (await Registry(db, clock).RegisterAsync(appKey, Request("PRIMARY-HB"))).DeviceId;
+            installationId = (await Registry(db, clock).RegisterAsync(
+                appKey, Request("PRIMARY-HB"))).InstallationId;
         }
 
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
             var snapshot = await Presence(db, clock).HeartbeatAsync(
                 appKey,
-                deviceId,
+                installationId,
                 new DeviceHeartbeatRequest(
                     DeviceHeartbeatStatuses.Idle,
                     DeviceAlarmLevels.Warning,
@@ -199,7 +173,7 @@ public sealed class DeviceServiceTests
         {
             var snapshot = await Presence(db, clock).HeartbeatAsync(
                 appKey,
-                deviceId,
+                installationId,
                 new DeviceHeartbeatRequest(DeviceHeartbeatStatuses.Online, DeviceAlarmLevels.None));
             Assert.Equal(DeviceStationStatuses.Online, snapshot.StationStatus);
             Assert.Null(snapshot.AlarmMessage);
@@ -208,30 +182,40 @@ public sealed class DeviceServiceTests
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
             var snapshot = await Presence(db, clock).ReportStationStateAsync(
-                appKey, deviceId, new DeviceStationStateRequest(DeviceStationStatuses.Idle));
+                appKey, installationId, new DeviceStationStateRequest(DeviceStationStatuses.Idle));
             Assert.Equal(DeviceStationStatuses.Idle, snapshot.StationStatus);
         }
     }
 
     [PostgresFact]
-    public async Task 停用设备拒绝注册与心跳()
+    public async Task 停用安装实例或节点分别拒绝注册与心跳()
     {
         var connectionString = await PostgresTestEnvironment.GetConnectionStringAsync();
         var clock = new TestClock();
         var appKey = NewAppKey();
 
-        Guid deviceId;
+        Guid installationId;
+        Guid nodeId;
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
-            deviceId = (await Registry(db, clock).RegisterAsync(appKey, Request("PRIMARY-DISABLED"))).DeviceId;
-            await Admin(db).UpdateAsync(appKey, deviceId, new UpdateDeviceRequest(IsEnabled: false));
+            var registered = await Registry(db, clock).RegisterAsync(
+                appKey, Request("PRIMARY-DISABLED"));
+            installationId = registered.InstallationId;
+            nodeId = registered.NodeId;
+        }
+
+        // 应用级停用安装实例：注册与心跳都被拒绝
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            await Installations(db).UpdateAsync(
+                appKey, installationId, new UpdateInstallationRequest(IsEnabled: false));
         }
 
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
             var exception = await Assert.ThrowsAsync<BusinessException>(() =>
                 Registry(db, clock).RegisterAsync(appKey, Request("PRIMARY-DISABLED")));
-            Assert.Equal(ApiErrorCode.DevicesDisabled, exception.Code);
+            Assert.Equal(ApiErrorCode.DevicesInstallationDisabled, exception.Code);
         }
 
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
@@ -239,9 +223,32 @@ public sealed class DeviceServiceTests
             var exception = await Assert.ThrowsAsync<BusinessException>(() =>
                 Presence(db, clock).HeartbeatAsync(
                     appKey,
-                    deviceId,
+                    installationId,
                     new DeviceHeartbeatRequest(DeviceHeartbeatStatuses.Idle, DeviceAlarmLevels.None)));
-            Assert.Equal(ApiErrorCode.DevicesDisabled, exception.Code);
+            Assert.Equal(ApiErrorCode.DevicesInstallationDisabled, exception.Code);
+        }
+
+        // 平台级停用节点：该机器上所有应用都被拒绝
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            await Nodes(db).UpdateAsync(nodeId, new UpdateNodeRequest(IsEnabled: false));
+        }
+
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            var exception = await Assert.ThrowsAsync<BusinessException>(() =>
+                Registry(db, clock).RegisterAsync(NewAppKey(), Request("PRIMARY-DISABLED")));
+            Assert.Equal(ApiErrorCode.DevicesNodeDisabled, exception.Code);
+        }
+
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            var exception = await Assert.ThrowsAsync<BusinessException>(() =>
+                Presence(db, clock).HeartbeatAsync(
+                    appKey,
+                    installationId,
+                    new DeviceHeartbeatRequest(DeviceHeartbeatStatuses.Idle, DeviceAlarmLevels.None)));
+            Assert.Equal(ApiErrorCode.DevicesNodeDisabled, exception.Code);
         }
     }
 
@@ -252,11 +259,11 @@ public sealed class DeviceServiceTests
         var clock = new TestClock();
         var appKey = NewAppKey();
 
-        Guid deviceId;
+        Guid installationId;
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
-            deviceId = (await Registry(db, clock).RegisterAsync(
-                appKey, Request("PRIMARY-OFFLINE", heartbeatSeconds: 10))).DeviceId;
+            installationId = (await Registry(db, clock).RegisterAsync(
+                appKey, Request("PRIMARY-OFFLINE", heartbeatSeconds: 10))).InstallationId;
         }
 
         // 刚注册不应被判离线（阈值 max(3×10, 60) = 60 秒）
@@ -267,8 +274,9 @@ public sealed class DeviceServiceTests
 
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
-            var device = await db.Set<Platform.Modules.Devices.Domain.Device>().SingleAsync(x => x.Id == deviceId);
-            device.LastHeartbeatAt = clock.UtcNow.AddMinutes(-5);
+            var installation = await db.Set<DeviceInstallation>()
+                .SingleAsync(x => x.Id == installationId);
+            installation.LastHeartbeatAt = clock.UtcNow.AddMinutes(-5);
             await db.SaveChangesAsync();
         }
 
@@ -278,14 +286,14 @@ public sealed class DeviceServiceTests
         }
 
         await using var verify = PostgresTestEnvironment.CreateDbContext(connectionString, clock);
-        var offline = await verify.Set<Platform.Modules.Devices.Domain.Device>()
+        var offline = await verify.Set<DeviceInstallation>()
             .AsNoTracking()
-            .SingleAsync(x => x.Id == deviceId);
+            .SingleAsync(x => x.Id == installationId);
         Assert.Equal(DeviceOnlineStatuses.Offline, offline.OnlineStatus);
     }
 
     [PostgresFact]
-    public async Task 管理端分页过滤与跨应用隔离()
+    public async Task 安装实例管理端分页过滤与跨应用隔离()
     {
         var connectionString = await PostgresTestEnvironment.GetConnectionStringAsync();
         var clock = new TestClock();
@@ -296,26 +304,30 @@ public sealed class DeviceServiceTests
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
             var registry = Registry(db, clock);
-            await registry.RegisterAsync(appA, Request("ADMIN-PRIMARY-1", "PC-01", "一车间", "full"));
-            var second = await registry.RegisterAsync(appA, Request("ADMIN-PRIMARY-2", "PC-02", "一车间", "torque"));
-            await registry.RegisterAsync(appA, Request("ADMIN-PRIMARY-3", "PC-03", "二车间", "full"));
-            machineCodeOfSecond = (await Admin(db).GetAsync(appA, second.DeviceId)).MachineCode;
+            await registry.RegisterAsync(
+                appA, Request("ADMIN-PRIMARY-1", "PC-01", "full", installGuid: Guid.NewGuid()));
+            var second = await registry.RegisterAsync(
+                appA, Request("ADMIN-PRIMARY-2", "PC-02", "torque", installGuid: Guid.NewGuid()));
+            await registry.RegisterAsync(
+                appA, Request("ADMIN-PRIMARY-3", "PC-03", "full", installGuid: Guid.NewGuid()));
+            machineCodeOfSecond = (await Installations(db).GetAsync(appA, second.InstallationId)).MachineCode;
         }
 
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
-            await Registry(db, clock).RegisterAsync(appB, Request("ADMIN-PRIMARY-1"));
+            await Registry(db, clock).RegisterAsync(
+                appB, Request("ADMIN-PRIMARY-1", installGuid: Guid.NewGuid()));
         }
 
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
-            var admin = Admin(db);
+            var admin = Installations(db);
             var all = await admin.ListAsync(appA, new PageQuery { Page = 1, PageSize = 10 }, null, null);
             Assert.Equal(3, all.Total);
 
             var torque = await admin.ListAsync(appA, new PageQuery(), null, "torque");
             Assert.Equal(1, torque.Total);
-            Assert.Equal("PC-02", torque.Items[0].AutoName);
+            Assert.Equal("PC-02", torque.Items[0].NodeDisplayName);
 
             var byMachineCode = await admin.ListAsync(
                 appA, new PageQuery { Keyword = machineCodeOfSecond }, null, null);
@@ -324,12 +336,13 @@ public sealed class DeviceServiceTests
             var online = await admin.ListAsync(appA, new PageQuery(), DeviceOnlineStatuses.Online, null);
             Assert.Equal(3, online.Total);
 
-            var foreignId = await db.Set<Platform.Modules.Devices.Domain.Device>()
+            var foreignId = await db.Set<DeviceInstallation>()
                 .Where(x => x.AppKey == appB)
                 .Select(x => x.Id)
                 .SingleAsync();
-            var exception = await Assert.ThrowsAsync<BusinessException>(() => admin.GetAsync(appA, foreignId));
-            Assert.Equal(ApiErrorCode.DevicesNotFound, exception.Code);
+            var exception = await Assert.ThrowsAsync<BusinessException>(
+                () => admin.GetAsync(appA, foreignId));
+            Assert.Equal(ApiErrorCode.DevicesInstallationNotFound, exception.Code);
 
             // 关键字按机器码命中后仍限定在当前应用
             var crossAppKeyword = await admin.ListAsync(
@@ -339,80 +352,56 @@ public sealed class DeviceServiceTests
     }
 
     [PostgresFact]
-    public async Task 已合并的历史重复设备不再出现在管理端()
+    public async Task 节点管理端跨应用可见且改自定义名与清除后回落最新自动名()
     {
         var connectionString = await PostgresTestEnvironment.GetConnectionStringAsync();
         var clock = new TestClock();
-        var appKey = NewAppKey();
-        var canonicalId = Guid.NewGuid();
-        var mergedId = Guid.NewGuid();
-        var now = clock.UtcNow;
+        var appA = NewAppKey();
+        var appB = NewAppKey();
 
+        Guid nodeId;
+        string machineCode;
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
-            db.Set<Platform.Modules.Devices.Domain.Device>().AddRange(
-                new Platform.Modules.Devices.Domain.Device
-                {
-                    Id = canonicalId,
-                    AppKey = appKey,
-                    DeviceKey = "MERGEDCODE000001",
-                    MachineCode = "MERGEDCODE000001",
-                    DisplayName = "主设备",
-                    CreatedAt = now,
-                    UpdatedAt = now,
-                },
-                new Platform.Modules.Devices.Domain.Device
-                {
-                    Id = mergedId,
-                    AppKey = appKey,
-                    DeviceKey = new string('a', 64),
-                    MachineCode = "MERGEDCODE000001",
-                    DisplayName = "历史重复",
-                    MergedIntoDeviceId = canonicalId,
-                    CreatedAt = now,
-                    UpdatedAt = now,
-                });
-            await db.SaveChangesAsync();
-        }
-
-        await using var verify = PostgresTestEnvironment.CreateDbContext(connectionString, clock);
-        var admin = Admin(verify);
-        var list = await admin.ListAsync(appKey, new PageQuery { Page = 1, PageSize = 10 }, null, null);
-        Assert.Equal(1, list.Total);
-        Assert.Equal(canonicalId, list.Items[0].Id);
-
-        var exception = await Assert.ThrowsAsync<BusinessException>(() => admin.GetAsync(appKey, mergedId));
-        Assert.Equal(ApiErrorCode.DevicesNotFound, exception.Code);
-    }
-
-    [PostgresFact]
-    public async Task 管理端改自定义名与清除后展示名回落到机器名()
-    {
-        var connectionString = await PostgresTestEnvironment.GetConnectionStringAsync();
-        var clock = new TestClock();
-        var appKey = NewAppKey();
-
-        Guid deviceId;
-        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
-        {
-            deviceId = (await Registry(db, clock).RegisterAsync(
-                appKey, Request("PRIMARY-RENAME", "PC-09"))).DeviceId;
+            var registered = await Registry(db, clock).RegisterAsync(
+                appA, Request("NODE-PRIMARY-1", "PC-09"));
+            nodeId = registered.NodeId;
+            machineCode = registered.MachineCode;
         }
 
         await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
         {
-            var renamed = await Admin(db).UpdateAsync(
-                appKey, deviceId, new UpdateDeviceRequest(CustomName: "老化台"));
-            Assert.Equal("老化台-PC-09", renamed.DisplayName);
+            await Registry(db, clock).RegisterAsync(
+                appB, Request("NODE-PRIMARY-1", "PC-other", installGuid: Guid.NewGuid()));
+        }
+
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            var admin = Nodes(db);
+
+            var byMachineCode = await admin.ListAsync(
+                new PageQuery { Keyword = machineCode }, null, null);
+            Assert.Equal(1, byMachineCode.Total);
+            Assert.Equal(2, byMachineCode.Items[0].InstallationCount);
+            Assert.Equal(2, byMachineCode.Items[0].AppKeys.Count);
+
+            var online = await admin.ListAsync(new PageQuery(), DeviceOnlineStatuses.Online, null);
+            Assert.Contains(online.Items, x => x.Id == nodeId);
+
+            var detail = await admin.GetAsync(nodeId);
+            Assert.Equal(2, detail.Installations.Count);
+
+            var renamed = await admin.UpdateAsync(nodeId, new UpdateNodeRequest(CustomName: "老化台"));
+            Assert.Equal("老化台", renamed.DisplayName);
             Assert.Equal("老化台", renamed.CustomName);
-        }
 
-        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
-        {
-            var cleared = await Admin(db).UpdateAsync(
-                appKey, deviceId, new UpdateDeviceRequest(CustomName: string.Empty));
-            Assert.Equal("PC-09", cleared.DisplayName);
+            var cleared = await admin.UpdateAsync(nodeId, new UpdateNodeRequest(CustomName: string.Empty));
+            Assert.Equal("PC-other", cleared.DisplayName);
             Assert.Null(cleared.CustomName);
+
+            var exception = await Assert.ThrowsAsync<BusinessException>(
+                () => admin.GetAsync(Guid.NewGuid()));
+            Assert.Equal(ApiErrorCode.DevicesNodeNotFound, exception.Code);
         }
     }
 
@@ -423,12 +412,18 @@ public sealed class DeviceServiceTests
         var clock = new TestClock();
         await using var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock);
 
-        var request = new DeviceRegistrationRequest(
-            new DeviceIdentity(null, Guid.Empty, "1.0.0", "PRIMARY"),
+        var noInstall = new DeviceRegistrationRequest(
+            new DeviceIdentity(Guid.Empty, "PRIMARY", null),
             "PC-01");
+        var installException = await Assert.ThrowsAsync<BusinessException>(() =>
+            Registry(db, clock).RegisterAsync(NewAppKey(), noInstall));
+        Assert.Equal(ApiErrorCode.DevicesIdentityInvalid, installException.Code);
 
-        var exception = await Assert.ThrowsAsync<BusinessException>(() =>
-            Registry(db, clock).RegisterAsync(NewAppKey(), request));
-        Assert.Equal(ApiErrorCode.DevicesIdentityInvalid, exception.Code);
+        var noPrimary = new DeviceRegistrationRequest(
+            new DeviceIdentity(Guid.NewGuid(), "Default string", null),
+            "PC-01");
+        var primaryException = await Assert.ThrowsAsync<BusinessException>(() =>
+            Registry(db, clock).RegisterAsync(NewAppKey(), noPrimary));
+        Assert.Equal(ApiErrorCode.DevicesPrimaryIdentifierMissing, primaryException.Code);
     }
 }

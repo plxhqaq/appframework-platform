@@ -6,9 +6,10 @@ import { AppsPage } from '../features/apps/AppsPage';
 import { AuditPage } from '../features/audit/AuditPage';
 import { BackupsPage } from '../features/backups/BackupsPage';
 import { ChangePasswordPage } from '../features/auth/ChangePasswordPage';
-import { DevicesPage } from '../features/devices/DevicesPage';
 import { DocumentsPage } from '../features/documents/DocumentsPage';
+import { InstallationsPage } from '../features/installations/InstallationsPage';
 import { LoginPage } from '../features/auth/LoginPage';
+import { NodesPage } from '../features/nodes/NodesPage';
 import { OverviewPage } from '../features/dashboard/OverviewPage';
 import { IdentityPage } from '../features/identity/IdentityPage';
 import { QrApprovalPage } from '../features/identity/QrApprovalPage';
@@ -79,10 +80,11 @@ const router = createBrowserRouter([
       { path: 'qr-approval', element: <Guarded path="/qr-approval"><QrApprovalPage /></Guarded> },
       { path: 'qr-login/:requestId', element: <GuardedQrDetail /> },
       { path: 'apps', element: <Guarded path="/apps"><AppsPage /></Guarded> },
+      { path: 'nodes', element: <Guarded path="/nodes"><NodesPage /></Guarded> },
       { path: 'identity', element: <Guarded path="/identity"><IdentityPage /></Guarded> },
       { path: 'versions', element: <Guarded path="/versions"><VersionsPage /></Guarded> },
       { path: 'updaters', element: <Guarded path="/updaters"><UpdatersPage /></Guarded> },
-      { path: 'devices', element: <Guarded path="/devices"><DevicesPage /></Guarded> },
+      { path: 'installations', element: <Guarded path="/installations"><InstallationsPage /></Guarded> },
       { path: 'backups', element: <Guarded path="/backups"><BackupsPage /></Guarded> },
       { path: 'documents', element: <Guarded path="/documents"><DocumentsPage /></Guarded> },
       { path: 'licensing', element: <Guarded path="/licensing"><LicensingPage /></Guarded> },

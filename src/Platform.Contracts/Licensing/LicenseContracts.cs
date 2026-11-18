@@ -135,7 +135,7 @@ public sealed record UpdateLicenseProductRequest(
     int? DefaultGraceDays,
     int? TrialDays);
 
-/// <summary>授权的状态由到期时间、宽限期与吊销时间共同决定。</summary>
+/// <summary>授权的状态由到期时间、宽限期与吊销时间共同决定。节点信息按机器码关联，不落库。</summary>
 public sealed record LicenseEntitlementDto(
     Guid Id,
     string ProductKey,
@@ -154,9 +154,11 @@ public sealed record LicenseEntitlementDto(
     DateTimeOffset? LastSeenAt,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    string? RevokeScope = null);
+    string? RevokeScope = null,
+    Guid? NodeId = null,
+    string? NodeDisplayName = null);
 
-/// <summary>签发正式授权。机器码是授权主体，跨机器复制无效。</summary>
+/// <summary>签发正式授权。机器码是授权主体，跨机器复制无效；NodeId 与 MachineCode 至少给一个。</summary>
 public sealed record IssueLicenseRequest(
     string? ProductKey,
     string? MachineCode,
@@ -164,7 +166,8 @@ public sealed record IssueLicenseRequest(
     DateTimeOffset? NotAfter,
     int? AddDays,
     int? GraceDays,
-    string? Notes);
+    string? Notes,
+    Guid? NodeId = null);
 
 /// <summary>续期；<see cref="NotAfter"/> 与 <see cref="AddDays"/> 二选一，后者相对当前到期时间追加。</summary>
 public sealed record RenewLicenseRequest(
@@ -176,14 +179,15 @@ public sealed record RenewLicenseRequest(
 /// <summary>吊销授权。<see cref="Scope"/> 缺省为 <see cref="LicenseConventions.RevokeScopeAll"/>。</summary>
 public sealed record RevokeLicenseRequest(string? Reason, string? Scope = null);
 
-/// <summary>签发离线授权码（无联网现场）。</summary>
+/// <summary>签发离线授权码（无联网现场）。NodeId 与 MachineCode 至少给一个。</summary>
 public sealed record IssueOfflineLicenseCodeRequest(
     string? ProductKey,
     string? MachineCode,
     DateTimeOffset? NotAfter,
     int? AddDays,
     string? LicenseNo,
-    string? Remark);
+    string? Remark,
+    Guid? NodeId = null);
 
 /// <summary>离线授权码台账。<see cref="Code"/> 为原始码，<see cref="FormattedCode"/> 仅供人读。</summary>
 public sealed record OfflineLicenseCodeDto(
@@ -202,12 +206,17 @@ public sealed record OfflineLicenseCodeDto(
     DateTimeOffset CreatedAt);
 
 /// <summary>校验离线授权码（主要给客户端与服务端测试使用；离线场景由客户端本地验签）。</summary>
+/// <param name="Code">授权码原文（可带分隔符）。</param>
+/// <param name="MachineCode">本机机器码。</param>
+/// <param name="ProductKey">当前产品键。</param>
+/// <param name="AppKey">当前应用键；为空时以令牌应用上下文为准。</param>
 public sealed record VerifyOfflineLicenseCodeRequest(
     string? Code,
     string? MachineCode,
-    string? ProductKey);
+    string? ProductKey,
+    string? AppKey = null);
 
-/// <summary>离线码校验结果；签名、版本、机器码与产品绑定均已通过才会 <see cref="IsValid"/>。</summary>
+/// <summary>离线码校验结果；签名、版本、机器码、产品与应用绑定均已通过才会 <see cref="IsValid"/>。</summary>
 public sealed record OfflineLicenseVerificationDto(
     bool IsValid,
     string ProductKey,
@@ -216,7 +225,8 @@ public sealed record OfflineLicenseVerificationDto(
     DateTimeOffset IssuedAt,
     DateTimeOffset NotAfter,
     int GraceDays,
-    string? LicenseNo);
+    string? LicenseNo,
+    string? AppKey = null);
 
 /// <summary>客户端校验在线授权。</summary>
 public sealed record LicenseStatusRequest(string? ProductKey, string? MachineCode);
@@ -238,7 +248,8 @@ public sealed record LicenseStatusResponse(
     string? LicenseNo,
     string? KeyId,
     string? Snapshot,
-    IReadOnlyList<LicenseKeyDescriptorDto> TrustedKeys);
+    IReadOnlyList<LicenseKeyDescriptorDto> TrustedKeys,
+    Guid? NodeId = null);
 
 /// <summary>可下发客户端的签名公钥（公钥不是秘密，用于验签与轮换过渡）。</summary>
 public sealed record LicenseKeyDescriptorDto(

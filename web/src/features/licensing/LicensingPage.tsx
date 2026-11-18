@@ -268,10 +268,17 @@ export function LicensingPage() {
       dataIndex: 'machineCode',
       key: 'machineCode',
       width: 180,
-      render: (value: string) => (
-        <Typography.Text code style={{ wordBreak: 'break-all' }}>
-          {value}
-        </Typography.Text>
+      render: (value: string, row: LicenseEntitlement) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Text code style={{ wordBreak: 'break-all' }}>
+            {value}
+          </Typography.Text>
+          {row.nodeDisplayName ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {row.nodeDisplayName}
+            </Typography.Text>
+          ) : null}
+        </Space>
       ),
     },
     {

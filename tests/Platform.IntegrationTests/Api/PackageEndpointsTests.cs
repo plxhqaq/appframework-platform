@@ -12,7 +12,7 @@ namespace Platform.IntegrationTests.Api;
 
 /// <summary>
 /// 发布包登记链路：清单自动识别、人工登记、下载（Range / ETag / 304）、
-/// check 安装包回退、冲突与删除约束。
+/// check 安装包回退、启用包切换与删除约束。
 /// </summary>
 public sealed class PackageEndpointsTests : IClassFixture<PlatformApiFactory>
 {
@@ -312,7 +312,7 @@ public sealed class PackageEndpointsTests : IClassFixture<PlatformApiFactory>
     }
 
     [Fact]
-    public async Task 无清单包可人工登记且冲突与删除受控()
+    public async Task 无清单包可人工登记且启用切换与删除受控()
     {
         using var client = _factory.CreateClient();
         var token = await LoginAsync(client);
@@ -391,25 +391,34 @@ public sealed class PackageEndpointsTests : IClassFixture<PlatformApiFactory>
         Assert.Equal(registered.Id, replay.Id);
         Assert.True(replay.Reused);
 
-        // 不同内容占同一槽位：冲突
+        // 不同内容同属 full/win-x64：新增一行并自动接管启用位，旧包保留
         var otherBytes = "another-installer-payload"u8.ToArray();
         var otherSha = await UploadAsync(client, token, otherBytes);
-        var conflict = await client.SendAsync(IdentityTestHelpers.Authorized(
-            HttpMethod.Post,
-            "/api/v1/admin/versions/packages",
-            token,
-            new RegisterReleasePackageRequest(
-                otherSha,
-                otherBytes.Length,
-                "Setup-pkg-manual-1.0.0.exe",
-                VersionConventions.PackageKindFull,
-                Target: "win-x64",
-                Format: "exe",
-                ChannelKey: channelKey,
-                Version: "1.0.0")));
-        Assert.Equal(
-            (int)ApiErrorCode.VersionsPackageManifestConflict,
-            await IdentityTestHelpers.ReadErrorCodeAsync(conflict, HttpStatusCode.Conflict));
+        var other = await RegisterAsync(client, token, new RegisterReleasePackageRequest(
+            otherSha,
+            otherBytes.Length,
+            "Setup-pkg-manual-1.0.0.exe",
+            VersionConventions.PackageKindFull,
+            Target: "win-x64",
+            Format: "exe",
+            ChannelKey: channelKey,
+            Version: "1.0.0"));
+        Assert.NotEqual(registered.Id, other.Id);
+        Assert.True(other.IsActive);
+        Assert.False(other.Reused);
+
+        var switched = await CheckAsync(client, token, channelKey, null);
+        Assert.Equal(otherSha, switched.Installer!.Sha256);
+
+        // 手动切回旧包：只有启用包会被 check 下发
+        var activated = await ReadDataAsync<ReleasePackageDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/versions/packages/{registered.Id}/activate",
+                token)));
+        Assert.True(activated.IsActive);
+        var rollbackToFirst = await CheckAsync(client, token, channelKey, null);
+        Assert.Equal(manualSha, rollbackToFirst.Installer!.Sha256);
 
         // 已发布版本的包不能删；草稿可以
         var publishedDelete = await client.SendAsync(IdentityTestHelpers.Authorized(
@@ -438,6 +447,67 @@ public sealed class PackageEndpointsTests : IClassFixture<PlatformApiFactory>
                 $"/api/v1/admin/versions/packages/{draft.Id}",
                 token)));
         Assert.Equal(draft.Id, deleted.Id);
+    }
+
+    [Fact]
+    public async Task 归档后重新上传同版本包恢复为草稿()
+    {
+        using var client = _factory.CreateClient();
+        var token = await LoginAsync(client);
+        const string channelKey = "pkg-restore";
+
+        await CreateChannelAsync(client, token, channelKey);
+
+        var bytes = "restore-installer-payload"u8.ToArray();
+        var sha = await UploadAsync(client, token, bytes);
+        var registered = await RegisterAsync(client, token, new RegisterReleasePackageRequest(
+            sha,
+            bytes.Length,
+            "Setup-pkg-restore-1.0.0.exe",
+            VersionConventions.PackageKindFull,
+            Target: "win-x64",
+            Format: "exe",
+            ChannelKey: channelKey,
+            Version: "1.0.0",
+            Publish: true));
+
+        var archived = await ReadDataAsync<ReleaseDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/versions/releases/{registered.ReleaseId}/archive",
+                token)));
+        Assert.Equal(VersionConventions.StatusArchived, archived.Status);
+
+        // 误归档的补救：再次上传同版本包（即使内容相同）即恢复为草稿
+        var reuploaded = await RegisterAsync(client, token, new RegisterReleasePackageRequest(
+            sha,
+            bytes.Length,
+            "Setup-pkg-restore-1.0.0.exe",
+            VersionConventions.PackageKindFull,
+            Target: "win-x64",
+            Format: "exe",
+            ChannelKey: channelKey,
+            Version: "1.0.0"));
+        Assert.Equal(registered.Id, reuploaded.Id);
+        Assert.True(reuploaded.Reused);
+        Assert.True(reuploaded.IsActive);
+
+        var restored = await ReadDataAsync<ReleaseDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                $"/api/v1/admin/versions/releases/{registered.ReleaseId}",
+                token)));
+        Assert.Equal(VersionConventions.StatusDraft, restored.Status);
+        Assert.Null(restored.ArchivedAt);
+        Assert.Null(restored.PublishedAt);
+
+        // 恢复后仍可正常重新发布
+        var republished = await ReadDataAsync<ReleaseDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/versions/releases/{registered.ReleaseId}/publish",
+                token)));
+        Assert.Equal(VersionConventions.StatusPublished, republished.Status);
     }
 
     [Fact]

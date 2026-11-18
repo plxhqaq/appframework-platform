@@ -151,6 +151,11 @@ public enum ApiErrorCode
     DevicesDisabled = 802,
     DevicesOffline = 803,
     DevicesBusy = 804,
+    DevicesInstallationNotFound = 805,
+    DevicesNodeDisabled = 806,
+    DevicesInstallationDisabled = 807,
+    DevicesPrimaryIdentifierMissing = 808,
+    DevicesNodeNotFound = 809,
 }
 
 /// <summary>错误码分段边界。用于分组展示、CI 断言与客户端提示文案归类。</summary>

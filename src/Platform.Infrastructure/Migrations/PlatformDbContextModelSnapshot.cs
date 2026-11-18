@@ -442,15 +442,6 @@ namespace Platform.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
 
-                    b.Property<Guid?>("DeviceId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("device_id");
-
-                    b.Property<string>("DeviceName")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("device_name");
-
                     b.Property<string>("FileName")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)")
@@ -461,6 +452,10 @@ namespace Platform.Infrastructure.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
                         .HasColumnName("framework_version");
+
+                    b.Property<Guid?>("InstallationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("installation_id");
 
                     b.Property<string>("Kind")
                         .IsRequired()
@@ -482,6 +477,15 @@ namespace Platform.Infrastructure.Migrations
                     b.Property<Guid>("NamespaceId")
                         .HasColumnType("uuid")
                         .HasColumnName("namespace_id");
+
+                    b.Property<Guid?>("NodeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("node_id");
+
+                    b.Property<string>("NodeName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("node_name");
 
                     b.Property<string>("PayloadJson")
                         .HasColumnType("text")
@@ -512,8 +516,14 @@ namespace Platform.Infrastructure.Migrations
                     b.HasIndex("DeletedAt", "NamespaceId")
                         .HasDatabaseName("ix_backups_deleted_namespace");
 
+                    b.HasIndex("InstallationId", "CreatedAt")
+                        .HasDatabaseName("ix_backups_installation_created");
+
                     b.HasIndex("NamespaceId", "CreatedAt")
                         .HasDatabaseName("ix_backups_namespace_created");
+
+                    b.HasIndex("NodeId", "CreatedAt")
+                        .HasDatabaseName("ix_backups_node_created");
 
                     b.ToTable("backups", (string)null);
                 });
@@ -579,7 +589,7 @@ namespace Platform.Infrastructure.Migrations
                     b.ToTable("backup_namespaces", (string)null);
                 });
 
-            modelBuilder.Entity("Platform.Modules.Devices.Domain.Device", b =>
+            modelBuilder.Entity("Platform.Modules.Devices.Domain.DeviceInstallation", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -603,11 +613,6 @@ namespace Platform.Infrastructure.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("app_key");
 
-                    b.Property<string>("AutoName")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("auto_name");
-
                     b.Property<string>("Branch")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
@@ -616,23 +621,6 @@ namespace Platform.Infrastructure.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
-
-                    b.Property<string>("CustomName")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("custom_name");
-
-                    b.Property<string>("DeviceKey")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("device_key");
-
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("display_name");
 
                     b.Property<DateTimeOffset?>("FirstConnectedAt")
                         .HasColumnType("timestamp with time zone")
@@ -647,14 +635,9 @@ namespace Platform.Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("heartbeat_seconds");
 
-                    b.Property<Guid?>("InstallGuid")
+                    b.Property<Guid>("InstallGuid")
                         .HasColumnType("uuid")
                         .HasColumnName("install_guid");
-
-                    b.Property<string>("IpAddress")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("ip_address");
 
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("boolean")
@@ -668,15 +651,9 @@ namespace Platform.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_heartbeat_at");
 
-                    b.Property<string>("MachineCode")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("machine_code");
-
-                    b.Property<Guid?>("MergedIntoDeviceId")
+                    b.Property<Guid>("NodeId")
                         .HasColumnType("uuid")
-                        .HasColumnName("merged_into_device_id");
+                        .HasColumnName("node_id");
 
                     b.Property<string>("OnlineStatus")
                         .IsRequired()
@@ -696,17 +673,88 @@ namespace Platform.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AppKey", "DeviceKey")
+                    b.HasIndex("NodeId")
+                        .HasDatabaseName("ix_device_installations_node");
+
+                    b.HasIndex("AppKey", "InstallGuid")
                         .IsUnique()
-                        .HasDatabaseName("ux_devices_app_device_key");
+                        .HasDatabaseName("ux_device_installations_app_install");
 
                     b.HasIndex("AppKey", "LastHeartbeatAt")
-                        .HasDatabaseName("ix_devices_app_last_heartbeat");
+                        .IsDescending(false, true)
+                        .HasDatabaseName("ix_device_installations_app_heartbeat");
 
-                    b.HasIndex("AppKey", "MachineCode")
-                        .HasDatabaseName("ix_devices_app_machine_code");
+                    b.HasIndex("AppKey", "OnlineStatus")
+                        .HasDatabaseName("ix_device_installations_app_online");
 
-                    b.ToTable("devices", (string)null);
+                    b.ToTable("device_installations", (string)null);
+                });
+
+            modelBuilder.Entity("Platform.Modules.Devices.Domain.DeviceNode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AutoName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("auto_name");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CustomName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("custom_name");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("display_name");
+
+                    b.Property<DateTimeOffset?>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("first_seen_at");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("ip_address");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<DateTimeOffset?>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_seen_at");
+
+                    b.Property<string>("MachineCode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("machine_code");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LastSeenAt")
+                        .IsDescending()
+                        .HasDatabaseName("ix_device_nodes_last_seen");
+
+                    b.HasIndex("MachineCode")
+                        .IsUnique()
+                        .HasDatabaseName("ux_device_nodes_machine_code");
+
+                    b.ToTable("device_nodes", (string)null);
                 });
 
             modelBuilder.Entity("Platform.Modules.Documents.Domain.Document", b =>
@@ -979,6 +1027,12 @@ namespace Platform.Infrastructure.Migrations
                         .HasColumnType("character varying(4096)")
                         .HasColumnName("access_token");
 
+                    b.Property<string>("AppKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("app_key");
+
                     b.Property<DateTimeOffset?>("ApprovedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("approved_at");
@@ -1019,6 +1073,15 @@ namespace Platform.Infrastructure.Migrations
                     b.Property<DateTimeOffset>("ExpiresAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expires_at");
+
+                    b.Property<Guid?>("InstallGuid")
+                        .HasColumnType("uuid")
+                        .HasColumnName("install_guid");
+
+                    b.Property<string>("MachineCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("machine_code");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1082,6 +1145,10 @@ namespace Platform.Infrastructure.Migrations
                     b.Property<Guid>("FamilyId")
                         .HasColumnType("uuid")
                         .HasColumnName("family_id");
+
+                    b.Property<Guid?>("InstallGuid")
+                        .HasColumnType("uuid")
+                        .HasColumnName("install_guid");
 
                     b.Property<DateTimeOffset?>("LastUsedAt")
                         .HasColumnType("timestamp with time zone")
@@ -1201,6 +1268,12 @@ namespace Platform.Infrastructure.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)")
                         .HasColumnName("key");
+
+                    b.Property<string>("AppKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("app_key");
 
                     b.Property<int>("AttemptCount")
                         .HasColumnType("integer")
@@ -1405,6 +1478,9 @@ namespace Platform.Infrastructure.Migrations
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("MachineCode")
+                        .HasDatabaseName("ix_license_entitlements_machine_code");
 
                     b.HasIndex("AppKey", "ExpiresAt")
                         .HasDatabaseName("ix_license_entitlements_app_expires");
@@ -2017,6 +2093,12 @@ namespace Platform.Infrastructure.Migrations
                         .HasColumnType("character varying(8)")
                         .HasColumnName("format");
 
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_active");
+
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -2091,9 +2173,8 @@ namespace Platform.Infrastructure.Migrations
                     b.HasIndex("AppKey", "Status")
                         .HasDatabaseName("ix_release_packages_app_status");
 
-                    b.HasIndex("ReleaseId", "Kind", "Target", "Format")
-                        .IsUnique()
-                        .HasDatabaseName("ux_release_packages_release_kind_target_format");
+                    b.HasIndex("ReleaseId", "Kind", "Target", "IsActive")
+                        .HasDatabaseName("ix_release_packages_release_kind_target_active");
 
                     b.ToTable("release_packages", (string)null);
                 });
@@ -2338,6 +2419,17 @@ namespace Platform.Infrastructure.Migrations
                     b.Navigation("Namespace");
                 });
 
+            modelBuilder.Entity("Platform.Modules.Devices.Domain.DeviceInstallation", b =>
+                {
+                    b.HasOne("Platform.Modules.Devices.Domain.DeviceNode", "Node")
+                        .WithMany("Installations")
+                        .HasForeignKey("NodeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Node");
+                });
+
             modelBuilder.Entity("Platform.Modules.Documents.Domain.Document", b =>
                 {
                     b.HasOne("Platform.Modules.Documents.Domain.DocumentCollection", "Collection")
@@ -2479,6 +2571,11 @@ namespace Platform.Infrastructure.Migrations
             modelBuilder.Entity("Platform.Modules.Backups.Domain.BackupNamespace", b =>
                 {
                     b.Navigation("Backups");
+                });
+
+            modelBuilder.Entity("Platform.Modules.Devices.Domain.DeviceNode", b =>
+                {
+                    b.Navigation("Installations");
                 });
 
             modelBuilder.Entity("Platform.Modules.Documents.Domain.Document", b =>

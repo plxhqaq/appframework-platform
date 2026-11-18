@@ -271,6 +271,8 @@ public sealed class AppsServiceTests
 
         public string? AppKey => null;
 
+        public Guid? InstallGuid => null;
+
         public bool IsTemporary => false;
 
         public bool IsService => false;

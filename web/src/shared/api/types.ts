@@ -48,7 +48,8 @@ export interface PlatformDashboard {
   /** 服务器自开机以来的秒数。 */
   systemUptimeSeconds: number;
   system: SystemStatus;
-  devices: DeviceStatistics;
+  nodes: NodeStatistics;
+  installations: InstallationStatistics;
   platform: PlatformInfo;
 }
 
@@ -70,14 +71,20 @@ export interface SystemStatus {
   serverAvailableMemoryBytes: number | null;
 }
 
-/** 设备统计；connected 为实时连接数。 */
-export interface DeviceStatistics {
+/** 物理节点统计：状态由安装实例聚合，在线/运行/待机互斥。 */
+export interface NodeStatistics {
   total: number;
   online: number;
-  idle: number;
   running: number;
+  idle: number;
   offline: number;
   disabled: number;
+}
+
+/** 安装实例统计；connected 为实时连接数。 */
+export interface InstallationStatistics {
+  total: number;
+  online: number;
   connected: number;
 }
 
@@ -550,6 +557,8 @@ export interface ReleasePackage {
   manifestHash?: string | null;
   /** 摄取完成后的清单文件数；全量包或尚未完成时为 null。 */
   fileCount?: number | null;
+  /** 是否为该版本同类型同目标下的启用包；check 只下发启用包。 */
+  isActive: boolean;
   reused: boolean;
   errorCode?: string | null;
   errorMessage?: string | null;
@@ -669,17 +678,21 @@ export interface LicenseEntitlement {
   lastSeenAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  /** 节点由机器码关联回填；授权表本身不落 node_id。 */
+  nodeId?: string | null;
+  nodeDisplayName?: string | null;
 }
 
-/** 签发正式授权。 */
+/** 签发正式授权。机器码是席位主体；nodeId 与 machineCode 至少给一个。 */
 export interface IssueLicenseRequest {
   productKey: string;
-  machineCode: string;
+  machineCode?: string | null;
   licenseNo?: string | null;
   notAfter?: string | null;
   addDays?: number | null;
   graceDays?: number | null;
   notes?: string | null;
+  nodeId?: string | null;
 }
 
 /** 续期授权；notAfter 与 addDays 二选一。 */
@@ -696,14 +709,15 @@ export interface RevokeLicenseRequest {
   scope?: LicenseRevokeScope | null;
 }
 
-/** 签发离线授权码。 */
+/** 签发离线授权码（无联网现场）。nodeId 与 machineCode 至少给一个。 */
 export interface IssueOfflineLicenseCodeRequest {
   productKey: string;
-  machineCode: string;
+  machineCode?: string | null;
   notAfter?: string | null;
   addDays?: number | null;
   licenseNo?: string | null;
   remark?: string | null;
+  nodeId?: string | null;
 }
 
 /** 离线授权码台账。 */
@@ -780,14 +794,15 @@ export interface UpdateBackupNamespaceRequest {
 /** 备份类型：config / profile。 */
 export type BackupKind = 'config' | 'profile';
 
-/** 备份摘要。 */
+/** 备份摘要；节点字段是创建时快照。 */
 export interface BackupSummary {
   id: string;
   namespaceKey: string;
   kind: BackupKind;
   name: string;
-  deviceId?: string | null;
-  deviceName?: string | null;
+  installationId?: string | null;
+  nodeId?: string | null;
+  nodeName?: string | null;
   moduleId?: string | null;
   schemaVersion: number;
   frameworkVersion: string;
@@ -802,13 +817,12 @@ export interface BackupSummary {
   createdBy?: string | null;
 }
 
-/** 创建备份。 */
+/** 创建备份；节点由服务端按 installationId 解析。 */
 export interface CreateBackupRequest {
   namespaceKey: string;
   kind: BackupKind;
   name: string;
-  deviceId?: string | null;
-  deviceName?: string | null;
+  installationId?: string | null;
   moduleId?: string | null;
   schemaVersion: number;
   frameworkVersion: string;
@@ -819,24 +833,25 @@ export interface CreateBackupRequest {
 
 /** 下发备份；服务端复核渠道硬门禁与主版本兼容。 */
 export interface PushBackupRequest {
-  /** 兼容字段：单设备下发；与 targetDeviceIds 合并去重。 */
-  targetDeviceId?: string | null;
-  /** 目标设备集合（多选）。留空且未显式广播时服务端拒绝。 */
-  targetDeviceIds?: string[] | null;
+  /** 单个目标安装实例；与 targetInstallationIds 合并去重。 */
+  targetInstallationId?: string | null;
+  /** 目标安装实例集合（多选）。留空且未显式广播时服务端拒绝。 */
+  targetInstallationIds?: string[] | null;
   /** 显式应用组广播（兼容能力，管理台不提供）。 */
   broadcastToApp?: boolean;
   targetChannel?: string | null;
   targetFrameworkVersion?: string | null;
   restartAfterApply: boolean;
   force: boolean;
-  /** 仅单设备下发允许；多设备时服务端拒绝。 */
+  /** 仅单安装实例下发允许；多目标时服务端拒绝。 */
   currentHash?: string | null;
-  confirmCrossDevice: boolean;
+  confirmCrossInstallation: boolean;
 }
 
-/** 单台设备的下发结果。 */
+/** 单个安装实例的下发结果。 */
 export interface PushTargetResult {
-  deviceId: string;
+  installationId: string;
+  nodeId?: string | null;
   delivered: boolean;
   acked: boolean;
   success: boolean;
@@ -943,17 +958,17 @@ export interface ClientDocumentManifest {
   generatedAt: string;
 }
 
-/** 设备在线状态。 */
+/** 在线状态。 */
 export type DeviceOnlineStatus = 'online' | 'offline';
 
 /** 工位状态：idle 才允许下发配置/档案。 */
 export type DeviceStationStatus = 'idle' | 'online';
 
-/** 设备报警级别。 */
+/** 报警级别。 */
 export type DeviceAlarmLevel = 'none' | 'info' | 'warning' | 'error';
 
-/** 设备摘要（管理端列表）。 */
-export interface DeviceSummary {
+/** 物理节点概要（平台级列表；状态由安装实例聚合）。 */
+export interface NodeSummary {
   id: string;
   shortId: string;
   machineCode: string;
@@ -961,6 +976,35 @@ export interface DeviceSummary {
   autoName?: string | null;
   customName?: string | null;
   ipAddress?: string | null;
+  onlineStatus: DeviceOnlineStatus;
+  stationStatus: DeviceStationStatus;
+  alarmLevel: DeviceAlarmLevel;
+  alarmMessage?: string | null;
+  installationCount: number;
+  onlineInstallationCount: number;
+  appKeys: string[];
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
+  lastHeartbeatAt?: string | null;
+  isEnabled: boolean;
+}
+
+/** 物理节点详情：内嵌该节点全部安装实例（跨应用）。 */
+export interface NodeDetail extends Omit<NodeSummary, 'installationCount' | 'onlineInstallationCount' | 'appKeys'> {
+  createdAt: string;
+  updatedAt: string;
+  installations: InstallationSummary[];
+}
+
+/** 安装实例概要（应用级列表）。 */
+export interface InstallationSummary {
+  id: string;
+  nodeId: string;
+  nodeDisplayName: string;
+  appKey: string;
+  machineCode: string;
+  shortId: string;
+  installGuid: string;
   branch?: string | null;
   frameworkVersion?: string | null;
   onlineStatus: DeviceOnlineStatus;
@@ -971,31 +1015,46 @@ export interface DeviceSummary {
   lastHeartbeatAt?: string | null;
   heartbeatSeconds: number;
   isEnabled: boolean;
+  nodeEnabled: boolean;
 }
 
-/** 设备详情。 */
-export interface DeviceDetail extends DeviceSummary {
-  deviceKey: string;
-  installGuid?: string | null;
+/** 安装实例详情。 */
+export interface InstallationDetail extends InstallationSummary {
   firstConnectedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-/** 更新设备；customName 传空串表示清除。 */
-export interface UpdateDeviceRequest {
+/** 更新节点；customName 传空串表示清除。 */
+export interface UpdateNodeRequest {
   customName?: string | null;
   isEnabled?: boolean | null;
 }
 
-/** 重启设备。 */
-export interface DeviceRestartRequest {
+/** 更新安装实例（应用级启停）。 */
+export interface UpdateInstallationRequest {
+  isEnabled?: boolean | null;
+}
+
+/** 重启节点。 */
+export interface NodeRestartRequest {
   reason?: string | null;
 }
 
-/** 重启受理结果。 */
-export interface DeviceRestartAccepted {
-  deviceId: string;
+/** 重启安装实例。 */
+export interface InstallationRestartRequest {
+  reason?: string | null;
+}
+
+/** 节点重启受理结果：命令已送达该节点至少一个在线安装实例。 */
+export interface NodeRestartAccepted {
+  nodeId: string;
+  installationCount: number;
+}
+
+/** 安装实例重启受理结果。 */
+export interface InstallationRestartAccepted {
+  installationId: string;
 }
 
 /** 审计记录（平台级只读视图）。 */

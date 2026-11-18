@@ -206,6 +206,9 @@ public sealed class ReleasePackage : IAuditableEntity
     /// <summary>清单文件数；无清单（人工登记的全量包）为 null。</summary>
     public int? FileCount { get; set; }
 
+    /// <summary>是否为该版本同类型同目标下的启用包；check 只下发启用包。</summary>
+    public bool IsActive { get; set; }
+
     /// <summary>失败错误码（<see cref="Platform.Contracts.ApiErrorCode"/> 的字符串形式）。</summary>
     public string? ErrorCode { get; set; }
 

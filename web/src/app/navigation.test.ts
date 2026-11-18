@@ -34,8 +34,9 @@ describe('导航按权限裁剪', () => {
     expect(visible).not.toContain('/identity');
     expect(visible).not.toContain('/audit');
     expect(visible).not.toContain('/webhooks');
-    // 设备管理权限只给 app-admin/viewer，现场工程师不露出设备页
-    expect(visible).not.toContain('/devices');
+    // 节点/安装实例权限只给相应角色，现场工程师不露出这两页
+    expect(visible).not.toContain('/nodes');
+    expect(visible).not.toContain('/installations');
   });
 
   it('临时会话摘掉两个入口权限后，这两页就不该出现', () => {
@@ -62,7 +63,9 @@ describe('没有应用上下文时不露出应用级入口', () => {
     expect(visible).not.toContain('/versions');
     expect(visible).not.toContain('/licensing');
     expect(visible).not.toContain('/webhooks');
-    expect(visible).not.toContain('/devices');
+    expect(visible).not.toContain('/installations');
+    // 节点是平台级资源，不依赖应用上下文
+    expect(visible).toContain('/nodes');
   });
 
   it('有上下文时应用级页面照常出现', () => {
@@ -70,7 +73,7 @@ describe('没有应用上下文时不露出应用级入口', () => {
     expect(visible).toContain('/versions');
     expect(visible).toContain('/licensing');
     expect(visible).toContain('/webhooks');
-    expect(visible).toContain('/devices');
+    expect(visible).toContain('/installations');
   });
 
   it('上下文不能补权限：没有读权限的页面仍然不出现', () => {
@@ -86,7 +89,8 @@ describe('路由守卫与菜单选中', () => {
     expect(requiredPermissions('/single-key')).toEqual([PERMISSIONS.identitySingleKeyIssue]);
     expect(requiredPermissions('/qr-approval')).toEqual([PERMISSIONS.identityQrApprove]);
     expect(requiredPermissions('/identity')).toContain(PERMISSIONS.identityUserRead);
-    expect(requiredPermissions('/devices')).toEqual([PERMISSIONS.deviceRead]);
+    expect(requiredPermissions('/nodes')).toEqual([PERMISSIONS.nodeRead]);
+    expect(requiredPermissions('/installations')).toEqual([PERMISSIONS.installationRead]);
   });
 
   it('子路径按所属页面判权限，改口令页人人可进', () => {

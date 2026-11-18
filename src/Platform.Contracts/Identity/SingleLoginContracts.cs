@@ -67,7 +67,11 @@ public static class QrLoginStatuses
 /// <summary>签发单次密钥。</summary>
 /// <param name="DurationMinutes">密钥有效期（分钟）；空取默认值，超上限按上限钳制。</param>
 /// <param name="DeviceFingerprint">绑定设备指纹；非空时只有同一指纹能兑换。</param>
-public sealed record IssueSingleLoginKeyRequest(int? DurationMinutes = null, string? DeviceFingerprint = null);
+/// <param name="AppKey">目标应用键；应用上下文令牌可省略（默认取令牌应用），平台上下文必须显式指定。</param>
+public sealed record IssueSingleLoginKeyRequest(
+    int? DurationMinutes = null,
+    string? DeviceFingerprint = null,
+    string? AppKey = null);
 
 /// <summary>签发结果。密钥明文只在此响应出现一次，服务端不提供回查。</summary>
 public sealed record SingleLoginKeyDto(string Key, DateTimeOffset ExpiresAt, int DurationMinutes);
@@ -76,10 +80,12 @@ public sealed record SingleLoginKeyDto(string Key, DateTimeOffset ExpiresAt, int
 /// <param name="Key">6 位数字密钥。</param>
 /// <param name="DeviceFingerprint">设备指纹；密钥绑定指纹时必须一致。</param>
 /// <param name="MachineCode">机器码（写入令牌，供授权绑定）。</param>
+/// <param name="InstallGuid">安装实例标识（写入令牌）。</param>
 public sealed record RedeemSingleLoginKeyRequest(
     string Key,
     string? DeviceFingerprint = null,
-    string? MachineCode = null);
+    string? MachineCode = null,
+    Guid? InstallGuid = null);
 
 /// <summary>临时会话：只有访问令牌，没有刷新令牌——过期即失去访问，必须重新走单次登录。</summary>
 public sealed record TemporarySessionResponse(
@@ -88,9 +94,17 @@ public sealed record TemporarySessionResponse(
     UserSessionDto User);
 
 /// <summary>创建扫码会话（客户端匿名入口）。</summary>
+/// <param name="AppKey">客户端要登录的目标应用（必填）。</param>
 /// <param name="DeviceFingerprint">设备指纹，展示给审批人。</param>
 /// <param name="ClientName">客户端名称/机器名，展示给审批人。</param>
-public sealed record CreateQrSessionRequest(string? DeviceFingerprint = null, string? ClientName = null);
+/// <param name="MachineCode">机器码（临时令牌与授权绑定使用）。</param>
+/// <param name="InstallGuid">安装实例标识。</param>
+public sealed record CreateQrSessionRequest(
+    string? AppKey = null,
+    string? DeviceFingerprint = null,
+    string? ClientName = null,
+    string? MachineCode = null,
+    Guid? InstallGuid = null);
 
 /// <summary>扫码会话创建结果。</summary>
 /// <param name="RequestId">会话 id（客户端轮询与审批的唯一标识）。</param>
@@ -111,8 +125,10 @@ public sealed record QrSessionStatusDto(
 public sealed record QrSessionSummaryDto(
     Guid RequestId,
     string Status,
+    string AppKey,
     string? ClientName,
     string? DeviceFingerprint,
+    Guid? InstallGuid,
     string? CreatedByIp,
     DateTimeOffset CreatedAt,
     DateTimeOffset ExpiresAt,

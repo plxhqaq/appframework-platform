@@ -322,7 +322,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $CLIENT_TOKEN
 | `216` | `VersionsPackageAppMismatch` | 422 | 清单 `appKey` 与当前应用不一致 |
 | `217` | `VersionsPackageChannelVersionMismatch` | 422 | 清单与请求渠道/版本/RID 不一致 |
 | `218` | `VersionsPackageFileNameMismatch` | 422 | 严格模式下文件名不匹配模板 |
-| `219` | `VersionsPackageManifestConflict` | 409 | 同槽位内容冲突；清单与既有产物不一致 |
+| `219` | `VersionsPackageManifestConflict` | 409 | 清单与既有产物不一致；并发写入冲突 |
 | `220` | `VersionsPackageUnsafeArchive` | 422 | zip 越界 / 加密 / 符号链接 |
 | `221` | `VersionsPackageTooLarge` | 413 | 超过包大小上限 |
 | `222` | `VersionsReleaseImmutable` | 409 | 已发布/已归档版本仍尝试删除包 |

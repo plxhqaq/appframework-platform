@@ -30,18 +30,21 @@ public sealed class LicenseStatusService : ILicenseStatusService
     private readonly ILicenseKeyService _keys;
     private readonly IClock _clock;
     private readonly LicensingOptions _options;
+    private readonly IDeviceNodeDirectory? _nodes;
 
     /// <summary>构造。</summary>
     public LicenseStatusService(
         PlatformDbContext db,
         ILicenseKeyService keys,
         IClock clock,
-        IOptions<LicensingOptions> options)
+        IOptions<LicensingOptions> options,
+        IEnumerable<IDeviceNodeDirectory> nodes)
     {
         _db = db;
         _keys = keys;
         _clock = clock;
         _options = options.Value;
+        _nodes = nodes.FirstOrDefault();
     }
 
     /// <inheritdoc />
@@ -94,6 +97,10 @@ public sealed class LicenseStatusService : ILicenseStatusService
             await _db.SaveChangesAsync(cancellationToken);
         }
 
+        DeviceNodeDirectoryEntry? node = _nodes is null
+            ? null
+            : await _nodes.FindByMachineCodeAsync(machineCode, cancellationToken);
+
         if (!_keys.IsManaged)
         {
             return new LicenseStatusResponse(
@@ -109,7 +116,8 @@ public sealed class LicenseStatusService : ILicenseStatusService
                 LicenseNo: null,
                 KeyId: null,
                 Snapshot: null,
-                TrustedKeys: []);
+                TrustedKeys: [],
+                node?.NodeId);
         }
 
         LicenseSigningKey? current = await _keys.EnsureCurrentAsync(cancellationToken);
@@ -131,7 +139,8 @@ public sealed class LicenseStatusService : ILicenseStatusService
                 LicenseNo: null,
                 KeyId: null,
                 Snapshot: null,
-                trusted);
+                trusted,
+                node?.NodeId);
         }
 
         string status = LicenseStatusResolver.Resolve(entitlement, now);
@@ -168,7 +177,8 @@ public sealed class LicenseStatusService : ILicenseStatusService
             entitlement.LicenseNo,
             current?.KeyId,
             snapshot.Length == 0 ? null : snapshot,
-            trusted);
+            trusted,
+            node?.NodeId);
     }
 
     private async Task<LicenseEntitlement?> TryIssueTrialAsync(

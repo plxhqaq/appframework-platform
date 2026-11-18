@@ -125,9 +125,9 @@ public sealed class IdentitySeeder : IHostedService
                 PermissionCatalog.DocumentManage,
                 PermissionCatalog.WebhookRead,
                 PermissionCatalog.WebhookManage,
-                PermissionCatalog.DeviceRead,
-                PermissionCatalog.DeviceManage,
-                PermissionCatalog.DeviceRestart,
+                PermissionCatalog.InstallationRead,
+                PermissionCatalog.InstallationManage,
+                PermissionCatalog.InstallationRestart,
             ],
             cancellationToken);
 
@@ -148,7 +148,7 @@ public sealed class IdentitySeeder : IHostedService
                 PermissionCatalog.DocumentCollectionRead,
                 PermissionCatalog.DocumentRead,
                 PermissionCatalog.WebhookRead,
-                PermissionCatalog.DeviceRead,
+                PermissionCatalog.InstallationRead,
             ],
             cancellationToken);
 
@@ -173,7 +173,7 @@ public sealed class IdentitySeeder : IHostedService
                 PermissionCatalog.BackupCreate,
                 PermissionCatalog.BackupPush,
                 PermissionCatalog.BackupDelete,
-                PermissionCatalog.DeviceRead,
+                PermissionCatalog.InstallationRead,
                 PermissionCatalog.DocumentCollectionRead,
                 PermissionCatalog.DocumentRead,
                 PermissionCatalog.DocumentManage,
@@ -303,8 +303,8 @@ public sealed class IdentitySeeder : IHostedService
                 PermissionCatalog.AppsPermissionsManage,
                 PermissionCatalog.IdentitySingleKeyIssue,
                 PermissionCatalog.IdentityQrApprove,
-                // 下发必须先选设备：留空不再广播，缺 device.read 会让备份下发整页不可用。
-                PermissionCatalog.DeviceRead,
+                // 下发必须先选安装实例：留空不再广播，缺 installation.read 会让备份下发整页不可用。
+                PermissionCatalog.InstallationRead,
             }
             .Except(engineer.Permissions, StringComparer.Ordinal)
             .ToArray();

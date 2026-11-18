@@ -43,18 +43,21 @@ public sealed class OfflineLicenseCodeService : IOfflineLicenseCodeService
     private readonly ILicenseKeyService _keys;
     private readonly IClock _clock;
     private readonly LicensingOptions _options;
+    private readonly IDeviceNodeDirectory? _nodes;
 
     /// <summary>构造。</summary>
     public OfflineLicenseCodeService(
         PlatformDbContext db,
         ILicenseKeyService keys,
         IClock clock,
-        IOptions<LicensingOptions> options)
+        IOptions<LicensingOptions> options,
+        IEnumerable<IDeviceNodeDirectory> nodes)
     {
         _db = db;
         _keys = keys;
         _clock = clock;
         _options = options.Value;
+        _nodes = nodes.FirstOrDefault();
     }
 
     /// <inheritdoc />
@@ -123,12 +126,7 @@ public sealed class OfflineLicenseCodeService : IOfflineLicenseCodeService
             throw BusinessException.Invalid($"产品 {productKey} 已停用，不能签发离线码。");
         }
 
-        if (!LicenseConventions.TryNormalizeMachineCode(request.MachineCode, out string machineCode))
-        {
-            throw new BusinessException(
-                ApiErrorCode.LicensingMachineCodeMissing,
-                $"机器码不合法（应为 {LicenseConventions.MachineCodeChars} 字符 Crockford Base32）。");
-        }
+        string machineCode = await ResolveMachineCodeAsync(request.NodeId, request.MachineCode, cancellationToken);
 
         DateTimeOffset notAfter;
         if (request.NotAfter is { } explicitDate)
@@ -160,6 +158,7 @@ public sealed class OfflineLicenseCodeService : IOfflineLicenseCodeService
         try
         {
             code = OfflineLicenseCodec.Encode(
+                appKey,
                 product.Key,
                 machineCode,
                 LicenseConventions.KindOfficial,
@@ -230,6 +229,22 @@ public sealed class OfflineLicenseCodeService : IOfflineLicenseCodeService
                 error ?? "离线授权码不合法。");
         }
 
+        if (!string.Equals(content.AppKey, appKey, StringComparison.Ordinal))
+        {
+            throw new BusinessException(
+                ApiErrorCode.LicensingOfflineCodeInvalid,
+                $"离线授权码属于应用 {content.AppKey}，不能在当前应用使用。");
+        }
+
+        string? requestedAppKey = request.AppKey?.Trim();
+        if (!string.IsNullOrEmpty(requestedAppKey)
+            && !string.Equals(requestedAppKey, appKey, StringComparison.Ordinal))
+        {
+            throw new BusinessException(
+                ApiErrorCode.LicensingOfflineCodeInvalid,
+                "离线授权码与请求指定的应用不一致。");
+        }
+
         if (!string.Equals(content.MachineCode, machineCode, StringComparison.Ordinal))
         {
             throw new BusinessException(
@@ -269,7 +284,8 @@ public sealed class OfflineLicenseCodeService : IOfflineLicenseCodeService
             content.IssuedAt,
             content.NotAfter,
             content.GraceDays,
-            content.LicenseNo);
+            content.LicenseNo,
+            content.AppKey);
     }
 
     /// <inheritdoc />
@@ -287,6 +303,46 @@ public sealed class OfflineLicenseCodeService : IOfflineLicenseCodeService
 
         _db.Set<OfflineLicenseCode>().Remove(row);
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<string> ResolveMachineCodeAsync(
+        Guid? nodeId,
+        string? machineCode,
+        CancellationToken cancellationToken)
+    {
+        string? normalized = null;
+        if (!string.IsNullOrWhiteSpace(machineCode))
+        {
+            normalized = LicenseConventions.TryNormalizeMachineCode(machineCode, out string value)
+                ? value
+                : throw new BusinessException(
+                    ApiErrorCode.LicensingMachineCodeMissing,
+                    $"机器码不合法（应为 {LicenseConventions.MachineCodeChars} 字符 Crockford Base32）。");
+        }
+
+        if (nodeId is not { } id || id == Guid.Empty)
+        {
+            return normalized ?? throw new BusinessException(
+                ApiErrorCode.LicensingMachineCodeMissing,
+                "必须提供 NodeId 或 MachineCode。");
+        }
+
+        if (_nodes is null)
+        {
+            throw new BusinessException(
+                ApiErrorCode.DependencyFailure,
+                "设备域未启用，无法按 NodeId 签发离线码；请直接提供 MachineCode。");
+        }
+
+        DeviceNodeDirectoryEntry node = await _nodes.FindAsync(id, cancellationToken)
+            ?? throw BusinessException.NotFound(ApiErrorCode.DevicesNodeNotFound, $"节点 {id} 不存在。");
+
+        if (normalized is not null && !string.Equals(normalized, node.MachineCode, StringComparison.Ordinal))
+        {
+            throw BusinessException.Invalid("NodeId 与 MachineCode 指向不同的机器。");
+        }
+
+        return node.MachineCode;
     }
 
     private static string NormalizeLicenseNo(string? licenseNo, DateTimeOffset now, string machineCode)

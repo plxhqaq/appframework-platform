@@ -28,8 +28,7 @@ public sealed class IngestionClaimTests
         {
             for (var i = 0; i < Workers; i++)
             {
-                // 同一版本只能有一个 incremental 包（ux_release_packages_release_kind_target_format），
-                // 所以每个包给一个独立版本，避免并发用例被唯一索引挡住
+                // 每个包给一个独立版本，避免同一版本的多个 pending 包被并发用例互相干扰
                 var release = new Release
                 {
                     AppKey = appKey,

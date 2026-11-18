@@ -2,37 +2,38 @@ using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Platform.Contracts.Apps;
 
 namespace Platform.Contracts.Licensing;
 
 /// <summary>
 /// 离线授权码编解码（无联网现场使用）。
 /// <para>
-/// 格式 <c>AF3</c>：<c>前缀(3) | payload 字符数(2) | payload | 签名(103) | 校验位(1)</c>，
-/// payload = <c>ver(1)=3 | kind(1) | grace(1) | flags(1) | issued(4) | notAfter(4) |
-/// machine(10) | productKeyLen(1) | productKey | noLen(1) | licenseNo</c>。
-/// 时间与 Legacy AF2 一样用 32 位 Unix 秒（1970..2106），签名为 ECDSA P-256 的
+/// 格式 <c>AF4</c>：<c>前缀(3) | payload 字符数(2) | payload | 签名(103) | 校验位(1)</c>，
+/// payload = <c>ver(1)=4 | kind(1) | grace(1) | flags(1) | issued(4) | notAfter(4) |
+/// machine(10) | appKeyLen(1) | appKey | productKeyLen(1) | productKey | noLen(1) | licenseNo</c>。
+/// 时间用 32 位 Unix 秒（1970..2106），签名为 ECDSA P-256 的
 /// IEEE-P1363 定长 64 字节；末尾 1 位 Crockford 校验位用于先挡掉手抄/截断错误，
 /// 真正的信任仍由验签决定。
 /// </para>
 /// <para>
-/// 与 AF1/AF2 的差异：AF3 把 <b>产品键</b>写进码里——平台按产品分别签发授权，
-/// 同一机器在不同产品的离线码不能混用。码仍绑定机器码，一码只能在一台机器上使用。
+/// 与 AF3 的差异：AF4 把 <b>应用键</b>也写进码里——同一机器在不同应用的离线码不能混用；
+/// 只接受 AF4，AF3 一律按"版本不支持"拒绝。
 /// </para>
 /// </summary>
 public static partial class OfflineLicenseCodec
 {
     /// <summary>当前签发前缀。</summary>
-    public const string Prefix = "AF3";
+    public const string Prefix = "AF4";
 
     /// <summary>payload 的格式版本号。</summary>
-    public const byte FormatVersion = 3;
+    public const byte FormatVersion = 4;
 
     /// <summary>payload 中机器码字节数。</summary>
     public const int MachineCodeBytes = LicenseConventions.MachineCodeBytes;
 
-    /// <summary>payload 固定段长度（机器码之后是产品键与编号）。</summary>
-    public const int PayloadFixedLength = 22;
+    /// <summary>payload 固定段长度（机器码之后依次是应用键、产品键与编号）。</summary>
+    public const int PayloadFixedLength = 23;
 
     /// <summary>签名编码后的字符数（64 字节 = 512 bit → 103 字符）。</summary>
     public const int SignatureChars = 103;
@@ -46,8 +47,12 @@ public static partial class OfflineLicenseCodec
     [GeneratedRegex(LicenseConventions.ProductKeyPattern, RegexOptions.CultureInvariant)]
     private static partial Regex ProductKeyRegex();
 
+    [GeneratedRegex(AppConventions.AppKeyPattern, RegexOptions.CultureInvariant)]
+    private static partial Regex AppKeyRegex();
+
     /// <summary>签发离线授权码。</summary>
     public static string Encode(
+        string appKey,
         string productKey,
         string machineCode,
         string kind,
@@ -57,7 +62,8 @@ public static partial class OfflineLicenseCodec
         string privateKeyPkcs8Base64,
         string? licenseNo = null)
     {
-        byte[] payload = BuildPayload(productKey, machineCode, kind, issuedUtc, notAfter, graceDays, licenseNo);
+        byte[] payload = BuildPayload(
+            appKey, productKey, machineCode, kind, issuedUtc, notAfter, graceDays, licenseNo);
         byte[] signature = LicenseCryptography.Sign(payload, privateKeyPkcs8Base64);
         string payloadText = Base32Crockford.Encode(payload);
         string signatureText = Base32Crockford.Encode(signature);
@@ -70,6 +76,7 @@ public static partial class OfflineLicenseCodec
 
     /// <summary>构造 payload（签发端与测试用；客户端只解析）。</summary>
     public static byte[] BuildPayload(
+        string appKey,
         string productKey,
         string machineCode,
         string kind,
@@ -78,6 +85,11 @@ public static partial class OfflineLicenseCodec
         int graceDays,
         string? licenseNo = null)
     {
+        if (!AppKeyRegex().IsMatch(appKey ?? string.Empty))
+        {
+            throw new ArgumentException($"应用键必须匹配 {AppConventions.AppKeyPattern}", nameof(appKey));
+        }
+
         if (!ProductKeyRegex().IsMatch(productKey ?? string.Empty))
         {
             throw new ArgumentException($"产品键必须匹配 {LicenseConventions.ProductKeyPattern}", nameof(productKey));
@@ -124,10 +136,11 @@ public static partial class OfflineLicenseCodec
             throw new ArgumentException("机器码不合法（应为 10 字节哈希）", nameof(machineCode));
         }
 
+        byte[] app = Encoding.ASCII.GetBytes(appKey!.Trim());
         byte[] product = Encoding.ASCII.GetBytes(key);
         byte[] no = EncodeLicenseNo(licenseNo);
 
-        var payload = new byte[PayloadFixedLength + 1 + product.Length + 1 + no.Length];
+        var payload = new byte[PayloadFixedLength + 1 + app.Length + 1 + product.Length + 1 + no.Length];
         payload[0] = FormatVersion;
         payload[1] = kind == LicenseConventions.KindTrial ? (byte)0 : (byte)1;
         payload[2] = (byte)graceDays;
@@ -135,9 +148,12 @@ public static partial class OfflineLicenseCodec
         BinaryPrimitives.WriteUInt32BigEndian(payload.AsSpan(4, 4), (uint)issued);
         BinaryPrimitives.WriteUInt32BigEndian(payload.AsSpan(8, 4), (uint)after);
         machine.CopyTo(payload, 12);
-        payload[PayloadFixedLength] = (byte)product.Length;
-        product.CopyTo(payload, PayloadFixedLength + 1);
-        int noOffset = PayloadFixedLength + 1 + product.Length;
+        payload[PayloadFixedLength] = (byte)app.Length;
+        app.CopyTo(payload, PayloadFixedLength + 1);
+        int productOffset = PayloadFixedLength + 1 + app.Length;
+        payload[productOffset] = (byte)product.Length;
+        product.CopyTo(payload, productOffset + 1);
+        int noOffset = productOffset + 1 + product.Length;
         payload[noOffset] = (byte)no.Length;
         no.CopyTo(payload, noOffset + 1);
         return payload;
@@ -165,7 +181,9 @@ public static partial class OfflineLicenseCodec
 
         if (!normalized.StartsWith(Prefix, StringComparison.Ordinal))
         {
-            error = $"授权码前缀不是 {Prefix}（请确认复制完整）";
+            error = normalized.StartsWith("AF3", StringComparison.Ordinal)
+                ? "授权码版本不支持（AF3），请使用 AF4 离线码。"
+                : $"授权码前缀不是 {Prefix}（请确认复制完整）";
             return false;
         }
 
@@ -248,7 +266,7 @@ public static partial class OfflineLicenseCodec
         content = null!;
         error = null;
 
-        if (payload.Length < PayloadFixedLength + 2)
+        if (payload.Length < PayloadFixedLength + 3)
         {
             error = "授权码内容无法解析（payload 过短）";
             return false;
@@ -279,8 +297,24 @@ public static partial class OfflineLicenseCodec
             BinaryPrimitives.ReadUInt32BigEndian(payload.AsSpan(8, 4)));
         string machineCode = Base32Crockford.Encode(payload.AsSpan(12, MachineCodeBytes));
 
-        int productLength = payload[PayloadFixedLength];
-        int productOffset = PayloadFixedLength + 1;
+        int appLength = payload[PayloadFixedLength];
+        int appOffset = PayloadFixedLength + 1;
+        if (appLength is 0 or > 64 || appOffset + appLength >= payload.Length)
+        {
+            error = "授权码内容无法解析（应用键长度非法）";
+            return false;
+        }
+
+        string appKey = Encoding.ASCII.GetString(payload, appOffset, appLength);
+        if (!AppKeyRegex().IsMatch(appKey))
+        {
+            error = "授权码内容无法解析（应用键非法）";
+            return false;
+        }
+
+        int productOffset = appOffset + appLength;
+        int productLength = payload[productOffset];
+        productOffset++;
         if (productLength is 0 or > LicenseConventions.MaxProductKeyChars)
         {
             error = "授权码内容无法解析（产品键长度非法）";
@@ -315,6 +349,7 @@ public static partial class OfflineLicenseCodec
         content = new OfflineLicenseCodeContent(
             productKey,
             machineCode,
+            appKey,
             kind,
             issuedUtc,
             notAfter,
@@ -350,10 +385,11 @@ public static partial class OfflineLicenseCodec
     }
 }
 
-/// <summary>离线码解析结果（未做时间与机器码判定）。</summary>
+/// <summary>离线码解析结果（未做时间、机器码、产品与应用键判定）。</summary>
 public sealed record OfflineLicenseCodeContent(
     string ProductKey,
     string MachineCode,
+    string AppKey,
     string Kind,
     DateTimeOffset IssuedAt,
     DateTimeOffset NotAfter,

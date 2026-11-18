@@ -300,7 +300,7 @@ function renderModuleDetails(module: ModuleInfo) {
 }
 
 /**
- * 总览仪表盘：运行状态、进程资源、服务器资源监控、设备连接与平台信息。
+ * 总览仪表盘：运行状态、进程资源、服务器资源监控、节点/安装实例与平台信息。
  *
  * - 服务器运行时间由本地秒表推进（每秒一次），轮询只校准锚点，和自动刷新开关解耦；
  * - 其余内容的自动刷新默认开启、间隔可调（最小 1s），切换路由时组件卸载即暂停；
@@ -339,7 +339,8 @@ export function OverviewPage() {
 
   const data = dashboard.data;
   const system = data?.system;
-  const devices = data?.devices;
+  const nodes = data?.nodes;
+  const installations = data?.installations;
   const platform = data?.platform;
   const healthy = dashboard.isSuccess && system?.status === 'ok';
 
@@ -349,8 +350,7 @@ export function OverviewPage() {
   const serverCpu = system?.serverCpuUsagePercent ?? null;
   const serverMemory = system?.serverMemoryUsagePercent ?? null;
 
-  const onlineRate =
-    devices && devices.total > 0 ? (devices.online / devices.total) * 100 : 0;
+  const onlineRate = nodes && nodes.total > 0 ? (nodes.online / nodes.total) * 100 : 0;
 
   const intervalLabel = autoRefresh
     ? tr("每 {{arg0}} 秒自动刷新", { arg0: intervalSeconds })
@@ -486,7 +486,7 @@ export function OverviewPage() {
                 />
               </Col>
             </Row>
-            {/* 与「设备连接」卡同距：色块行独立成行并留 8px，两卡色块顶边才对得齐。 */}
+            {/* 与「节点与安装实例」卡同距：色块行独立成行并留 8px，两卡色块顶边才对得齐。 */}
             <Row gutter={[8, 8]} style={{ marginTop: 8 }}>
               <Col span={12}>
                 <StatTile
@@ -517,48 +517,53 @@ export function OverviewPage() {
         <Col xs={24} xl={12}>
           <Card
             size="small"
-            title={tr("设备连接")}
+            title={tr("节点与安装实例")}
             loading={dashboard.isPending}
             extra={
-              devices ? (
-                <Tag color={devices.connected > 0 ? 'green' : undefined}>
-                  {tr("实时连接")}{devices.connected} {tr("台")}</Tag>
+              installations ? (
+                <Tag color={installations.connected > 0 ? 'green' : undefined}>
+                  {tr("实时连接")}{installations.connected} {tr("个")}</Tag>
               ) : null
             }
             style={{ height: '100%' }}
           >
             <DashGauge
               value={onlineRate}
-              label={tr("在线率")}
+              label={tr("节点在线率")}
               color={token.colorSuccess}
-              caption={tr("在线 {{arg0}} / 总计 {{arg1}} 台", { arg0: devices?.online ?? 0, arg1: devices?.total ?? 0 })}
+              caption={tr("节点在线 {{arg0}} / {{arg1}} · 安装实例在线 {{arg2}} / {{arg3}}", {
+                arg0: nodes?.online ?? 0,
+                arg1: nodes?.total ?? 0,
+                arg2: installations?.online ?? 0,
+                arg3: installations?.total ?? 0,
+              })}
             />
             <Row gutter={[8, 8]} style={{ marginTop: 8 }}>
               <Col xs={12} sm={6}>
                 <StatTile
-                  label={tr("待机")}
-                  value={devices?.idle ?? '-'}
+                  label={tr("节点待机")}
+                  value={nodes?.idle ?? '-'}
                   accent={token.colorInfo}
                 />
               </Col>
               <Col xs={12} sm={6}>
                 <StatTile
-                  label={tr("运行")}
-                  value={devices?.running ?? '-'}
+                  label={tr("节点运行")}
+                  value={nodes?.running ?? '-'}
                   accent={token.colorWarning}
                 />
               </Col>
               <Col xs={12} sm={6}>
                 <StatTile
-                  label={tr("离线")}
-                  value={devices?.offline ?? '-'}
+                  label={tr("节点离线")}
+                  value={nodes?.offline ?? '-'}
                   accent={token.colorTextSecondary}
                 />
               </Col>
               <Col xs={12} sm={6}>
                 <StatTile
-                  label={tr("停用")}
-                  value={devices?.disabled ?? '-'}
+                  label={tr("节点停用")}
+                  value={nodes?.disabled ?? '-'}
                   accent={token.colorError}
                 />
               </Col>

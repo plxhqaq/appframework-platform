@@ -139,7 +139,7 @@ internal static class SingleLoginEndpoints
                         {
                             try
                             {
-                                var issued = await keys.IssueAsync(actorId, request, ct);
+                                var issued = await keys.IssueAsync(actorId, principal.AppKey, request, ct);
                                 await WriteAuditAsync(
                                     context, audit,
                                     actorId: principal.UserId,

@@ -68,6 +68,7 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
     private readonly LicensingOptions _options;
     private readonly ILogger<LicenseEntitlementService> _logger;
     private readonly IPlatformEventPublisher _events;
+    private readonly IDeviceNodeDirectory? _nodes;
 
     /// <summary>构造。</summary>
     public LicenseEntitlementService(
@@ -76,7 +77,8 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
         IHubContext<PlatformHub> hub,
         IOptions<LicensingOptions> options,
         ILogger<LicenseEntitlementService> logger,
-        IPlatformEventPublisher events)
+        IPlatformEventPublisher events,
+        IEnumerable<IDeviceNodeDirectory> nodes)
     {
         _db = db;
         _clock = clock;
@@ -84,6 +86,7 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
         _options = options.Value;
         _logger = logger;
         _events = events;
+        _nodes = nodes.FirstOrDefault();
     }
 
     /// <inheritdoc />
@@ -133,8 +136,9 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
             .Include(static x => x.Product)
             .ToListAsync(cancellationToken);
 
+        var nodes = await LoadNodesAsync(rows.Select(static x => x.MachineCode), cancellationToken);
         return PageResult<LicenseEntitlementDto>.Create(
-            [.. rows.Select(row => ToDto(row, now))],
+            [.. rows.Select(row => ToDto(row, now, nodes.GetValueOrDefault(row.MachineCode)))],
             total,
             query);
     }
@@ -153,7 +157,7 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
                               ApiErrorCode.LicensingEntitlementNotFound,
                               $"授权 {id} 不存在。");
 
-        return ToDto(entitlement, _clock.UtcNow);
+        return ToDto(entitlement, _clock.UtcNow, await FindNodeAsync(entitlement.MachineCode, cancellationToken));
     }
 
     /// <inheritdoc />
@@ -167,7 +171,7 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
 
         var now = _clock.UtcNow;
         LicenseProduct product = await GetProductAsync(appKey, request.ProductKey, cancellationToken);
-        string machineCode = NormalizeMachineCode(request.MachineCode);
+        string machineCode = await ResolveMachineCodeAsync(request.NodeId, request.MachineCode, cancellationToken);
 
         DateTimeOffset notAfter = ResolveNotAfter(now, request.NotAfter, request.AddDays);
         int graceDays = NormalizeGraceDays(request.GraceDays ?? product.DefaultGraceDays);
@@ -240,7 +244,7 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
 
         await NotifyAsync(appKey, machineCode, LicenseChangedNotification.ReasonIssued);
         entitlement.Product = product;
-        return ToDto(entitlement, now);
+        return ToDto(entitlement, now, await FindNodeAsync(machineCode, cancellationToken));
     }
 
     /// <inheritdoc />
@@ -305,7 +309,7 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
 
         await _db.SaveChangesAsync(cancellationToken);
         await NotifyAsync(appKey, entitlement.MachineCode, LicenseChangedNotification.ReasonRenewed);
-        return ToDto(entitlement, now);
+        return ToDto(entitlement, now, await FindNodeAsync(entitlement.MachineCode, cancellationToken));
     }
 
     /// <inheritdoc />
@@ -373,8 +377,76 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
                 cancellationToken);
         }
 
-        return ToDto(entitlement, now);
+        return ToDto(entitlement, now, await FindNodeAsync(entitlement.MachineCode, cancellationToken));
     }
+
+    private async Task<string> ResolveMachineCodeAsync(
+        Guid? nodeId,
+        string? machineCode,
+        CancellationToken cancellationToken)
+    {
+        string? normalized = null;
+        if (!string.IsNullOrWhiteSpace(machineCode))
+        {
+            normalized = NormalizeMachineCode(machineCode);
+        }
+
+        if (nodeId is not { } id || id == Guid.Empty)
+        {
+            return normalized ?? throw new BusinessException(
+                ApiErrorCode.LicensingMachineCodeMissing,
+                "必须提供 NodeId 或 MachineCode。");
+        }
+
+        DeviceNodeDirectoryEntry node = await FindNodeByIdAsync(id, cancellationToken);
+        if (normalized is not null && !string.Equals(normalized, node.MachineCode, StringComparison.Ordinal))
+        {
+            throw BusinessException.Invalid("NodeId 与 MachineCode 指向不同的机器。");
+        }
+
+        return node.MachineCode;
+    }
+
+    private async Task<DeviceNodeDirectoryEntry> FindNodeByIdAsync(
+        Guid nodeId,
+        CancellationToken cancellationToken)
+    {
+        if (_nodes is null)
+        {
+            throw new BusinessException(
+                ApiErrorCode.DependencyFailure,
+                "设备域未启用，无法按 NodeId 签发授权；请直接提供 MachineCode。");
+        }
+
+        return await _nodes.FindAsync(nodeId, cancellationToken)
+               ?? throw BusinessException.NotFound(ApiErrorCode.DevicesNodeNotFound, $"节点 {nodeId} 不存在。");
+    }
+
+    private async Task<DeviceNodeDirectoryEntry?> FindNodeAsync(
+        string machineCode,
+        CancellationToken cancellationToken) =>
+        _nodes is null ? null : await _nodes.FindByMachineCodeAsync(machineCode, cancellationToken);
+
+    private async Task<IReadOnlyDictionary<string, DeviceNodeDirectoryEntry>> LoadNodesAsync(
+        IEnumerable<string> machineCodes,
+        CancellationToken cancellationToken)
+    {
+        if (_nodes is null)
+        {
+            return EmptyNodes;
+        }
+
+        string[] codes = machineCodes
+            .Where(static x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return codes.Length == 0
+            ? EmptyNodes
+            : await _nodes.FindByMachineCodesAsync(codes, cancellationToken);
+    }
+
+    private static readonly IReadOnlyDictionary<string, DeviceNodeDirectoryEntry> EmptyNodes =
+        new Dictionary<string, DeviceNodeDirectoryEntry>(StringComparer.Ordinal);
 
     private async Task<LicenseProduct> GetProductAsync(
         string appKey,
@@ -521,7 +593,10 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
         }
     }
 
-    private static LicenseEntitlementDto ToDto(LicenseEntitlement entitlement, DateTimeOffset now) =>
+    private static LicenseEntitlementDto ToDto(
+        LicenseEntitlement entitlement,
+        DateTimeOffset now,
+        DeviceNodeDirectoryEntry? node) =>
         new(
             entitlement.Id,
             entitlement.Product?.Key ?? string.Empty,
@@ -542,5 +617,7 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
             entitlement.UpdatedAt,
             entitlement.RevokedAt is null
                 ? null
-                : entitlement.RevokeScope ?? LicenseConventions.RevokeScopeAll);
+                : entitlement.RevokeScope ?? LicenseConventions.RevokeScopeAll,
+            node?.NodeId,
+            node?.DisplayName);
 }

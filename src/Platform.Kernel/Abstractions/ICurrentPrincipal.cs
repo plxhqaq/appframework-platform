@@ -30,6 +30,9 @@ public interface ICurrentPrincipal
     /// <summary>当前请求归属的应用键（单应用令牌时即该应用）。</summary>
     string? AppKey { get; }
 
+    /// <summary>令牌绑定的安装实例标识（可空）。</summary>
+    Guid? InstallGuid { get; }
+
     /// <summary>是否为临时令牌（单次密钥/扫码首登，需引导补全口令）。</summary>
     bool IsTemporary { get; }
 

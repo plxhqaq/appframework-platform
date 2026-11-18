@@ -295,7 +295,9 @@ public sealed partial class UpdaterReleaseService : IUpdaterReleaseService
         }
 
         return await query
-            .OrderByDescending(static x => x.CreatedAt)
+            .OrderBy(x => x.Status == VersionConventions.StatusArchived ? 1 : 0)
+            .ThenByDescending(static x => x.CreatedAt)
+            .ThenByDescending(static x => x.Id)
             .Select(static x => new UpdaterInfoDto(
                 x.Id,
                 x.Target,

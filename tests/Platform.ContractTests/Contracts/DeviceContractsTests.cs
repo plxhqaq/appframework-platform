@@ -12,18 +12,22 @@ public sealed class DeviceContractsTests
     public void 注册请求按camelCase序列化并可回读()
     {
         var request = new DeviceRegistrationRequest(
-            new DeviceIdentity("AA-BB-CC-DD-EE-FF", Guid.Parse("a1b2c3d4-e5f6-4789-9abc-def012345678"),
-                "1.0.0", "SMBIOS-UUID"),
+            new DeviceIdentity(
+                Guid.Parse("a1b2c3d4-e5f6-4789-9abc-def012345678"),
+                "4C4C4544-0039-3510-8054-B4C04F4A4D32",
+                "C4B4A1D2",
+                "AA-BB-CC-DD-EE-FF",
+                "1.0.0"),
             "PC-01",
             "10.1.2.3",
             "full",
-            10,
-            "产线A");
+            10);
 
         var json = JsonSerializer.Serialize(request, WebJson);
         Assert.Contains("\"displayName\":\"PC-01\"", json, StringComparison.Ordinal);
         Assert.Contains("\"installGuid\"", json, StringComparison.Ordinal);
-        Assert.Contains("\"primaryIdentifier\":\"SMBIOS-UUID\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"smbiosUuid\":\"4C4C4544-0039-3510-8054-B4C04F4A4D32\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"systemDiskSerial\":\"C4B4A1D2\"", json, StringComparison.Ordinal);
 
         var roundTrip = JsonSerializer.Deserialize<DeviceRegistrationRequest>(json, WebJson);
         Assert.NotNull(roundTrip);
@@ -44,11 +48,12 @@ public sealed class DeviceContractsTests
     }
 
     [Fact]
-    public void 自定义名作为前缀且重复调用幂等()
+    public void 节点展示名按自定义名自动名机器码依次回退()
     {
-        Assert.Equal("产线A-PC-01", DeviceNaming.Compose("PC-01", "产线A"));
-        Assert.Equal("PC-01", DeviceNaming.Compose("PC-01", null));
-        Assert.Equal("产线A-PC-01", DeviceNaming.Compose("产线A-PC-01", "产线A"));
-        Assert.Equal(string.Empty, DeviceNaming.Compose(" ", " "));
+        Assert.Equal("产线A-PC-01", DeviceNaming.ResolveDisplayName("PC-01", "产线A-PC-01", "MACHINE01"));
+        Assert.Equal("PC-01", DeviceNaming.ResolveDisplayName("PC-01", null, "MACHINE01"));
+        Assert.Equal("PC-01", DeviceNaming.ResolveDisplayName("PC-01", "  ", "MACHINE01"));
+        Assert.Equal("MACHINE01", DeviceNaming.ResolveDisplayName(null, null, "MACHINE01"));
+        Assert.Equal("MACHINE01", DeviceNaming.ResolveDisplayName(" ", " ", "MACHINE01"));
     }
 }

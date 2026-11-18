@@ -310,7 +310,8 @@ public sealed record ReleasePackageDto(
     DateTimeOffset? CompletedAt,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    int? FileCount = null);
+    int? FileCount = null,
+    bool IsActive = false);
 
 /// <summary>
 /// 登记发布包：内容必须先经上传票据直传。清单优先取请求的 <see cref="ManifestSha256"/>（sidecar），

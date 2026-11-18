@@ -40,6 +40,7 @@ public sealed class JwtTokenIssuer : IAccessTokenIssuer
     /// <param name="temporary">是否临时令牌。</param>
     /// <param name="principalKind">主体类型，默认 <c>user</c>。</param>
     /// <param name="machineCode">绑定的机器码。</param>
+    /// <param name="installGuid">绑定的安装实例标识。</param>
     /// <param name="lifetime">有效期；默认取配置。</param>
     public IssuedToken Issue(
         string subject,
@@ -51,6 +52,7 @@ public sealed class JwtTokenIssuer : IAccessTokenIssuer
         bool temporary = false,
         string principalKind = PlatformPrincipalKinds.User,
         string? machineCode = null,
+        Guid? installGuid = null,
         TimeSpan? lifetime = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
@@ -99,6 +101,11 @@ public sealed class JwtTokenIssuer : IAccessTokenIssuer
             claims.Add(new Claim(PlatformClaimTypes.MachineCode, machineCode));
         }
 
+        if (installGuid is { } install && install != Guid.Empty)
+        {
+            claims.Add(new Claim(PlatformClaimTypes.InstallGuid, install.ToString("D")));
+        }
+
         var token = new JwtSecurityToken(
             issuer: _options.Issuer,
             audience: _options.Audience,
@@ -124,6 +131,7 @@ public sealed class JwtTokenIssuer : IAccessTokenIssuer
             temporary: spec.Temporary,
             principalKind: spec.PrincipalKind,
             machineCode: spec.MachineCode,
+            installGuid: spec.InstallGuid,
             lifetime: spec.Lifetime);
     }
 }

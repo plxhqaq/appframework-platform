@@ -23,7 +23,7 @@ public interface IBackupService
         string? namespaceKey,
         string? kind,
         string? keyword,
-        Guid? deviceId = null,
+        Guid? installationId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>读取备份详情；不存在/已删除抛 <see cref="ApiErrorCode.BackupsNotFound"/>。</summary>
@@ -49,7 +49,7 @@ public interface IBackupService
     Task<BackupDto> SnapshotAsync(
         string appKey,
         Guid sourceBackupId,
-        Guid? targetDeviceId,
+        Guid? targetInstallationId,
         string? currentHash,
         string? actor,
         CancellationToken cancellationToken = default);
@@ -70,6 +70,7 @@ public sealed partial class BackupService : IBackupService
     private readonly IBlobStorage _blobs;
     private readonly IClock _clock;
     private readonly IBackupNamespaceService _namespaces;
+    private readonly IInstallationDirectory? _installations;
     private readonly BackupsOptions _options;
 
     /// <summary>构造。</summary>
@@ -78,13 +79,15 @@ public sealed partial class BackupService : IBackupService
         IBlobStorage blobs,
         IClock clock,
         IBackupNamespaceService namespaces,
-        IOptions<BackupsOptions> options)
+        IOptions<BackupsOptions> options,
+        IEnumerable<IInstallationDirectory> installations)
     {
         _db = db;
         _blobs = blobs;
         _clock = clock;
         _namespaces = namespaces;
         _options = options.Value;
+        _installations = installations.FirstOrDefault();
     }
 
     [GeneratedRegex("^[0-9a-f]{64}$", RegexOptions.CultureInvariant)]
@@ -100,7 +103,7 @@ public sealed partial class BackupService : IBackupService
         string? namespaceKey,
         string? kind,
         string? keyword,
-        Guid? deviceId = null,
+        Guid? installationId = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -119,16 +122,16 @@ public sealed partial class BackupService : IBackupService
             source = source.Where(x => x.Kind == kind);
         }
 
-        if (deviceId is { } device)
+        if (installationId is { } installation)
         {
-            source = source.Where(x => x.DeviceId == device);
+            source = source.Where(x => x.InstallationId == installation);
         }
 
         if (!string.IsNullOrWhiteSpace(keyword))
         {
             var pattern = $"%{keyword.Trim()}%";
             source = source.Where(x => EF.Functions.Like(x.Name, pattern)
-                                       || (x.DeviceName != null && EF.Functions.Like(x.DeviceName, pattern)));
+                                       || (x.NodeName != null && EF.Functions.Like(x.NodeName, pattern)));
         }
 
         var rows = await source
@@ -232,14 +235,18 @@ public sealed partial class BackupService : IBackupService
             throw new BusinessException(ApiErrorCode.BackupsPayloadInvalid, "声明的 sha256 与负载不一致。");
         }
 
+        var installation = await ResolveInstallationAsync(
+            appKey, request.InstallationId, cancellationToken);
+
         var entity = new Backup
         {
             AppKey = appKey,
             NamespaceId = space.Id,
             Kind = kind,
             Name = name,
-            DeviceId = request.DeviceId,
-            DeviceName = TrimTo(request.DeviceName, 256),
+            InstallationId = request.InstallationId,
+            NodeId = installation?.NodeId,
+            NodeName = installation?.NodeDisplayName,
             ModuleId = TrimTo(request.ModuleId, 64),
             SchemaVersion = request.SchemaVersion,
             FrameworkVersion = frameworkVersion,
@@ -353,13 +360,15 @@ public sealed partial class BackupService : IBackupService
     public async Task<BackupDto> SnapshotAsync(
         string appKey,
         Guid sourceBackupId,
-        Guid? targetDeviceId,
+        Guid? targetInstallationId,
         string? currentHash,
         string? actor,
         CancellationToken cancellationToken = default)
     {
         var row = await FindAsync(appKey, sourceBackupId, cancellationToken);
         var source = row.Backup;
+        var installation = await ResolveInstallationAsync(
+            appKey, targetInstallationId, cancellationToken);
 
         var snapshot = new Backup
         {
@@ -367,7 +376,9 @@ public sealed partial class BackupService : IBackupService
             NamespaceId = source.NamespaceId,
             Kind = source.Kind,
             Name = "pre-push-snapshot",
-            DeviceId = targetDeviceId,
+            InstallationId = targetInstallationId,
+            NodeId = installation?.NodeId,
+            NodeName = installation?.NodeDisplayName,
             SchemaVersion = source.SchemaVersion,
             FrameworkVersion = source.FrameworkVersion,
             Channel = source.Channel,
@@ -452,14 +463,35 @@ public sealed partial class BackupService : IBackupService
         return trimmed.Length > maxLength ? trimmed[..maxLength] : trimmed;
     }
 
+    private async Task<InstallationDirectoryEntry?> ResolveInstallationAsync(
+        string appKey,
+        Guid? installationId,
+        CancellationToken cancellationToken)
+    {
+        if (installationId is not { } id)
+        {
+            return null;
+        }
+
+        var directory = _installations
+                        ?? throw new BusinessException(
+                            ApiErrorCode.ServiceUnavailable,
+                            "设备域未启用，无法关联安装实例。");
+        return await directory.FindAsync(appKey, id, cancellationToken)
+               ?? throw BusinessException.NotFound(
+                   ApiErrorCode.DevicesInstallationNotFound,
+                   $"安装实例 {id} 不存在。");
+    }
+
     private static BackupDto ToDto(Backup entity, string namespaceKey) =>
         new(
             entity.Id,
             namespaceKey,
             entity.Kind,
             entity.Name,
-            entity.DeviceId,
-            entity.DeviceName,
+            entity.InstallationId,
+            entity.NodeId,
+            entity.NodeName,
             entity.ModuleId,
             entity.SchemaVersion,
             entity.FrameworkVersion,

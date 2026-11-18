@@ -43,8 +43,9 @@ public sealed class BackupsModelContributor : IPlatformModelContributor
             builder.Property(static x => x.NamespaceId).HasColumnName("namespace_id");
             builder.Property(static x => x.Kind).HasColumnName("kind").HasMaxLength(16).IsRequired();
             builder.Property(static x => x.Name).HasColumnName("name").HasMaxLength(256).IsRequired();
-            builder.Property(static x => x.DeviceId).HasColumnName("device_id");
-            builder.Property(static x => x.DeviceName).HasColumnName("device_name").HasMaxLength(256);
+            builder.Property(static x => x.InstallationId).HasColumnName("installation_id");
+            builder.Property(static x => x.NodeId).HasColumnName("node_id");
+            builder.Property(static x => x.NodeName).HasColumnName("node_name").HasMaxLength(256);
             builder.Property(static x => x.ModuleId).HasColumnName("module_id").HasMaxLength(64);
             builder.Property(static x => x.SchemaVersion).HasColumnName("schema_version");
             builder.Property(static x => x.FrameworkVersion)
@@ -62,6 +63,10 @@ public sealed class BackupsModelContributor : IPlatformModelContributor
 
             builder.HasIndex(static x => new { x.NamespaceId, x.CreatedAt })
                 .HasDatabaseName("ix_backups_namespace_created");
+            builder.HasIndex(static x => new { x.InstallationId, x.CreatedAt })
+                .HasDatabaseName("ix_backups_installation_created");
+            builder.HasIndex(static x => new { x.NodeId, x.CreatedAt })
+                .HasDatabaseName("ix_backups_node_created");
             builder.HasIndex(static x => new { x.AppKey, x.DeletedAt })
                 .HasDatabaseName("ix_backups_app_deleted");
             builder.HasIndex(static x => new { x.DeletedAt, x.NamespaceId })

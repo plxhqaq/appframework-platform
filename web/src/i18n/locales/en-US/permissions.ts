@@ -4,11 +4,11 @@ export const permissionsEn = {
     identity: 'Identity & access',
     versions: 'Versions & channels',
     licensing: 'Licensing',
-    devices: 'Devices',
+    devices: 'Installations',
     backups: 'Backups',
     documents: 'Documents',
     webhooks: 'Webhook subscriptions',
-    platform: 'Platform',
+    platform: 'Platform & nodes',
   },
   wildcard: 'Wildcard: grants every permission (built-in platform administrator only)',
   codes: {
@@ -74,9 +74,9 @@ export const permissionsEn = {
         read: 'View backup namespaces and quotas',
         manage: 'Create, edit and delete backup namespaces',
       },
-      read: 'View backup list and metadata and download content (including device pull/push backups)',
+      read: 'View backup list and metadata and download content (including installation pull/push backups)',
       create: 'Create a backup, or let a client upload a config backup',
-      push: 'Push a config backup to an online device and wait for acknowledgement',
+      push: 'Push a config backup to an online installation and wait for acknowledgement',
       delete: 'Delete a backup (soft delete, reclaimed by retention policy)',
     },
     document: {
@@ -92,10 +92,15 @@ export const permissionsEn = {
       read: 'View webhook subscriptions and delivery records',
       manage: 'Create, edit and delete webhook subscriptions and signing secrets',
     },
-    device: {
-      read: 'View this app’s devices, online status and device details',
-      manage: 'Rename devices, enable or disable devices',
-      restart: 'Send a restart command to an online device (offline or disabled devices are rejected)',
+    node: {
+      read: 'View physical nodes, node details and installations across apps',
+      manage: 'Rename nodes, enable or disable nodes (disabling rejects every app on the machine)',
+      restart: 'Restart a node: send a restart command to all of its online installations',
+    },
+    installation: {
+      read: 'View this app’s installations, online status and details',
+      manage: 'Enable or disable installations (registration still fails while the node is disabled)',
+      restart: 'Send a restart command to an online installation (offline or disabled installations are rejected)',
     },
     audit: { read: 'View audit logs and operation records' },
     platform: {

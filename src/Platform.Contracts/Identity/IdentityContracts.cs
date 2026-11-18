@@ -81,12 +81,14 @@ public static class IdentityRoleScopes
 /// <param name="AppKey">期望进入的应用上下文；必须在用户可访问的应用内。</param>
 /// <param name="DeviceFingerprint">设备指纹（客户端生成，用于按设备吊销会话）。</param>
 /// <param name="MachineCode">机器码（授权绑定用，可空）。</param>
+/// <param name="InstallGuid">安装实例标识（客户端安装时生成，用于区分同机多应用/多安装）。</param>
 public sealed record LoginRequest(
     string UserName,
     string Password,
     string? AppKey = null,
     string? DeviceFingerprint = null,
-    string? MachineCode = null);
+    string? MachineCode = null,
+    Guid? InstallGuid = null);
 
 /// <summary>登录后的主体信息（令牌声明与响应共用同一份口径）。</summary>
 /// <param name="AppKey">本次令牌固定的应用上下文；平台上下文为 null。</param>
@@ -215,13 +217,18 @@ public sealed record UpdateRoleRequest(
     string? AppKey = null,
     IReadOnlyList<string>? Permissions = null);
 
-/// <summary>会话（一条 refresh token 记录）。</summary>
+/// <summary>会话（一条 refresh token 记录）。节点信息在读取时按机器码关联，不落库。</summary>
 public sealed record SessionSummaryDto(
     Guid Id,
     Guid UserId,
     string UserName,
     Guid FamilyId,
+    string? AppKey,
     string? DeviceFingerprint,
+    string? MachineCode,
+    Guid? InstallGuid,
+    Guid? NodeId,
+    string? NodeName,
     string? CreatedByIp,
     DateTimeOffset CreatedAt,
     DateTimeOffset ExpiresAt,

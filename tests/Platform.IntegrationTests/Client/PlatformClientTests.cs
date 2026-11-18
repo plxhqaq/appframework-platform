@@ -137,7 +137,7 @@ public sealed class PlatformClientTests : IClassFixture<PlatformApiFactory>, IDi
                     HttpMethod.Post,
                     "/api/v1/admin/identity/singlekeys",
                     adminToken,
-                    new IssueSingleLoginKeyRequest(30, "sdk-line-1"))));
+                    new IssueSingleLoginKeyRequest(30, "sdk-line-1", AppKey))));
 
             var session = await sdk.RedeemSingleKeyAsync(issued.Key, "sdk-line-1");
             // 临时令牌绑定签发人：管理员签发的密钥得到管理员自己的用户名与权限集。
@@ -159,7 +159,7 @@ public sealed class PlatformClientTests : IClassFixture<PlatformApiFactory>, IDi
         var (raw, sdk) = CreatePair();
         using (raw)
         {
-            var created = await sdk.CreateQrLoginSessionAsync("sdk-qr", "SDK 操作台");
+            var created = await sdk.CreateQrLoginSessionAsync("sdk-qr", "SDK 操作台", AppKey);
             Assert.EndsWith(
                 QrLoginConventions.ApprovalPath + created.RequestId.ToString("N"),
                 created.Payload,
@@ -191,7 +191,7 @@ public sealed class PlatformClientTests : IClassFixture<PlatformApiFactory>, IDi
         var (raw, sdk) = CreatePair();
         using (raw)
         {
-            var created = await sdk.CreateQrLoginSessionAsync("sdk-qr", "SDK 操作台");
+            var created = await sdk.CreateQrLoginSessionAsync("sdk-qr", "SDK 操作台", AppKey);
 
             var cancelled = await sdk.CancelQrLoginSessionAsync(created.RequestId);
             Assert.Equal(QrLoginStatuses.Cancelled, cancelled.Status);
@@ -448,10 +448,10 @@ public sealed class PlatformClientTests : IClassFixture<PlatformApiFactory>, IDi
             var keys = (await sdk.GetTrustedSigningKeysAsync()).Select(x => x.PublicKey).ToArray();
             Assert.NotEmpty(keys);
 
-            var local = LicenseVerifier.VerifyOfflineCode(issued.Code, machineCode, "sdk-offline-pro", keys);
+            var local = LicenseVerifier.VerifyOfflineCode(issued.Code, machineCode, "sdk-offline-pro", AppKey, keys);
             Assert.True(local.IsValid);
-            Assert.False(LicenseVerifier.VerifyOfflineCode(issued.Code, otherMachine, "sdk-offline-pro", keys).IsValid);
-            Assert.False(LicenseVerifier.VerifyOfflineCode(issued.FormattedCode, machineCode, "other-product", keys).IsValid);
+            Assert.False(LicenseVerifier.VerifyOfflineCode(issued.Code, otherMachine, "sdk-offline-pro", AppKey, keys).IsValid);
+            Assert.False(LicenseVerifier.VerifyOfflineCode(issued.FormattedCode, machineCode, "other-product", AppKey, keys).IsValid);
 
             var online = await sdk.VerifyOfflineLicenseCodeAsync(issued.FormattedCode, machineCode, "sdk-offline-pro");
             Assert.True(online.IsValid);
@@ -480,7 +480,6 @@ public sealed class PlatformClientTests : IClassFixture<PlatformApiFactory>, IDi
                         "sdk-global",
                         BackupConventions.KindConfig,
                         "sdk-theme",
-                        null,
                         null,
                         null,
                         1,

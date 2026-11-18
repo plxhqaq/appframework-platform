@@ -138,6 +138,7 @@ public sealed class VersionsModelContributor : IPlatformModelContributor
             builder.Property(static x => x.Status).HasColumnName("status").HasMaxLength(16).IsRequired();
             builder.Property(static x => x.PublishRequested).HasColumnName("publish_requested").HasDefaultValue(false);
             builder.Property(static x => x.FileCount).HasColumnName("file_count");
+            builder.Property(static x => x.IsActive).HasColumnName("is_active").HasDefaultValue(false);
             builder.Property(static x => x.ErrorCode).HasColumnName("error_code").HasMaxLength(64);
             builder.Property(static x => x.ErrorMessage).HasColumnName("error_message").HasMaxLength(2000);
             builder.Property(static x => x.Attempts).HasColumnName("attempts");
@@ -148,9 +149,8 @@ public sealed class VersionsModelContributor : IPlatformModelContributor
             builder.Property(static x => x.CreatedAt).HasColumnName("created_at");
             builder.Property(static x => x.UpdatedAt).HasColumnName("updated_at");
 
-            builder.HasIndex(static x => new { x.ReleaseId, x.Kind, x.Target, x.Format })
-                .IsUnique()
-                .HasDatabaseName("ux_release_packages_release_kind_target_format");
+            builder.HasIndex(static x => new { x.ReleaseId, x.Kind, x.Target, x.IsActive })
+                .HasDatabaseName("ix_release_packages_release_kind_target_active");
             builder.HasIndex(static x => new { x.AppKey, x.Status })
                 .HasDatabaseName("ix_release_packages_app_status");
             builder.HasIndex(static x => x.Sha256)

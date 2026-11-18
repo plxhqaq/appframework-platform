@@ -144,6 +144,11 @@ public static class ApiErrorHttpStatus
         ApiErrorCode.DevicesDisabled => StatusCodes.Status403Forbidden,
         ApiErrorCode.DevicesOffline => StatusCodes.Status409Conflict,
         ApiErrorCode.DevicesBusy => StatusCodes.Status409Conflict,
+        ApiErrorCode.DevicesInstallationNotFound => StatusCodes.Status404NotFound,
+        ApiErrorCode.DevicesNodeDisabled => StatusCodes.Status403Forbidden,
+        ApiErrorCode.DevicesInstallationDisabled => StatusCodes.Status403Forbidden,
+        ApiErrorCode.DevicesPrimaryIdentifierMissing => StatusCodes.Status400BadRequest,
+        ApiErrorCode.DevicesNodeNotFound => StatusCodes.Status404NotFound,
 
         _ => StatusCodes.Status500InternalServerError,
     };

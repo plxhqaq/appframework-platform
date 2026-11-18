@@ -150,6 +150,9 @@ export const versionsApi = {
   retryPackage: (id: string) =>
     request<ReleasePackage>(`/api/v1/admin/versions/packages/${id}/retry`, { method: 'POST' }),
 
+  activatePackage: (id: string) =>
+    request<ReleasePackage>(`/api/v1/admin/versions/packages/${id}/activate`, { method: 'POST' }),
+
   listUpdaters: (query: UpdaterListQuery, signal?: AbortSignal) =>
     request<PageResult<UpdaterInfo>>(
       `/api/v1/admin/versions/updaters${toQueryString({ ...query })}`,

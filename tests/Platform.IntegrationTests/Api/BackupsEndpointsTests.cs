@@ -108,7 +108,7 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
             "/api/v1/admin/backups",
             token,
             new CreateBackupRequest(
-                "quota-backup", "config", "second", null, null, null, 1, "1.0.0", null, """{"a":2}""", null)));
+                "quota-backup", "config", "second", null, null, 1, "1.0.0", null, """{"a":2}""", null)));
         Assert.Equal(
             (int)ApiErrorCode.BackupsVersionQuotaExceeded,
             await IdentityTestHelpers.ReadErrorCodeAsync(overQuota, HttpStatusCode.Conflict));
@@ -119,7 +119,7 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
             "/api/v1/admin/backups",
             token,
             new CreateBackupRequest(
-                "channel-backup", "config", "beta-payload", null, null, null, 1, "1.0.0", "beta",
+                "channel-backup", "config", "beta-payload", null, null, 1, "1.0.0", "beta",
                 """{"a":1}""", null)));
         Assert.Equal(
             (int)ApiErrorCode.BackupsChannelMismatch,
@@ -130,7 +130,7 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
             "/api/v1/admin/backups",
             token,
             new CreateBackupRequest(
-                "channel-backup", "config", "bad-sha", null, null, null, 1, "1.0.0", null,
+                "channel-backup", "config", "bad-sha", null, null, 1, "1.0.0", null,
                 """{"a":1}""", new string('0', 64))));
         Assert.Equal(
             (int)ApiErrorCode.BackupsPayloadInvalid,
@@ -250,7 +250,7 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
         string name,
         string payload,
         string frameworkVersion = "1.0.0",
-        Guid? deviceId = null)
+        Guid? installationId = null)
     {
         return await IdentityTestHelpers.ReadDataAsync<BackupDto>(
             await client.SendAsync(IdentityTestHelpers.Authorized(
@@ -261,8 +261,7 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
                     namespaceKey,
                     BackupConventions.KindConfig,
                     name,
-                    deviceId,
-                    "测试设备",
+                    installationId,
                     null,
                     1,
                     frameworkVersion,

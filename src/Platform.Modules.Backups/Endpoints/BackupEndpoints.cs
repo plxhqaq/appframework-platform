@@ -163,6 +163,7 @@ internal static class BackupEndpoints
                     string? namespaceKey = null,
                     string? kind = null,
                     string? keyword = null,
+                    Guid? installationId = null,
                     CancellationToken cancellationToken = default) =>
                 {
                     var query = new PageQuery { Page = page, PageSize = pageSize, Keyword = keyword };
@@ -174,11 +175,11 @@ internal static class BackupEndpoints
                             namespaceKey,
                             kind,
                             keyword,
-                            deviceId: null,
-                            cancellationToken: cancellationToken));
+                            installationId,
+                            cancellationToken));
                 })
             .WithName("backups.list")
-            .WithSummary("备份列表")
+            .WithSummary("备份列表（可按安装实例过滤）")
             .RequirePermission(PermissionCatalog.BackupRead);
 
         admin.MapPost(
@@ -301,7 +302,7 @@ internal static class BackupEndpoints
                     }
                 })
             .WithName("backups.push")
-            .WithSummary("下发备份到指定在线设备（多选）并逐台等待回执；应用组广播需显式声明")
+            .WithSummary("下发备份到指定在线安装实例（多选）并逐个等待回执；应用组广播需显式声明")
             .RequirePermission(PermissionCatalog.BackupPush);
 
         admin.MapDelete(
@@ -355,7 +356,7 @@ internal static class BackupEndpoints
                     IAuditWriter audit,
                     int page = 1,
                     int pageSize = PageQuery.DefaultPageSize,
-                    Guid? deviceId = null,
+                    Guid? installationId = null,
                     string? kind = null,
                     string? namespaceKey = null,
                     CancellationToken cancellationToken = default) =>
@@ -368,7 +369,7 @@ internal static class BackupEndpoints
                         namespaceKey ?? BackupConventions.DeviceBackupsNamespaceKey,
                         kind,
                         keyword: null,
-                        deviceId,
+                        installationId,
                         cancellationToken);
                     await WriteAuditAsync(
                         context, audit, principal,
@@ -376,11 +377,11 @@ internal static class BackupEndpoints
                         targetType: "backup",
                         targetId: null,
                         result: AuditResults.Success,
-                        message: $"deviceId={deviceId};page={page};pageSize={pageSize}");
+                        message: $"installationId={installationId};page={page};pageSize={pageSize}");
                     return ApiResults.Ok(context, result);
                 })
             .WithName("backups.client.list")
-            .WithSummary("客户端按设备列出备份（默认 device-backups 命名空间）")
+            .WithSummary("客户端按安装实例列出备份（默认 device-backups 命名空间）")
             .RequirePermission(PermissionCatalog.BackupRead);
 
         client.MapPost(
@@ -391,7 +392,7 @@ internal static class BackupEndpoints
                     ICurrentPrincipal principal,
                     IBackupService backups,
                     IBackupNamespaceService namespaces,
-                    IEnumerable<IDeviceDirectory> directories,
+                    IEnumerable<IInstallationDirectory> directories,
                     IIdempotencyStore idempotency,
                     IAuditWriter audit,
                     CancellationToken cancellationToken) =>
@@ -405,16 +406,13 @@ internal static class BackupEndpoints
                         {
                             try
                             {
-                                var device = await ResolveDeviceAsync(
-                                    appKey, request.DeviceId, directories, ct);
+                                var installation = await ResolveInstallationAsync(
+                                    appKey, request.InstallationId, directories, ct);
                                 var effective = request with
                                 {
                                     NamespaceKey = string.IsNullOrWhiteSpace(request.NamespaceKey)
                                         ? BackupConventions.DeviceBackupsNamespaceKey
                                         : request.NamespaceKey,
-                                    DeviceName = string.IsNullOrWhiteSpace(request.DeviceName)
-                                        ? device.DisplayName
-                                        : request.DeviceName,
                                 };
 
                                 if (string.Equals(
@@ -437,7 +435,7 @@ internal static class BackupEndpoints
                                     targetType: "backup",
                                     targetId: created.Id.ToString(),
                                     result: AuditResults.Success,
-                                    message: $"{created.NamespaceKey}/{created.Name}/{created.SizeBytes}B/device={device.DeviceId}");
+                                    message: $"{created.NamespaceKey}/{created.Name}/{created.SizeBytes}B/installation={installation.InstallationId}");
                                 return ApiResult.Ok(created);
                             }
                             catch (BusinessException exception)
@@ -455,7 +453,7 @@ internal static class BackupEndpoints
                         IdempotencyTtl);
                 })
             .WithName("backups.client.upload")
-            .WithSummary("客户端按设备上传备份（≤64KB 内联，超过转存；支持 Idempotency-Key）")
+            .WithSummary("客户端按安装实例上传备份（≤64KB 内联，超过转存；支持 Idempotency-Key）")
             .WithMetadata(new RequestSizeLimitAttribute(createRequestLimit))
             .RequirePermission(PermissionCatalog.BackupCreate);
 
@@ -493,38 +491,26 @@ internal static class BackupEndpoints
             .RequirePermission(PermissionCatalog.BackupRead);
     }
 
-    private static async Task<DeviceDirectoryEntry> ResolveDeviceAsync(
+    private static async Task<InstallationDirectoryEntry> ResolveInstallationAsync(
         string appKey,
-        Guid? deviceId,
-        IEnumerable<IDeviceDirectory> directories,
+        Guid? installationId,
+        IEnumerable<IInstallationDirectory> directories,
         CancellationToken cancellationToken)
     {
-        if (deviceId is not { } id)
+        if (installationId is not { } id)
         {
-            throw BusinessException.Invalid("客户端上传备份必须提供 deviceId。");
+            throw BusinessException.Invalid("客户端上传备份必须提供 installationId。");
         }
 
         var directory = directories.FirstOrDefault()
                         ?? throw new BusinessException(
                             ApiErrorCode.ServiceUnavailable,
-                            "设备域未启用，无法按设备上传备份。");
+                            "设备域未启用，无法按安装实例上传备份。");
 
-        var device = await directory.FindAsync(appKey, id, cancellationToken);
-        if (device is not null)
-        {
-            return device;
-        }
-
-        if (await directory.ExistsAsync(id, cancellationToken))
-        {
-            throw new BusinessException(
-                ApiErrorCode.Forbidden,
-                "设备不属于当前应用，无法上传备份。");
-        }
-
-        throw BusinessException.NotFound(
-            ApiErrorCode.DevicesNotFound,
-            $"设备 {id} 不存在，请先连接后再上传备份。");
+        return await directory.FindAsync(appKey, id, cancellationToken)
+               ?? throw BusinessException.NotFound(
+                   ApiErrorCode.DevicesInstallationNotFound,
+                   $"安装实例 {id} 不存在或不属于当前应用，请先连接后再上传备份。");
     }
 
     private static async Task<IResult> StreamAsync(

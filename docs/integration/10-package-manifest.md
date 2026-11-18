@@ -20,12 +20,17 @@ AppUpdaterRelease                      ← 更新器版本线（B9，独立于�
       每个 (appKey, target, version) 一份内容
 ```
 
-- 唯一约束 `(release_id, kind, target, format)`：同版本同类型同目标同格式只能有一个包。
+- 同一版本可以登记多个包；每个 `(release_id, kind, target)` 只有一行 `is_active=true` 作为**启用包**，
+  `check` 只下发启用包。新登记的同级包自动接管启用位；已有包可用
+  `POST /packages/{id}/activate`（`versions.artifact.upload`，仅 `ready` 包）手动切回。
 - 全量包 `target` 可为 `any`；增量包必须是对应运行时（`win-x64` 等六个白名单值）。
 - 包字节仍按内容寻址存放（`versions/{appKey}/{sha256}`），重复内容不占额外空间。
 - `status`：`pending` / `processing` / `ready` / `failed`。full 包登记即 `ready`；incremental 包
   进入摄取队列（§3.1）。`failed` 可由 `POST /packages/{id}/retry` 重新排队。
 - 已发布/已归档版本不可删除包（`222`）；草稿版本的包可删（只删登记行，字节留给孤儿清理）。
+- 向**已归档**版本再次登记包会把版本恢复为草稿（清空 `publishedAt` / `archivedAt`），
+  用于误归档后的补救；核对后可重新发布。
+- 列表按状态排序时已归档的行排在最后。
 
 ## 2. 清单来源与识别顺序
 
@@ -131,7 +136,8 @@ curl -s -X POST http://localhost:5080/api/v1/admin/versions/packages \
 - 版本不存在时自动创建**草稿**（`draft`），失败也可见；`publish=true` 时登记成功即发布。
 - 管理台上传口固定 `publish=false` 且不传任何元数据：类型、目标、渠道、版本与说明都从包内清单读取，
   避免上传人填写与包内事实不一致。登记后进入草稿，管理员核对/修正说明后再走发布确认（§8）。
-- 同槽位同 `sha256` 重放返回已有行（`reused=true`）；不同 `sha256` 占同槽位 → `219`。
+- 同类型同目标同 `sha256` 重放返回已有行（`reused=true`）并重新设为启用包；不同 `sha256` 会在同一
+  `(kind, target)` 下新增一行并自动接管启用位，旧包保留可回退或手动切换。
 - 清单与同 RID 已有产物的 `manifest_hash` 不一致 → `219`（发布不可变）。
 - 文件名模板默认只告警；`Versions:RequirePackageFileNameMatch=true` 时返回 `218`。
   默认模板：`Setup-{channel}-{version}{ext}`、`Update-{channel}-{version}{ext}`、
@@ -151,8 +157,8 @@ curl -s -X POST http://localhost:5080/api/v1/admin/versions/packages \
    （`225`，`errorMessage` 带首个差异路径）。
 4. **落库**：`ReleaseArtifact`（按 target 复用或新建）+ `ReleaseFile`（按路径同步）在**同一事务**内
    写入，`manifest_hash` 与包清单一致；任一步失败整体回滚，不产生“清单有了文件没到”的中间态。
-5. **完成**：`status=ready`、`fileCount`、`completedAt` 写入；若登记时 `publish=true` 且版本仍是草稿，
-   在提交后发布版本（`publishedNow`），随后才可被 `check` 下发。
+5. **完成**：`status=ready`、`fileCount`、`completedAt` 写入；若登记时 `publish=true`、包仍是启用包且版本
+   仍是草稿，在提交后发布版本（`publishedNow`），随后才可被 `check` 下发。
 
 失败与重试：
 
@@ -167,10 +173,9 @@ curl -s -X POST http://localhost:5080/api/v1/admin/versions/packages \
 
 `POST /api/v1/client/versions/check` 在原有清单字段外追加：
 
-- `installer`：同 RID 的 `ready` full 包优先，其次 `target=any`；多个候选按格式优先级
-  `exe > msi > msp > zip > 7z > bin`，同格式取最新 `createdAt`。
-- `incrementalPackage`：只认同 RID 的 **`ready`** 增量包（摄取完成后才出现）；同 RID 多个 ready 时
-  取清单版本最高的包。`pending` / `processing` / `failed` 一律不下发。
+- `installer`：同 RID 的 `ready` full 包优先，其次 `target=any`；只考虑 `isActive` 的启用包。
+- `incrementalPackage`：只认同 RID 的 **`ready`** 且 `isActive` 的增量包（摄取完成后才出现）；
+  `pending` / `processing` / `failed` 以及未启用的包一律不下发。
 - `hasUpdaterUpdate` / `updater`：`updater` 是当前 RID 实际会拿到的最新已发布更新器（同 RID 优先、
   再回退 `any`）；`hasUpdaterUpdate` 由 `updaterVersion` 与更新器版本按同一版本语义比较，客户端没传
   `updaterVersion` 或版本不可解析时为 `true`。没有更新器时两者分别为 `false` / `null`。
@@ -242,14 +247,14 @@ curl -s -o Setup.exe -D headers.txt \
 | `216` | `VersionsPackageAppMismatch` | 422 | 清单 `appKey` 与当前应用不一致 |
 | `217` | `VersionsPackageChannelVersionMismatch` | 422 | 清单与请求的渠道/版本/RID 不一致 |
 | `218` | `VersionsPackageFileNameMismatch` | 422 | 严格模式下文件名不匹配模板 |
-| `219` | `VersionsPackageManifestConflict` | 409 | 同槽位内容冲突；清单与既有产物不一致 |
+| `219` | `VersionsPackageManifestConflict` | 409 | 清单与既有产物不一致；并发写入冲突 |
 | `220` | `VersionsPackageUnsafeArchive` | 422 | zip 越界/加密/符号链接等 |
 | `221` | `VersionsPackageTooLarge` | 413 | 超过包上限 |
 | `222` | `VersionsReleaseImmutable` | 409 | 已发布/已归档版本仍尝试删除包；已发布版本的增量包改文件清单 |
 | `223` | `VersionsUpdaterNotFound` | 404 | 更新器不存在 / 已归档 / 没有可下发的最新版 |
 | `224` | `VersionsPackageKindUnsupported` | 400 | `kind=updater` 等本端点不支持的包 |
 | `225` | `VersionsPackageIngestionFailed` | 422 | 摄取失败：缺文件、哈希/长度不符、清单外文件、尝试次数耗尽 |
-| `226` | `VersionsPackageStatusInvalid` | 409 | 非法状态迁移（如重试非 `failed` 包） |
+| `226` | `VersionsPackageStatusInvalid` | 409 | 非法状态迁移（如重试非 `failed` 包、启用非 `ready` 包） |
 | `227` | `VersionsStorageInsufficient` | 507 | 摄取前剩余磁盘不足 |
 | `228` | `VersionsPackageManifestInvalid` | 422 | 清单 JSON/字段不合法；zip 结构损坏（非“缺清单”） |
 
