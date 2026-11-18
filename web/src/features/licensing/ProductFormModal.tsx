@@ -24,7 +24,8 @@ interface ProductFormModalProps {
   /** 为空表示新建。 */
   product: LicenseProduct | null;
   onClose: () => void;
-  onSaved: () => void;
+  /** 保存成功后回传服务端结果，供列表立刻落位。 */
+  onSaved: (product: LicenseProduct) => void;
 }
 
 /** 授权产品新建/编辑：产品键创建后不可修改（客户端与离线码按它引用）。 */
@@ -73,9 +74,9 @@ export function ProductFormModal({ open, product, onClose, onSaved }: ProductFor
       };
       return licensingApi.createProduct(body);
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       message.success(isEdit ? tr("产品已更新") : tr("产品已创建"));
-      onSaved();
+      onSaved(saved);
       onClose();
     },
     onError: (error: Error) => message.error(error.message),

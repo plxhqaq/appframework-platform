@@ -164,6 +164,20 @@ export function LicensingPage() {
     await queryClient.invalidateQueries({ queryKey: ['licensing'] });
   };
 
+  /** 产品保存后先把服务端结果写进当前应用的列表缓存，再回源刷新，避免列表短暂回到旧快照。 */
+  const handleProductSaved = (product: LicenseProduct) => {
+    if (appKey !== null) {
+      queryClient.setQueryData<LicenseProduct[]>(
+        ['licensing', 'products', appKey],
+        (current) => {
+          const rest = (current ?? []).filter((item) => item.id !== product.id);
+          return [...rest, product].sort((a, b) => a.key.localeCompare(b.key));
+        },
+      );
+    }
+    void refresh();
+  };
+
   const mutateKey = async (action: 'sync' | 'activate' | 'retire', row?: LicenseSigningKey) => {
     try {
       if (action === 'sync') {
@@ -539,7 +553,12 @@ export function LicensingPage() {
             children: (
               <Card
                 size="small"
-                title={tr("产品")}
+                title={
+                  <Space size={6}>
+                    {tr("产品")}
+                    <Tag color="blue">{appKey}</Tag>
+                  </Space>
+                }
                 extra={
                   canManageProducts ? (
                     <Button
@@ -822,7 +841,7 @@ export function LicensingPage() {
         open={productFormOpen}
         product={editingProduct}
         onClose={() => setProductFormOpen(false)}
-        onSaved={() => void refresh()}
+        onSaved={handleProductSaved}
       />
 
       <IssueLicenseModal
