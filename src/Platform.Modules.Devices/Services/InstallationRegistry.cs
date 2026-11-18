@@ -68,9 +68,9 @@ public sealed class InstallationRegistry : IInstallationRegistry
                 "设备身份缺少安装 Guid，请检查客户端身份文件是否可写。");
         }
 
-        var autoName = DeviceValidation.RequireName(request.DisplayName, "设备名");
-        var customName = DeviceValidation.Optional(
-            request.CustomName, DeviceConventions.MaxNameLength, "自定义设备名");
+        var machineName = DeviceValidation.RequireName(request.DisplayName, "机器名");
+        var clientName = DeviceValidation.Optional(
+            request.CustomName, DeviceConventions.MaxNameLength, "安装实例名称");
         var ipAddress = DeviceValidation.Optional(
             request.IpAddress, DeviceConventions.MaxIpAddressLength, "IP 地址");
         var branch = DeviceValidation.Optional(
@@ -98,18 +98,18 @@ public sealed class InstallationRegistry : IInstallationRegistry
         {
             node = await _db.Set<DeviceNode>()
                 .FirstOrDefaultAsync(x => x.MachineCode == machineCode, cancellationToken)
-                ?? CreateNode(machineCode, autoName, customName, ipAddress, now);
+                ?? CreateNode(machineCode, machineName, ipAddress, now);
             EnsureNodeEnabled(node);
-            ApplyNodeConnection(node, autoName, customName, ipAddress, now);
+            ApplyNodeConnection(node, machineName, ipAddress, now);
 
             installation = await _db.Set<DeviceInstallation>()
                 .FirstOrDefaultAsync(
                     x => x.AppKey == appKey && x.InstallGuid == identity.InstallGuid,
                     cancellationToken)
-                ?? CreateInstallation(appKey, identity.InstallGuid, node, now);
+                ?? CreateInstallation(appKey, identity.InstallGuid, node, clientName, now);
             EnsureInstallationEnabled(installation);
             ApplyInstallationConnection(
-                installation, branch, frameworkVersion, heartbeatSeconds, now);
+                installation, clientName, branch, frameworkVersion, heartbeatSeconds, now);
 
             try
             {
@@ -135,18 +135,15 @@ public sealed class InstallationRegistry : IInstallationRegistry
 
     private DeviceNode CreateNode(
         string machineCode,
-        string autoName,
-        string? customName,
+        string machineName,
         string? ipAddress,
         DateTimeOffset now)
     {
         var node = new DeviceNode
         {
             MachineCode = machineCode,
-            AutoName = autoName,
-            CustomName = customName,
-            CustomNameSource = customName is null ? null : DeviceCustomNameSources.Client,
-            DisplayName = DeviceNaming.ResolveDisplayName(autoName, customName, machineCode),
+            AutoName = machineName,
+            DisplayName = DeviceNaming.ResolveDisplayName(machineName, null, machineCode),
             IpAddress = ipAddress,
             FirstSeenAt = now,
             LastSeenAt = now,
@@ -156,7 +153,11 @@ public sealed class InstallationRegistry : IInstallationRegistry
     }
 
     private DeviceInstallation CreateInstallation(
-        string appKey, Guid installGuid, DeviceNode node, DateTimeOffset now)
+        string appKey,
+        Guid installGuid,
+        DeviceNode node,
+        string? clientName,
+        DateTimeOffset now)
     {
         var installation = new DeviceInstallation
         {
@@ -164,6 +165,8 @@ public sealed class InstallationRegistry : IInstallationRegistry
             Node = node,
             AppKey = appKey,
             InstallGuid = installGuid,
+            ClientName = clientName,
+            DisplayName = DeviceNaming.ResolveInstallationDisplayName(clientName, null),
             OnlineStatus = DeviceOnlineStatuses.Online,
             StationStatus = DeviceStationStatuses.Idle,
             AlarmLevel = DeviceAlarmLevels.None,
@@ -198,25 +201,12 @@ public sealed class InstallationRegistry : IInstallationRegistry
 
     private static void ApplyNodeConnection(
         DeviceNode node,
-        string autoName,
-        string? customName,
+        string machineName,
         string? ipAddress,
         DateTimeOffset now)
     {
-        node.AutoName = autoName;
-
-        // 旧数据没有来源列：非空自定义名一律视为管理端设置过，避免客户端注册把管理端改名顶掉。
-        if (node.CustomNameSource is null && !string.IsNullOrWhiteSpace(node.CustomName))
-        {
-            node.CustomNameSource = DeviceCustomNameSources.Admin;
-        }
-
-        if (!string.Equals(node.CustomNameSource, DeviceCustomNameSources.Admin, StringComparison.Ordinal))
-        {
-            node.CustomName = customName;
-            node.CustomNameSource = customName is null ? null : DeviceCustomNameSources.Client;
-        }
-
+        // 节点对应硬件：客户端只能刷新机器名；节点自定义名只由管理端写入。
+        node.AutoName = machineName;
         node.DisplayName = DeviceNaming.ResolveDisplayName(node.AutoName, node.CustomName, node.MachineCode);
         node.FirstSeenAt ??= now;
         node.LastSeenAt = now;
@@ -228,6 +218,7 @@ public sealed class InstallationRegistry : IInstallationRegistry
 
     private static void ApplyInstallationConnection(
         DeviceInstallation installation,
+        string? clientName,
         string? branch,
         string? frameworkVersion,
         int? heartbeatSeconds,
@@ -237,6 +228,11 @@ public sealed class InstallationRegistry : IInstallationRegistry
         installation.FirstConnectedAt ??= now;
         installation.LastConnectedAt = now;
         installation.LastHeartbeatAt = now;
+
+        // 安装实例对应软件：应用内录入的名每次注册刷新；管理端改名走 CustomName，优先级更高。
+        installation.ClientName = clientName;
+        installation.DisplayName = DeviceNaming.ResolveInstallationDisplayName(
+            installation.ClientName, installation.CustomName);
 
         if (branch is not null)
         {

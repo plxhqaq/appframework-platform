@@ -22,7 +22,7 @@ import type { TableColumnsType } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { backupsApi } from '../../shared/api/backups';
 import { requestBlob } from '../../shared/api/client';
-import { installationsApi } from '../../shared/api/installations';
+import { installationLabel, installationsApi } from '../../shared/api/installations';
 import type {
   BackupKind,
   BackupNamespace,
@@ -262,7 +262,7 @@ export function BackupsPage() {
           } else {
             setSourceInstallationHint(
               tr("来源安装实例「{{arg0}}」当前不可下发（需启用且在线待机），未默认选中。", {
-                arg0: installation.nodeDisplayName,
+                arg0: installationLabel(installation),
               }),
             );
           }
@@ -309,7 +309,7 @@ export function BackupsPage() {
     if (unavailable) {
       message.warning(
         tr("安装实例「{{arg0}}」当前不可下发（需启用且在线待机）", {
-          arg0: unavailable.nodeDisplayName,
+          arg0: installationLabel(unavailable),
         }),
       );
       return;
@@ -514,8 +514,10 @@ export function BackupsPage() {
       dataIndex: 'installationId',
       key: 'installationId',
       ellipsis: true,
-      render: (installationId: string) =>
-        pushResult?.installations.get(installationId)?.nodeDisplayName ?? installationId,
+      render: (installationId: string) => {
+        const target = pushResult?.installations.get(installationId);
+        return target ? installationLabel(target) : installationId;
+      },
     },
     {
       title: tr("状态"),
@@ -744,7 +746,7 @@ export function BackupsPage() {
                   color="blue"
                   onClose={() => setSourceInstallation(null)}
                 >
-                  {sourceInstallation.nodeDisplayName} · {sourceInstallation.shortId}
+                  {installationLabel(sourceInstallation)} · {sourceInstallation.nodeDisplayName}
                 </Tag>
               ) : (
                 <Typography.Text type="secondary">{tr("未指定来源（手动上传）")}</Typography.Text>
@@ -787,7 +789,7 @@ export function BackupsPage() {
                       color={isInstallationSelectable(installation) ? 'blue' : 'default'}
                       onClose={() => removeSelectedInstallation(installation.id)}
                     >
-                      {installation.nodeDisplayName} · {installation.shortId}
+                      {installationLabel(installation)} · {installation.nodeDisplayName}
                     </Tag>
                   ))
                 )}

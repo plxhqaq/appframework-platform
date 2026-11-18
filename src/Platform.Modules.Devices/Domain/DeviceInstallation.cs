@@ -5,6 +5,7 @@ namespace Platform.Modules.Devices.Domain;
 
 /// <summary>
 /// 应用安装实例：某个应用（<see cref="AppKey"/>）在某节点上的一次客户端安装。
+/// 安装实例对应软件：名称取客户端应用内录入的名称，只允许管理端改名；机器名归节点。
 /// 在线/工位/报警按安装实例独立维护，互不覆盖；重装产生新行，旧行保留供审计与备份追溯。
 /// </summary>
 public sealed class DeviceInstallation : IAuditableEntity
@@ -23,6 +24,15 @@ public sealed class DeviceInstallation : IAuditableEntity
 
     /// <summary>客户端首次安装生成并持久化的 Guid。</summary>
     public Guid InstallGuid { get; set; }
+
+    /// <summary>应用内录入的安装实例名称（客户端每次注册上报）。</summary>
+    public string? ClientName { get; set; }
+
+    /// <summary>自定义名（仅管理端可写，不随客户端注册刷新）。</summary>
+    public string? CustomName { get; set; }
+
+    /// <summary>展示名：自定义名 &gt; 应用内录入名；两者都空时由管理端回退到短键展示。</summary>
+    public string? DisplayName { get; set; }
 
     /// <summary>版本分支。</summary>
     public string? Branch { get; set; }

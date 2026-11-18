@@ -24,11 +24,12 @@ public sealed class DeviceServiceTests
 
     private static DeviceRegistrationRequest Request(
         string primary,
-        string autoName = "PC-01",
+        string machineName = "PC-01",
         string? branch = "full",
         int? heartbeatSeconds = 10,
-        Guid? installGuid = null) =>
-        new(Identity(primary, installGuid), autoName, "10.1.2.3", branch, heartbeatSeconds);
+        Guid? installGuid = null,
+        string? clientName = null) =>
+        new(Identity(primary, installGuid), machineName, "10.1.2.3", branch, heartbeatSeconds, clientName);
 
     private static InstallationRegistry Registry(PlatformDbContext db, IClock clock) =>
         new(db, clock, Options.Create(new DevicesOptions()), NullLogger<InstallationRegistry>.Instance);
@@ -407,6 +408,82 @@ public sealed class DeviceServiceTests
             var exception = await Assert.ThrowsAsync<BusinessException>(
                 () => admin.GetAsync(Guid.NewGuid()));
             Assert.Equal(ApiErrorCode.DevicesNodeNotFound, exception.Code);
+        }
+    }
+
+    [PostgresFact]
+    public async Task 应用内录入名归安装实例且管理端改名不被注册顶掉()
+    {
+        var connectionString = await PostgresTestEnvironment.GetConnectionStringAsync();
+        var clock = new TestClock();
+        var appA = NewAppKey();
+        var appB = NewAppKey();
+
+        Guid nodeId;
+        Guid installationA;
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            var registered = await Registry(db, clock).RegisterAsync(
+                appA, Request("NAME-PRIMARY-1", "PC-11", clientName: "产线A-扭力"));
+            nodeId = registered.NodeId;
+            installationA = registered.InstallationId;
+        }
+
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            var second = await Registry(db, clock).RegisterAsync(
+                appB, Request(
+                    "NAME-PRIMARY-1", "PC-11", installGuid: Guid.NewGuid(), clientName: "产线A-耐压"));
+            Assert.Equal(nodeId, second.NodeId);
+        }
+
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            // 节点是硬件：名字只跟机器名，应用内录入的名不得污染节点。
+            var node = await db.Set<DeviceNode>().AsNoTracking().SingleAsync(x => x.Id == nodeId);
+            Assert.Equal("PC-11", node.AutoName);
+            Assert.Equal("PC-11", node.DisplayName);
+            Assert.Null(node.CustomName);
+
+            var installations = await db.Set<DeviceInstallation>()
+                .AsNoTracking()
+                .Where(x => x.NodeId == nodeId)
+                .ToListAsync();
+            Assert.Equal(2, installations.Count);
+            Assert.Contains(installations, x => x.ClientName == "产线A-扭力");
+            Assert.Contains(installations, x => x.ClientName == "产线A-耐压");
+            Assert.All(installations, x => Assert.Equal(x.ClientName, x.DisplayName));
+        }
+
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            var renamed = await Installations(db).UpdateAsync(
+                appA, installationA, new UpdateInstallationRequest(CustomName: "一号工位"));
+            Assert.Equal("一号工位", renamed.DisplayName);
+            Assert.Equal("一号工位", renamed.CustomName);
+            Assert.Equal("产线A-扭力", renamed.ClientName);
+        }
+
+        Guid installationB;
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            installationB = (await Installations(db)
+                .ListAsync(appB, new PageQuery(), null, null)).Items[0].Id;
+            await Registry(db, clock).RegisterAsync(
+                appA, Request("NAME-PRIMARY-1", "PC-11", clientName: "产线A-扭力改名了"));
+        }
+
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            var afterReconnect = await Installations(db).GetAsync(appA, installationA);
+            Assert.Equal("产线A-扭力改名了", afterReconnect.ClientName);
+            Assert.Equal("一号工位", afterReconnect.DisplayName);
+            Assert.Equal("产线A-耐压", (await Installations(db).GetAsync(appB, installationB)).DisplayName);
+
+            var cleared = await Installations(db).UpdateAsync(
+                appA, installationA, new UpdateInstallationRequest(CustomName: string.Empty));
+            Assert.Null(cleared.CustomName);
+            Assert.Equal("产线A-扭力改名了", cleared.DisplayName);
         }
     }
 

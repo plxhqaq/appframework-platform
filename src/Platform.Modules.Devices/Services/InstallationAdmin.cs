@@ -24,7 +24,7 @@ public interface IInstallationAdmin
         Guid installationId,
         CancellationToken cancellationToken = default);
 
-    /// <summary>应用级启用/停用安装实例。</summary>
+    /// <summary>应用级改名与启用/停用安装实例。</summary>
     Task<InstallationDetailDto> UpdateAsync(
         string appKey,
         Guid installationId,
@@ -85,7 +85,9 @@ public sealed class InstallationAdmin : IInstallationAdmin
                 x.node.MachineCode.Contains(keyword)
                 || x.node.DisplayName.Contains(keyword)
                 || (x.node.AutoName != null && x.node.AutoName.Contains(keyword))
-                || (x.node.IpAddress != null && x.node.IpAddress.Contains(keyword)));
+                || (x.node.IpAddress != null && x.node.IpAddress.Contains(keyword))
+                || (x.installation.DisplayName != null && x.installation.DisplayName.Contains(keyword))
+                || (x.installation.ClientName != null && x.installation.ClientName.Contains(keyword)));
         }
 
         long total = await source.LongCountAsync(cancellationToken);
@@ -123,6 +125,16 @@ public sealed class InstallationAdmin : IInstallationAdmin
         ArgumentNullException.ThrowIfNull(request);
 
         var installation = await FindAsync(appKey, installationId, cancellationToken);
+        if (request.CustomName is not null)
+        {
+            var customName = DeviceValidation.Optional(
+                request.CustomName, DeviceConventions.MaxNameLength, "安装实例自定义名");
+            // 安装实例自定义名只有管理端会写；客户端注册只刷新应用内录入名。
+            installation.CustomName = customName;
+            installation.DisplayName = DeviceNaming.ResolveInstallationDisplayName(
+                installation.ClientName, installation.CustomName);
+        }
+
         if (request.IsEnabled is { } enabled)
         {
             installation.IsEnabled = enabled;

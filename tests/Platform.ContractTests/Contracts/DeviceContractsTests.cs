@@ -56,4 +56,14 @@ public sealed class DeviceContractsTests
         Assert.Equal("MACHINE01", DeviceNaming.ResolveDisplayName(null, null, "MACHINE01"));
         Assert.Equal("MACHINE01", DeviceNaming.ResolveDisplayName(" ", " ", "MACHINE01"));
     }
+
+    [Fact]
+    public void 安装实例展示名按自定义名应用内录入名依次回退()
+    {
+        Assert.Equal("一号工位", DeviceNaming.ResolveInstallationDisplayName("产线A-扭力", "一号工位"));
+        Assert.Equal("产线A-扭力", DeviceNaming.ResolveInstallationDisplayName("产线A-扭力", null));
+        Assert.Equal("产线A-扭力", DeviceNaming.ResolveInstallationDisplayName("  产线A-扭力 ", "   "));
+        Assert.Null(DeviceNaming.ResolveInstallationDisplayName(null, null));
+        Assert.Null(DeviceNaming.ResolveInstallationDisplayName(" ", " "));
+    }
 }

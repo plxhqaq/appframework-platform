@@ -1001,6 +1001,12 @@ export interface InstallationSummary {
   id: string;
   nodeId: string;
   nodeDisplayName: string;
+  /** 安装实例展示名：管理端自定义名 > 应用内录入名。 */
+  displayName?: string | null;
+  /** 应用内录入的名称（客户端每次注册上报）。 */
+  clientName?: string | null;
+  /** 管理端自定义名（只由管理台写入）。 */
+  customName?: string | null;
   appKey: string;
   machineCode: string;
   shortId: string;
@@ -1025,14 +1031,15 @@ export interface InstallationDetail extends InstallationSummary {
   updatedAt: string;
 }
 
-/** 更新节点；customName 传空串表示清除。 */
+/** 更新节点；customName 传空串表示清除（清除后回退客户端上报的机器名）。 */
 export interface UpdateNodeRequest {
   customName?: string | null;
   isEnabled?: boolean | null;
 }
 
-/** 更新安装实例（应用级启停）。 */
+/** 更新安装实例；customName 传空串表示清除（清除后回退应用内录入名）。 */
 export interface UpdateInstallationRequest {
+  customName?: string | null;
   isEnabled?: boolean | null;
 }
 

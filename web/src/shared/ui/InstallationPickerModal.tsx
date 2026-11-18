@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Flex, Input, Modal, Space, Table, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useEffect, useState } from 'react';
-import { installationsApi } from '../api/installations';
+import { installationLabel, installationsApi } from '../api/installations';
 import type { InstallationSummary } from '../api/types';
 import { responsivePagination, responsiveWidth } from '../responsive';
 import { useResponsive } from '../useResponsive';
@@ -79,14 +79,14 @@ export function InstallationPickerModal({
 
   const columns: TableColumnsType<InstallationSummary> = [
     {
-      title: tr("节点 / 安装实例"),
-      key: 'node',
+      title: tr("安装实例 / 节点"),
+      key: 'installation',
       ellipsis: true,
       render: (_: unknown, row: InstallationSummary) => (
         <Space direction="vertical" size={0}>
-          <Typography.Text>{row.nodeDisplayName}</Typography.Text>
+          <Typography.Text>{installationLabel(row)}</Typography.Text>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {row.shortId}
+            {tr("节点：{{arg0}}", { arg0: row.nodeDisplayName })}
           </Typography.Text>
         </Space>
       ),

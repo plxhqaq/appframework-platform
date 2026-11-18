@@ -36,11 +36,11 @@
 | `identity.systemDiskSerial` | 系统盘序列号（SMBIOS 不可用时的次选） |
 | `identity.macAddress` | 辅助信息，不参与机器码计算 |
 | `identity.frameworkVersion` | 客户端框架版本，只记录，不参与身份计算 |
-| `displayName` | 自动名（客户端机器名），每次注册刷新 |
+| `displayName` | 节点机器名（客户端计算机名），每次注册刷新 |
 | `ipAddress` | 客户端上报的本机 IP |
 | `branch` | 版本分支；为空表示不改既有值 |
 | `heartbeatSeconds` | 心跳周期，决定离线阈值 |
-| `customName` | 客户端连接设置里的自定义设备名；管理端改过名后不再覆盖 |
+| `customName` | 应用内录入的安装实例名称，写入安装实例而非节点；管理端改过名后不再覆盖展示 |
 
 平台不信任客户端自算的键，统一按契约包里的 `DeviceIdentityHasher` 计算：
 
@@ -55,16 +55,15 @@
   不再心跳并可单独停用）；节点与授权席位都不变。旧安装的在线连接会被新安装注册时顶替（见 §2）；
 - 机器码同时是授权主体：签发授权/离线码可给 `nodeId` 或 `machineCode`（两者都传时必须指向同一台机器）。
 
-节点展示名 `DisplayName = 自定义名 > 自动名 > 机器码`，由服务端在每次注册/改名时重算。
-自定义名有来源标记 `custom_name_source`：
+命名口径按「节点=硬件、安装实例=软件」划分，两条名字各自独立，`DisplayName` 都由服务端在注册/改名时重算：
 
-| 来源 | 含义 |
-|---|---|
-| `admin` | 管理端设置或清空过；客户端注册**不得**覆盖自定义名 |
-| `client` | 客户端连接设置上报 |
-| 空 | 无自定义名；若 `custom_name` 非空则按管理端遗留值对待 |
+| 对象 | 展示名优先级 | 客户端注册可刷新 | 管理端可覆盖 |
+|---|---|---|---|
+| 节点 | `custom_name` > `auto_name`（机器名） > `machine_code` | 仅机器名 | `custom_name`，传 `""` 清除后回退机器名 |
+| 安装实例 | `custom_name` > `client_name`（应用内录入名） | 仅 `client_name` | `custom_name`，传 `""` 清除后回退应用内录入名 |
 
-管理端清空自定义名（`customName: ""`）后仍标记为 `admin`，客户端不会把它回填。
+客户端上报的名称只会刷新机器名与应用内录入名，不会覆盖管理端自定义名；安装实例两个名都为空时
+管理端按短键 `short_id` 展示（不再有 `custom_name_source` 来源列，专列即来源）。
 
 ## 2. 连接与注册
 
@@ -140,7 +139,7 @@ wss://<服务端>/hubs/devices?access_token=<JWT>
 ### 3.1 物理节点（平台级）
 
 ```bash
-# 列表：关键字匹配机器码/展示名/自动名/IP；可按在线状态与启用状态过滤
+# 列表：关键字匹配机器码/展示名/机器名/IP；可按在线状态与启用状态过滤
 curl -s "http://localhost:5080/api/v1/admin/nodes?page=1&pageSize=20&onlineStatus=online&isEnabled=true&keyword=coater" \
   -H "Authorization: Bearer $TOKEN"
 
@@ -148,7 +147,7 @@ curl -s "http://localhost:5080/api/v1/admin/nodes?page=1&pageSize=20&onlineStatu
 curl -s http://localhost:5080/api/v1/admin/nodes/$NODE_ID \
   -H "Authorization: Bearer $TOKEN"
 
-# 改名/启停：字段为空表示不改；customName 传空串表示清除（并标记为管理端来源）
+# 改名/启停：字段为空表示不改；customName 传空串表示清除（清除后回退客户端上报的机器名）
 curl -s -X PATCH http://localhost:5080/api/v1/admin/nodes/$NODE_ID \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"customName":"3号线涂布机","isEnabled":true}'
@@ -173,7 +172,7 @@ curl -s "http://localhost:5080/api/v1/admin/nodes/$NODE_ID/installations?pageSiz
 ### 3.2 安装实例（应用级）
 
 ```bash
-# 列表：只返回当前应用；关键字匹配机器码/节点名/IP
+# 列表：只返回当前应用；关键字匹配机器码/节点名/IP/安装实例展示名/应用内录入名
 curl -s "http://localhost:5080/api/v1/admin/installations?onlineStatus=online&branch=line-a&keyword=coater" \
   -H "Authorization: Bearer $TOKEN"
 
@@ -181,10 +180,10 @@ curl -s "http://localhost:5080/api/v1/admin/installations?onlineStatus=online&br
 curl -s http://localhost:5080/api/v1/admin/installations/$INSTALLATION_ID \
   -H "Authorization: Bearer $TOKEN"
 
-# 应用级启停
+# 应用级改名与启停：customName 传空串清除（清除后回退应用内录入名）
 curl -s -X PATCH http://localhost:5080/api/v1/admin/installations/$INSTALLATION_ID \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"isEnabled":false}'
+  -d '{"customName":"一号工位","isEnabled":false}'
 
 # 重启单个安装实例
 curl -s -X POST http://localhost:5080/api/v1/admin/installations/$INSTALLATION_ID/restart \

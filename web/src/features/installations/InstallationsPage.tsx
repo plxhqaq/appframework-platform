@@ -21,7 +21,7 @@ import {
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useEffect, useState } from 'react';
-import { installationsApi } from '../../shared/api/installations';
+import { installationLabel, installationsApi } from '../../shared/api/installations';
 import type {
   DeviceAlarmLevel,
   DeviceOnlineStatus,
@@ -36,6 +36,7 @@ import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
 
 interface EditFormValues {
+  customName: string;
   isEnabled: boolean;
 }
 
@@ -65,8 +66,9 @@ const ALARM_META: Record<DeviceAlarmLevel, { label: string; color?: string }> = 
 /**
  * 安装实例页（应用级）。
  *
- * 安装实例 = 某个应用在某物理节点上的一次安装；节点名/机器码只读，
- * 分支/版本/在线/工位/报警归安装实例。节点停用时即使实例启用也不可下发。
+ * 安装实例 = 某个应用在某物理节点上的一次安装；名称取应用内录入的设备名（管理台可覆盖），
+ * 机器名/机器码属于节点只读，分支/版本/在线/工位/报警归安装实例。
+ * 节点停用时即使实例启用也不可下发。
  */
 export function InstallationsPage() {
   const { message } = App.useApp();
@@ -127,7 +129,7 @@ export function InstallationsPage() {
   const openEditForm = (row: InstallationSummary) => {
     setEditTarget(row);
     editForm.resetFields();
-    editForm.setFieldsValue({ isEnabled: row.isEnabled });
+    editForm.setFieldsValue({ customName: row.customName ?? '', isEnabled: row.isEnabled });
   };
 
   const submitEdit = async () => {
@@ -142,7 +144,10 @@ export function InstallationsPage() {
 
     setSaving(true);
     try {
-      const body: UpdateInstallationRequest = { isEnabled: values.isEnabled };
+      const body: UpdateInstallationRequest = {
+        customName: values.customName?.trim() ?? '',
+        isEnabled: values.isEnabled,
+      };
       await installationsApi.updateInstallation(editTarget.id, body);
       message.success(tr("安装实例已更新"));
       setEditTarget(null);
@@ -187,14 +192,14 @@ export function InstallationsPage() {
 
   const columns: TableColumnsType<InstallationSummary> = [
     {
-      title: tr("节点 / 安装实例"),
-      key: 'node',
+      title: tr("安装实例"),
+      key: 'installation',
       width: 220,
       render: (_: unknown, row: InstallationSummary) => (
         <Space direction="vertical" size={0}>
-          <Typography.Text>{row.nodeDisplayName || tr("(未命名)")}</Typography.Text>
+          <Typography.Text>{installationLabel(row)}</Typography.Text>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {row.shortId}
+            {tr("节点：{{arg0}}", { arg0: row.nodeDisplayName })}
           </Typography.Text>
         </Space>
       ),
@@ -338,7 +343,7 @@ export function InstallationsPage() {
           <Input.Search
             key={`keyword-${appKey}`}
             allowClear
-            placeholder={tr("节点名 / 机器码 / IP")}
+            placeholder={tr("实例名 / 节点名 / 机器码 / IP")}
             style={{ width: 240, maxWidth: '100%' }}
             defaultValue={keyword}
             onSearch={(value) => {
@@ -410,7 +415,7 @@ export function InstallationsPage() {
         open={editTarget !== null}
         title={
           editTarget
-            ? tr("编辑安装实例：{{arg0}}", { arg0: editTarget.nodeDisplayName })
+            ? tr("编辑安装实例：{{arg0}}", { arg0: installationLabel(editTarget) })
             : tr("编辑安装实例")
         }
         confirmLoading={saving}
@@ -418,6 +423,18 @@ export function InstallationsPage() {
         onCancel={() => setEditTarget(null)}
       >
         <Form form={editForm} layout="vertical">
+          <Form.Item
+            name="customName"
+            label={tr("自定义名（优先于应用内录入名展示，留空清除）")}
+            rules={[{ max: 128 }]}
+            extra={
+              editTarget
+                ? tr("应用内录入名：{{arg0}}", { arg0: editTarget.clientName || "-" })
+                : undefined
+            }
+          >
+            <Input placeholder={tr("例如：一号工位")} allowClear />
+          </Form.Item>
           <Form.Item name="isEnabled" label={tr("启用")} valuePropName="checked">
             <Switch />
           </Form.Item>
@@ -430,7 +447,7 @@ export function InstallationsPage() {
         open={restartTarget !== null}
         title={
           restartTarget
-            ? tr("重启安装实例：{{arg0}}", { arg0: restartTarget.nodeDisplayName })
+            ? tr("重启安装实例：{{arg0}}", { arg0: installationLabel(restartTarget) })
             : tr("重启安装实例")
         }
         confirmLoading={saving}
@@ -455,7 +472,11 @@ export function InstallationsPage() {
       <Drawer
         open={detailId !== null}
         width={responsiveWidth(isMobile, 720)}
-        title={detail.data ? detail.data.nodeDisplayName : tr("安装实例详情")}
+        title={
+          detail.data
+            ? tr("安装实例：{{arg0}}", { arg0: installationLabel(detail.data) })
+            : tr("安装实例详情")
+        }
         onClose={() => setDetailId(null)}
         styles={{ body: { padding: isMobile ? 12 : 24 } }}
       >
@@ -490,11 +511,31 @@ function InstallationDescriptions({ installation }: { installation: Installation
       items={[
         { key: 'shortId', label: tr("短键"), children: installation.shortId },
         {
+          key: 'displayName',
+          label: tr("展示名"),
+          children: installation.displayName || installation.shortId,
+        },
+        {
+          key: 'clientName',
+          label: tr("应用内录入名"),
+          children: installation.clientName ?? '-',
+        },
+        {
+          key: 'customName',
+          label: tr("管理端自定义名"),
+          children: installation.customName ?? '-',
+        },
+        {
+          key: 'node',
+          label: tr("节点"),
+          children: installation.nodeDisplayName,
+        },
+        { key: 'nodeId', label: tr("节点 ID"), children: installation.nodeId },
+        {
           key: 'installGuid',
           label: tr("安装标识"),
           children: installation.installGuid,
         },
-        { key: 'nodeId', label: tr("节点 ID"), children: installation.nodeId },
         {
           key: 'machineCode',
           label: tr("机器码"),

@@ -618,9 +618,24 @@ namespace Platform.Infrastructure.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("branch");
 
+                    b.Property<string>("ClientName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("client_name");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<string>("CustomName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("custom_name");
+
+                    b.Property<string>("DisplayName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("display_name");
 
                     b.Property<DateTimeOffset?>("FirstConnectedAt")
                         .HasColumnType("timestamp with time zone")
@@ -710,11 +725,6 @@ namespace Platform.Infrastructure.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)")
                         .HasColumnName("custom_name");
-
-                    b.Property<string>("CustomNameSource")
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasColumnName("custom_name_source");
 
                     b.Property<string>("DisplayName")
                         .IsRequired()

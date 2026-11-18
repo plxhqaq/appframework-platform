@@ -21,7 +21,6 @@ public sealed class DevicesModelContributor : IPlatformModelContributor
             builder.Property(static x => x.MachineCode).HasColumnName("machine_code").HasMaxLength(32).IsRequired();
             builder.Property(static x => x.AutoName).HasColumnName("auto_name").HasMaxLength(128);
             builder.Property(static x => x.CustomName).HasColumnName("custom_name").HasMaxLength(128);
-            builder.Property(static x => x.CustomNameSource).HasColumnName("custom_name_source").HasMaxLength(16);
             builder.Property(static x => x.DisplayName).HasColumnName("display_name").HasMaxLength(256).IsRequired();
             builder.Property(static x => x.IpAddress).HasColumnName("ip_address").HasMaxLength(64);
             builder.Property(static x => x.IsEnabled).HasColumnName("is_enabled");
@@ -47,6 +46,9 @@ public sealed class DevicesModelContributor : IPlatformModelContributor
             builder.Property(static x => x.NodeId).HasColumnName("node_id");
             builder.Property(static x => x.AppKey).HasColumnName("app_key").HasMaxLength(64).IsRequired();
             builder.Property(static x => x.InstallGuid).HasColumnName("install_guid");
+            builder.Property(static x => x.ClientName).HasColumnName("client_name").HasMaxLength(128);
+            builder.Property(static x => x.CustomName).HasColumnName("custom_name").HasMaxLength(128);
+            builder.Property(static x => x.DisplayName).HasColumnName("display_name").HasMaxLength(128);
             builder.Property(static x => x.Branch).HasColumnName("branch").HasMaxLength(64);
             builder.Property(static x => x.FrameworkVersion).HasColumnName("framework_version").HasMaxLength(64);
             builder.Property(static x => x.OnlineStatus).HasColumnName("online_status").HasMaxLength(16).IsRequired();

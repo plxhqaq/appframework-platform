@@ -399,7 +399,7 @@ export function NodesPage() {
         <Form form={editForm} layout="vertical">
           <Form.Item
             name="customName"
-            label={tr("自定义名（优先于自动名展示，留空清除）")}
+            label={tr("自定义名（优先于机器名展示，留空清除）")}
             rules={[{ max: 128 }]}
           >
             <Input placeholder={tr("3 号线-涂布机")} />
@@ -483,7 +483,7 @@ function NodeDetailView({ node }: { node: NodeDetail }) {
             label: tr("机器码"),
             children: <Typography.Text code>{node.machineCode}</Typography.Text>,
           },
-          { key: 'autoName', label: tr("自动名"), children: node.autoName ?? '-' },
+          { key: 'machineName', label: tr("机器名"), children: node.autoName ?? '-' },
           { key: 'customName', label: tr("自定义名"), children: node.customName ?? '-' },
           { key: 'ip', label: tr("IP 地址"), children: node.ipAddress ?? '-' },
           {
@@ -563,9 +563,16 @@ function InstallationTabs({ installations }: { installations: InstallationSummar
   const columns: TableColumnsType<InstallationSummary> = [
     {
       title: tr("安装实例"),
-      dataIndex: 'shortId',
-      key: 'shortId',
-      width: 160,
+      key: 'installation',
+      width: 180,
+      render: (_: unknown, row: InstallationSummary) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Text>{row.displayName || tr("(未命名)")}</Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {row.shortId}
+          </Typography.Text>
+        </Space>
+      ),
     },
     {
       title: tr("分支"),
@@ -653,7 +660,21 @@ function InstallationTabs({ installations }: { installations: InstallationSummar
                       label: tr("机器码"),
                       children: <Typography.Text code>{row.machineCode}</Typography.Text>,
                     },
-                    { key: 'isEnabled', label: tr("安装实例启用"), children: row.isEnabled ? tr("启用") : tr("停用") },
+                    {
+                      key: 'clientName',
+                      label: tr("应用内录入名"),
+                      children: row.clientName ?? '-',
+                    },
+                    {
+                      key: 'customName',
+                      label: tr("管理端自定义名"),
+                      children: row.customName ?? '-',
+                    },
+                    {
+                      key: 'isEnabled',
+                      label: tr("安装实例启用"),
+                      children: row.isEnabled ? tr("启用") : tr("停用"),
+                    },
                     { key: 'nodeEnabled', label: tr("节点启用"), children: row.nodeEnabled ? tr("启用") : tr("停用") },
                     { key: 'alarmMessage', label: tr("报警摘要"), children: row.alarmMessage ?? '-' },
                     {

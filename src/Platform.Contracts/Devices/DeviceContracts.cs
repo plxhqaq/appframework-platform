@@ -136,10 +136,10 @@ public static class DeviceConfigKinds
         || string.Equals(value, Profile, StringComparison.Ordinal);
 }
 
-/// <summary>节点展示名：自定义名优先，其次自动名，最后机器码。</summary>
+/// <summary>展示名解析：管理端自定义名优先，其次自动/上报名，最后回退标识。</summary>
 public static class DeviceNaming
 {
-    /// <summary>按节点口径解析展示名。</summary>
+    /// <summary>按节点（硬件）口径解析展示名：管理端改名 &gt; 机器名 &gt; 机器码。</summary>
     public static string ResolveDisplayName(string? autoName, string? customName, string machineCode)
     {
         var custom = customName?.Trim();
@@ -155,6 +155,22 @@ public static class DeviceNaming
         }
 
         return machineCode;
+    }
+
+    /// <summary>
+    /// 按安装实例（软件）口径解析展示名：管理端改名 &gt; 应用内录入名。
+    /// 两者都没有时返回空，由管理端回退到安装实例短键展示（安装实例没有硬件级天然名）。
+    /// </summary>
+    public static string? ResolveInstallationDisplayName(string? clientName, string? customName)
+    {
+        var custom = customName?.Trim();
+        if (!string.IsNullOrEmpty(custom))
+        {
+            return custom;
+        }
+
+        var client = clientName?.Trim();
+        return string.IsNullOrEmpty(client) ? null : client;
     }
 }
 
@@ -173,11 +189,11 @@ public sealed record DeviceIdentity(
 
 /// <summary>安装实例注册请求（连接后首帧）。</summary>
 /// <param name="Identity">身份要素。</param>
-/// <param name="DisplayName">自动节点名（当前为客户端机器名）。</param>
+/// <param name="DisplayName">节点自动名：客户端机器名（硬件侧标识，与安装实例名无关）。</param>
 /// <param name="IpAddress">客户端上报的本机 IP。</param>
 /// <param name="Branch">版本分支；为空表示不改既有值。</param>
 /// <param name="HeartbeatSeconds">客户端心跳周期，决定离线阈值。</param>
-/// <param name="CustomName">客户端连接设置里的自定义设备名；管理端改过名后不再覆盖。</param>
+/// <param name="CustomName">应用内录入的安装实例名称；只写安装实例，节点自定义名仅管理端可改。</param>
 public sealed record DeviceRegistrationRequest(
     DeviceIdentity Identity,
     string DisplayName,
@@ -285,6 +301,9 @@ public sealed record InstallationSummaryDto(
     Guid Id,
     Guid NodeId,
     string NodeDisplayName,
+    string? DisplayName,
+    string? ClientName,
+    string? CustomName,
     string AppKey,
     string MachineCode,
     string ShortId,
@@ -306,6 +325,9 @@ public sealed record InstallationDetailDto(
     Guid Id,
     Guid NodeId,
     string NodeDisplayName,
+    string? DisplayName,
+    string? ClientName,
+    string? CustomName,
     string AppKey,
     string MachineCode,
     string ShortId,
@@ -325,13 +347,15 @@ public sealed record InstallationDetailDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
-/// <summary>管理端更新节点。字段为空表示不修改；自定义名传空串表示清除。</summary>
+/// <summary>管理端更新节点。字段为空表示不修改；自定义名传空串表示清除（清除后回退机器名）。</summary>
 public sealed record UpdateNodeRequest(
     string? CustomName = null,
     bool? IsEnabled = null);
 
-/// <summary>管理端更新安装实例（应用级启停）。</summary>
-public sealed record UpdateInstallationRequest(bool? IsEnabled = null);
+/// <summary>管理端更新安装实例。字段为空表示不修改；自定义名传空串表示清除（清除后回退应用内录入名）。</summary>
+public sealed record UpdateInstallationRequest(
+    string? CustomName = null,
+    bool? IsEnabled = null);
 
 /// <summary>管理端重启节点（该节点全部安装实例收到）。</summary>
 public sealed record NodeRestartRequest(string? Reason = null);
