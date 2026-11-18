@@ -21,20 +21,29 @@ public sealed record OfflineCodeVerification(bool IsValid, OfflineLicenseCodeCon
 
 /// <summary>
 /// 把服务端授权响应变成「本机这台设备能不能放行」的结论。
-/// 两条铁律：只信 ECDSA 验签通过的快照；到期判断用快照里的服务端时间，不用本机时钟（时钟可能被回拨）。
+/// 三条铁律：只信 ECDSA 验签通过的快照；验签只用调用方内置的公钥（响应里的 <c>TrustedKeys</c> 绝不采信——
+/// 明文 HTTP 下响应可被整体替换，拿响应公钥验响应签名等于没有验签）；到期判断用快照里的服务端时间，
+/// 不用本机时钟（时钟可能被回拨）。
 /// </summary>
 public static class LicenseVerifier
 {
     /// <summary>
     /// 校验授权快照，并核对快照里的应用键 / 产品键 / 机器码与期望一致。
     /// </summary>
+    /// <param name="status">服务端授权状态响应（其 <c>TrustedKeys</c> 被刻意忽略）。</param>
+    /// <param name="expectedAppKey">当前应用键。</param>
+    /// <param name="expectedProductKey">产品键。</param>
+    /// <param name="expectedMachineCode">本机机器码。</param>
+    /// <param name="pinnedPublicKeys">安装包内置的受信任公钥（SPKI Base64）；为空时一律不放行。</param>
     public static LicenseVerification Verify(
         LicenseStatusResponse status,
         string expectedAppKey,
         string expectedProductKey,
-        string expectedMachineCode)
+        string expectedMachineCode,
+        IReadOnlyCollection<string> pinnedPublicKeys)
     {
         ArgumentNullException.ThrowIfNull(status);
+        ArgumentNullException.ThrowIfNull(pinnedPublicKeys);
 
         if (string.Equals(status.Status, LicenseConventions.StatusUnmanaged, StringComparison.Ordinal))
         {
@@ -46,13 +55,23 @@ public static class LicenseVerifier
             return Reject(status, "响应没有签名快照（未授权或未被签发）。");
         }
 
-        var trustedKeys = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var key in status.TrustedKeys)
+        var pinned = BuildPinnedKeyMap(pinnedPublicKeys);
+        if (pinned.Count == 0)
         {
-            trustedKeys[key.KeyId] = key.PublicKey;
+            return Reject(status, "本程序未内置授权公钥，授权结论不可采信。");
         }
 
-        if (!LicenseSnapshotCodec.TryVerify(token, trustedKeys, out var payload, out var verifyError))
+        if (!LicenseSnapshotCodec.TryParseUnverified(token, out var unverified, out _, out var parseError))
+        {
+            return Reject(status, parseError ?? "快照格式损坏。");
+        }
+
+        if (string.IsNullOrEmpty(unverified.KeyId) || !pinned.ContainsKey(unverified.KeyId))
+        {
+            return Reject(status, $"快照 keyId「{unverified.KeyId}」不在本机内置公钥中。");
+        }
+
+        if (!LicenseSnapshotCodec.TryVerify(token, pinned, out var payload, out var verifyError))
         {
             return Reject(status, verifyError ?? "快照验签失败。");
         }
@@ -135,6 +154,30 @@ public static class LicenseVerifier
         }
 
         return new OfflineCodeVerification(true, content, null);
+    }
+
+    private static Dictionary<string, string> BuildPinnedKeyMap(IReadOnlyCollection<string> publicKeys)
+    {
+        var pinned = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (string key in publicKeys)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                continue;
+            }
+
+            string trimmed = key.Trim();
+            try
+            {
+                pinned[LicenseCryptography.ComputeKeyId(trimmed)] = trimmed;
+            }
+            catch (FormatException)
+            {
+                // 非法内置公钥直接忽略；全部非法时等价于未内置。
+            }
+        }
+
+        return pinned;
     }
 
     private static bool MachinesMatch(string? actual, string? expected)

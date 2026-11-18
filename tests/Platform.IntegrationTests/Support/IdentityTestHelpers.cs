@@ -25,7 +25,7 @@ internal static class IdentityTestHelpers
     }
 
     public static async Task<string> LoginAsAdminAsync(HttpClient client) =>
-        (await LoginAsync(client, AdminUserName, AdminPassword)).AccessToken;
+        (await LoginAsync(client, AdminUserName, AdminPassword, IdentityConventions.DemoAppKey)).AccessToken;
 
     public static async Task<RoleSummaryDto> GetRoleAsync(HttpClient client, string token, string name)
     {

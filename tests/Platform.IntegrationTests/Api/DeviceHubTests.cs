@@ -81,6 +81,65 @@ public sealed class DeviceHubTests : IClassFixture<PlatformApiFactory>
     }
 
     [Fact]
+    public async Task 同机同应用重装后新安装顶替旧连接且旧安装保留()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        var appKey = $"hub-{Guid.NewGuid().ToString("N")[..8]}";
+        await CreateAppAsync(client, admin, appKey);
+        var token = await DevTokenAsync(client, appKey);
+
+        await using var first = CreateConnection(token);
+        await using var second = CreateConnection(token);
+
+        var replaced = new TaskCompletionSource<InstallationSessionReplaced>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        first.On<InstallationSessionReplaced>(
+            DeviceHubEvents.SessionReplaced,
+            session => replaced.TrySetResult(session));
+
+        await first.StartAsync();
+        await second.StartAsync();
+
+        var oldInstallGuid = Guid.NewGuid();
+        var newInstallGuid = Guid.NewGuid();
+
+        static DeviceRegistrationRequest Request(Guid installGuid) =>
+            new(
+                new DeviceIdentity(installGuid, "REINSTALL-PRIMARY", null, "AA-BB-CC-DD-EE-FF", "1.0.0"),
+                "PC-01",
+                "10.1.2.3",
+                "full");
+
+        var oldRegistration = await first.InvokeAsync<DeviceRegistrationResponse>(
+            DeviceHubMethods.RegisterInstallation, Request(oldInstallGuid));
+        var newRegistration = await second.InvokeAsync<DeviceRegistrationResponse>(
+            DeviceHubMethods.RegisterInstallation, Request(newInstallGuid));
+
+        // 重装 = 同一节点同一应用的新安装实例，旧实例保留为历史
+        Assert.Equal(oldRegistration.NodeId, newRegistration.NodeId);
+        Assert.NotEqual(oldRegistration.InstallationId, newRegistration.InstallationId);
+
+        // 旧安装的连接被新安装顶替，且不能再上报状态
+        var session = await replaced.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("replaced", session.Reason);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => first.InvokeAsync<InstallationSummaryDto>(
+            DeviceHubMethods.Heartbeat,
+            new DeviceHeartbeatRequest(DeviceHeartbeatStatuses.Idle, DeviceAlarmLevels.None)));
+
+        var detail = await IdentityTestHelpers.ReadDataAsync<NodeDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                $"/api/v1/admin/nodes/{newRegistration.NodeId}",
+                admin)));
+        var installations = detail.Installations.Where(x => x.AppKey == appKey).ToList();
+        Assert.Equal(2, installations.Count);
+        Assert.Contains(installations, x => x.Id == oldRegistration.InstallationId && x.InstallGuid == oldInstallGuid);
+        Assert.Contains(installations, x => x.Id == newRegistration.InstallationId && x.InstallGuid == newInstallGuid);
+    }
+
+    [Fact]
     public async Task 同机不同应用共享节点但各自独立注册()
     {
         using var client = _factory.CreateClient();

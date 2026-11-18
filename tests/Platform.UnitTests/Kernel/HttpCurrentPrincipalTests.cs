@@ -51,6 +51,24 @@ public sealed class HttpCurrentPrincipalTests
     }
 
     [Fact]
+    public void 只有可访问应用列表时当前应用为空()
+    {
+        var user = new ClaimsPrincipal(new ClaimsIdentity(
+            [
+                new Claim(PlatformClaimTypes.Subject, "user-1"),
+                new Claim(PlatformClaimTypes.Name, "alice"),
+                new Claim(PlatformClaimTypes.App, "demo"),
+                new Claim(PlatformClaimTypes.App, "other"),
+            ],
+            authenticationType: "Test"));
+
+        var principal = CreatePrincipal(user);
+
+        Assert.Equal(["demo", "other"], principal.AppKeys);
+        Assert.Null(principal.AppKey);
+    }
+
+    [Fact]
     public void 权限判定区分通配与具体码()
     {
         var principal = CreatePrincipal(CreateUser());
@@ -95,6 +113,7 @@ public sealed class HttpCurrentPrincipalTests
             new(PlatformClaimTypes.Role, "operator"),
             new(PlatformClaimTypes.App, "demo"),
             new(PlatformClaimTypes.App, "other"),
+            new(PlatformClaimTypes.AppCurrent, "demo"),
             new(PlatformClaimTypes.Temporary, "true"),
             new(PlatformClaimTypes.Permission, "identity.user.read"),
             new(PlatformClaimTypes.Permission, "identity.role.read"),

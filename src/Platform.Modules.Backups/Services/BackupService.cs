@@ -219,14 +219,8 @@ public sealed partial class BackupService : IBackupService
 
         var channel = ResolveChannel(space, request.Channel);
 
-        var count = await _db.Set<Backup>()
-            .CountAsync(x => x.NamespaceId == space.Id && x.DeletedAt == null, cancellationToken);
-        if (count >= space.MaxVersions)
-        {
-            throw new BusinessException(
-                ApiErrorCode.BackupsVersionQuotaExceeded,
-                $"命名空间 {space.Key} 已达到保留上限 {space.MaxVersions} 条，请先删除旧备份。");
-        }
+        // 预检快速失败；真正的判定在落库前的闸门内重做一次。
+        await EnsureQuotaAsync(space, cancellationToken);
 
         var computedSha = Convert.ToHexString(SHA256.HashData(payloadBytes)).ToLowerInvariant();
         var declaredSha = NormalizeSha(request.Sha256);
@@ -259,8 +253,13 @@ public sealed partial class BackupService : IBackupService
             entity.PayloadJson = payload;
             entity.Sha256 = computedSha;
             entity.SizeBytes = payloadBytes.Length;
-            _db.Set<Backup>().Add(entity);
-            await _db.SaveChangesAsync(cancellationToken);
+            using (await BackupQuotaGate.EnterAsync(cancellationToken))
+            {
+                await EnsureQuotaAsync(space, cancellationToken);
+                _db.Set<Backup>().Add(entity);
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+
             return ToDto(entity, space.Key);
         }
 
@@ -279,10 +278,14 @@ public sealed partial class BackupService : IBackupService
         }
 
         entity.Sha256 = written.Sha256;
-        _db.Set<Backup>().Add(entity);
         try
         {
-            await _db.SaveChangesAsync(cancellationToken);
+            using (await BackupQuotaGate.EnterAsync(cancellationToken))
+            {
+                await EnsureQuotaAsync(space, cancellationToken);
+                _db.Set<Backup>().Add(entity);
+                await _db.SaveChangesAsync(cancellationToken);
+            }
         }
         catch
         {
@@ -369,6 +372,9 @@ public sealed partial class BackupService : IBackupService
         var source = row.Backup;
         var installation = await ResolveInstallationAsync(
             appKey, targetInstallationId, cancellationToken);
+        var space = await _db.Set<BackupNamespace>()
+                        .AsNoTracking()
+                        .FirstAsync(x => x.Id == source.NamespaceId, cancellationToken);
 
         var snapshot = new Backup
         {
@@ -387,8 +393,13 @@ public sealed partial class BackupService : IBackupService
             CreatedBy = actor,
         };
 
-        _db.Set<Backup>().Add(snapshot);
-        await _db.SaveChangesAsync(cancellationToken);
+        using (await BackupQuotaGate.EnterAsync(cancellationToken))
+        {
+            await EnsureQuotaAsync(space, cancellationToken);
+            _db.Set<Backup>().Add(snapshot);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
         return ToDto(snapshot, row.NamespaceKey);
     }
 
@@ -409,6 +420,19 @@ public sealed partial class BackupService : IBackupService
             ?? throw new BusinessException(ApiErrorCode.BackupsNotFound, $"备份 {id} 不存在。");
 
         return (row.Backup, row.NamespaceKey);
+    }
+
+    /// <summary>配额判定（含快照行）；调用方负责与插入同处 <see cref="BackupQuotaGate"/> 内。</summary>
+    private async Task EnsureQuotaAsync(BackupNamespace space, CancellationToken cancellationToken)
+    {
+        int count = await _db.Set<Backup>()
+            .CountAsync(x => x.NamespaceId == space.Id && x.DeletedAt == null, cancellationToken);
+        if (count >= space.MaxVersions)
+        {
+            throw new BusinessException(
+                ApiErrorCode.BackupsVersionQuotaExceeded,
+                $"命名空间 {space.Key} 已达到保留上限 {space.MaxVersions} 条，请先删除旧备份。");
+        }
     }
 
     private static string ResolveChannel(BackupNamespace space, string? requested)

@@ -112,6 +112,7 @@ public sealed class UserSessionFactory : IUserSessionFactory
         else
         {
             // 平台权限始终有效；应用声明的权限只在该应用上下文里并入令牌。
+            // 应用级角色的平台模块码（node.* 等）与仅平台管理员可授予的码一律不并入，挡住脏数据越权。
             var allowed = PermissionCatalog.Codes.ToHashSet(StringComparer.Ordinal);
             if (!string.IsNullOrWhiteSpace(appKey))
             {
@@ -119,7 +120,9 @@ public sealed class UserSessionFactory : IUserSessionFactory
             }
 
             permissions = effectiveRoles
-                .SelectMany(static role => role.Permissions)
+                .SelectMany(role => IsAppScoped(role)
+                    ? role.Permissions.Where(PermissionCatalog.CanAppRoleHold)
+                    : role.Permissions)
                 .Where(allowed.Contains)
                 .Distinct(StringComparer.Ordinal)
                 .Order(StringComparer.Ordinal)

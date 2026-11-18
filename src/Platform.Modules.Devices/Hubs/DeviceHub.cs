@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using Platform.Contracts;
 using Platform.Contracts.Devices;
+using Platform.Kernel.Abstractions;
 using Platform.Modules.Devices.Services;
 
 namespace Platform.Modules.Devices.Hubs;
@@ -45,6 +46,7 @@ public sealed class DeviceHub : Hub
     private readonly IInstallationPresence _presence;
     private readonly InstallationConnectionRegistry _connections;
     private readonly IInstallationCommandAcks _acks;
+    private readonly IClock _clock;
     private readonly ILogger<DeviceHub> _logger;
 
     /// <summary>构造。</summary>
@@ -53,18 +55,22 @@ public sealed class DeviceHub : Hub
         IInstallationPresence presence,
         InstallationConnectionRegistry connections,
         IInstallationCommandAcks acks,
+        IClock clock,
         ILogger<DeviceHub> logger)
     {
         _registry = registry;
         _presence = presence;
         _connections = connections;
         _acks = acks;
+        _clock = clock;
         _logger = logger;
     }
 
     /// <inheritdoc />
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
+        // 时间锚点取在注销之前：此后登记的新连接一定比它新，离线落库不得覆盖。
+        var disconnectedAt = _clock.UtcNow;
         bool registered = _connections.TryGet(Context.ConnectionId, out var connection);
         _connections.Unregister(Context.ConnectionId);
 
@@ -74,7 +80,7 @@ public sealed class DeviceHub : Hub
             try
             {
                 await _presence.MarkDisconnectedAsync(
-                    connection.AppKey, connection.InstallationId, CancellationToken.None);
+                    connection.AppKey, connection.InstallationId, disconnectedAt, CancellationToken.None);
                 DisconnectedOfflineLog(_logger, connection.InstallationId, null);
             }
             catch (Exception ex)
@@ -94,7 +100,7 @@ public sealed class DeviceHub : Hub
         var appKey = RequireAppKey();
 
         var response = await _registry.RegisterAsync(appKey, request, Context.ConnectionAborted);
-        var replaced = _connections.Register(
+        var registration = _connections.Register(
             appKey,
             response.InstallationId,
             response.NodeId,
@@ -110,21 +116,33 @@ public sealed class DeviceHub : Hub
             DeviceHubPaths.NodeGroup(response.NodeId),
             Context.ConnectionAborted);
 
-        if (!string.IsNullOrEmpty(replaced))
+        if (registration.Previous is { } previous)
         {
             await Groups.RemoveFromGroupAsync(
-                replaced,
-                DeviceHubPaths.InstallationGroup(response.InstallationId),
+                previous.ConnectionId,
+                DeviceHubPaths.InstallationGroup(previous.Previous.InstallationId),
                 Context.ConnectionAborted);
             await Groups.RemoveFromGroupAsync(
-                replaced,
-                DeviceHubPaths.NodeGroup(response.NodeId),
+                previous.ConnectionId,
+                DeviceHubPaths.NodeGroup(previous.Previous.NodeId),
                 Context.ConnectionAborted);
-            await Clients.Client(replaced).SendAsync(
+        }
+
+        foreach (var displaced in registration.Displaced)
+        {
+            await Groups.RemoveFromGroupAsync(
+                displaced.ConnectionId,
+                DeviceHubPaths.InstallationGroup(displaced.Previous.InstallationId),
+                Context.ConnectionAborted);
+            await Groups.RemoveFromGroupAsync(
+                displaced.ConnectionId,
+                DeviceHubPaths.NodeGroup(displaced.Previous.NodeId),
+                Context.ConnectionAborted);
+            await Clients.Client(displaced.ConnectionId).SendAsync(
                 DeviceHubEvents.SessionReplaced,
                 new InstallationSessionReplaced("replaced"),
                 Context.ConnectionAborted);
-            ReplacedLog(_logger, response.InstallationId, replaced, null);
+            ReplacedLog(_logger, displaced.Previous.InstallationId, displaced.ConnectionId, null);
         }
 
         RegisteredLog(_logger, response.InstallationId, Context.ConnectionId, null);
@@ -163,7 +181,7 @@ public sealed class DeviceHub : Hub
 
     private string RequireAppKey()
     {
-        var appKey = Context.User?.FindFirst(PlatformClaimTypes.App)?.Value;
+        var appKey = Context.User?.FindFirst(PlatformClaimTypes.AppCurrent)?.Value;
         return string.IsNullOrWhiteSpace(appKey)
             ? throw new HubException("当前令牌没有应用上下文，无法连接设备 Hub。")
             : appKey;

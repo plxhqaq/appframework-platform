@@ -410,14 +410,19 @@ public sealed class PlatformClientTests : IClassFixture<PlatformApiFactory>, IDi
             Assert.Equal(LicenseConventions.StatusActive, status.Status);
             Assert.NotNull(status.Snapshot);
 
-            var verified = LicenseVerifier.Verify(status, AppKey, "sdk-pro", machineCode);
+            var verified = LicenseVerifier.Verify(status, AppKey, "sdk-pro", machineCode, [TestLicenseKeys.PublicKeySpkiBase64]);
             Assert.True(verified.IsValid);
             Assert.Equal(LicenseConventions.KindOfficial, verified.Payload!.Kind);
 
-            Assert.False(LicenseVerifier.Verify(status, "other-app", "sdk-pro", machineCode).IsValid);
-            var machineMismatch = LicenseVerifier.Verify(status, AppKey, "sdk-pro", otherMachine);
+            Assert.False(LicenseVerifier.Verify(status, "other-app", "sdk-pro", machineCode, [TestLicenseKeys.PublicKeySpkiBase64]).IsValid);
+            var machineMismatch = LicenseVerifier.Verify(status, AppKey, "sdk-pro", otherMachine, [TestLicenseKeys.PublicKeySpkiBase64]);
             Assert.False(machineMismatch.IsValid);
             Assert.Contains("机器码", machineMismatch.Reason, StringComparison.Ordinal);
+
+            // 响应里广告的 TrustedKeys 不参与验签：没有内置公钥时一律不放行。
+            var unpinned = LicenseVerifier.Verify(status, AppKey, "sdk-pro", machineCode, []);
+            Assert.False(unpinned.IsValid);
+            Assert.Contains("公钥", unpinned.Reason, StringComparison.Ordinal);
         }
     }
 

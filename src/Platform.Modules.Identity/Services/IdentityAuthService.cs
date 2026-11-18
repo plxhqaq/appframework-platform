@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Platform.Contracts;
+using Platform.Contracts.Devices;
 using Platform.Contracts.Identity;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
@@ -261,16 +262,26 @@ public sealed class IdentityAuthService : IIdentityAuthService
         user.LoginCount++;
         await _db.SaveChangesAsync(cancellationToken);
 
+        string? machineCode;
+        try
+        {
+            machineCode = DeviceIdentityHasher.NormalizeMachineCode(request.MachineCode);
+        }
+        catch (ArgumentException exception)
+        {
+            throw BusinessException.Invalid(exception.Message);
+        }
+
         var context = await _sessions.BuildAsync(user.Id, request.AppKey, cancellationToken);
         var refresh = await _refreshTokens.IssueAsync(
             user.Id,
             context.AppKey,
-            request.MachineCode,
+            machineCode,
             request.InstallGuid,
             request.DeviceFingerprint,
             ipAddress,
             cancellationToken);
-        var access = IssueAccessToken(context, request.MachineCode, request.InstallGuid);
+        var access = IssueAccessToken(context, machineCode, request.InstallGuid);
 
         return new IssuedSession(
             access.AccessToken,

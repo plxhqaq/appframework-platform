@@ -32,8 +32,11 @@ public static partial class OfflineLicenseCodec
     /// <summary>payload 中机器码字节数。</summary>
     public const int MachineCodeBytes = LicenseConventions.MachineCodeBytes;
 
-    /// <summary>payload 固定段长度（机器码之后依次是应用键、产品键与编号）。</summary>
-    public const int PayloadFixedLength = 23;
+    /// <summary>
+    /// payload 固定段长度：ver(1)+kind(1)+grace(1)+flags(1)+issued(4)+notAfter(4)+machine(10) = 22。
+    /// 机器码之后紧跟应用键长度与内容。
+    /// </summary>
+    public const int PayloadFixedLength = 22;
 
     /// <summary>签名编码后的字符数（64 字节 = 512 bit → 103 字符）。</summary>
     public const int SignatureChars = 103;
@@ -66,6 +69,12 @@ public static partial class OfflineLicenseCodec
             appKey, productKey, machineCode, kind, issuedUtc, notAfter, graceDays, licenseNo);
         byte[] signature = LicenseCryptography.Sign(payload, privateKeyPkcs8Base64);
         string payloadText = Base32Crockford.Encode(payload);
+        if (payloadText.Length > byte.MaxValue)
+        {
+            throw new ArgumentException(
+                $"payload 编码后为 {payloadText.Length} 字符，超出长度段 1 字节上限；请缩短应用键/产品键/编号。");
+        }
+
         string signatureText = Base32Crockford.Encode(signature);
         return Prefix
             + Base32Crockford.Encode([(byte)payloadText.Length])
@@ -225,7 +234,7 @@ public static partial class OfflineLicenseCodec
             return false;
         }
 
-        if (!string.Equals(ComputeCheckDigit(payload, signature), checkText, StringComparison.Ordinal))
+        if (!string.Equals(ComputeCheckDigit(payload, signature), NormalizeCheckDigit(checkText), StringComparison.Ordinal))
         {
             error = "授权码校验位不匹配（码被截断或抄错）";
             return false;
@@ -251,6 +260,13 @@ public static partial class OfflineLicenseCodec
         content = content with { RawCode = normalized };
         return true;
     }
+
+    /// <summary>
+    /// 校验位按解码器的容错口径归一：I/L 视作 1、O 视作 0。
+    /// 手抄时常把 0 写成 O，不应因此把合法码判成"抄错"。
+    /// </summary>
+    private static string NormalizeCheckDigit(string value) =>
+        value.Replace('I', '1').Replace('L', '1').Replace('O', '0');
 
     /// <summary>校验位：payload+signature 的 SHA-256 首字节高 5 位，映射到 Crockford 字符。</summary>
     private static string ComputeCheckDigit(byte[] payload, byte[] signature)

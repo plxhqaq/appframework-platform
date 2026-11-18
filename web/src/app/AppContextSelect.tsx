@@ -28,8 +28,8 @@ export function AppContextSelect({ compact = false }: AppContextSelectProps) {
     return null;
   }
 
-  const current = session?.appKey ?? appKeys[0];
-  const disabled = switching || appKeys.length <= 1;
+  const current = session?.appKey ?? undefined;
+  const disabled = switching || (appKeys.length <= 1 && current !== undefined);
 
   return (
     <Tooltip title={t('common:appContext.hint')}>
@@ -37,6 +37,7 @@ export function AppContextSelect({ compact = false }: AppContextSelectProps) {
         size="small"
         aria-label={t('common:appContext.switch')}
         value={current}
+        placeholder={t('common:appContext.switch')}
         loading={switching}
         disabled={disabled}
         style={{ width: compact ? 132 : 168, maxWidth: '100%', minWidth: 0 }}

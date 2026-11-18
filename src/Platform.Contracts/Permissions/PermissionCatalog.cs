@@ -15,6 +15,9 @@ public static class PermissionCatalog
     /// <summary>通配符：持有该值的角色等价平台管理员，绕过所有权限判定。</summary>
     public const string Wildcard = "*";
 
+    /// <summary>平台级专属权限的模块键：该模块下的权限码只允许平台级角色持有。</summary>
+    public const string PlatformOnlyModuleKey = "platform";
+
     // ━━━ 应用接入（apps）━━━
     public const string AppsRead = "apps.read";
     public const string AppsManage = "apps.manage";
@@ -136,13 +139,13 @@ public static class PermissionCatalog
         new(InstallationManage, PlatformModuleKeys.Devices, "perm.installation.manage", 810),
         new(InstallationRestart, PlatformModuleKeys.Devices, "perm.installation.restart", 820),
 
-        new(NodeRead, "platform", "perm.node.read", 850),
-        new(NodeManage, "platform", "perm.node.manage", 860),
-        new(NodeRestart, "platform", "perm.node.restart", 870),
+        new(NodeRead, PlatformOnlyModuleKey, "perm.node.read", 850),
+        new(NodeManage, PlatformOnlyModuleKey, "perm.node.manage", 860),
+        new(NodeRestart, PlatformOnlyModuleKey, "perm.node.restart", 870),
 
-        new(AuditRead, "platform", "perm.audit.read", 900, PlatformAdminOnly: true),
-        new(PlatformApiDocsRead, "platform", "perm.platform.apidocs.read", 905, PlatformAdminOnly: true),
-        new(PlatformAdmin, "platform", "perm.platform.admin", 910, PlatformAdminOnly: true),
+        new(AuditRead, PlatformOnlyModuleKey, "perm.audit.read", 900, PlatformAdminOnly: true),
+        new(PlatformApiDocsRead, PlatformOnlyModuleKey, "perm.platform.apidocs.read", 905, PlatformAdminOnly: true),
+        new(PlatformAdmin, PlatformOnlyModuleKey, "perm.platform.admin", 910, PlatformAdminOnly: true),
     ];
 
     /// <summary>全部已知平台权限（含客户端应用权限的完整目录由运行时按应用清单合并）。</summary>
@@ -161,6 +164,29 @@ public static class PermissionCatalog
     /// <summary>是否为已知权限码（<see cref="Wildcard"/> 视为已知）。</summary>
     public static bool IsKnown(string? code) =>
         !string.IsNullOrWhiteSpace(code) && (code == Wildcard || Codes.Contains(code));
+
+    /// <summary>
+    /// 应用级角色能否持有该权限码：平台模块（node.* 等）与仅平台管理员可授予的码只归平台级角色。
+    /// 应用清单声明的权限码不在平台目录里，调用方按应用清单另行校验。
+    /// </summary>
+    public static bool CanAppRoleHold(string? code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return false;
+        }
+
+        foreach (PermissionDescriptor descriptor in PlatformPermissions)
+        {
+            if (string.Equals(descriptor.Code, code, StringComparison.Ordinal))
+            {
+                return !descriptor.PlatformAdminOnly
+                       && !string.Equals(descriptor.ModuleKey, PlatformOnlyModuleKey, StringComparison.Ordinal);
+            }
+        }
+
+        return true;
+    }
 
     /// <summary>展开角色权限：<see cref="Wildcard"/> 展开为全部平台权限码。</summary>
     public static IReadOnlyList<string> Expand(IEnumerable<string>? granted)

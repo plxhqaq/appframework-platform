@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Platform.Contracts;
+using Platform.Contracts.Devices;
 using Platform.Contracts.Identity;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
@@ -122,6 +123,16 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
 
         var keyText = NormalizeKey(request.Key);
         var fingerprint = Normalize(request.DeviceFingerprint);
+        string? machineCode;
+        try
+        {
+            machineCode = DeviceIdentityHasher.NormalizeMachineCode(request.MachineCode);
+        }
+        catch (ArgumentException exception)
+        {
+            throw BusinessException.Invalid(exception.Message);
+        }
+
         var now = _clock.UtcNow;
         var maxAttempts = Math.Max(1, _options.MaxAttempts);
 
@@ -169,18 +180,15 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
             await RedeemWithGateAsync(keyText, fingerprint, now, maxAttempts, cancellationToken);
         }
 
-        var lifetime = record.ExpiresAt - now;
-        if (lifetime <= TimeSpan.Zero)
-        {
-            throw new BusinessException(ApiErrorCode.IdentitySingleKeyExpired, ExpiredKeyMessage);
-        }
+        // 临时令牌时长独立取默认值（签发时选择的有效期只约束密钥本身，不再压缩兑换后的会话）。
+        var lifetime = TimeSpan.FromMinutes(ClampDuration(null));
 
         // 临时会话绑定密钥签发人与密钥的目标应用：客户端拿到的是该用户在该应用下的角色与权限。
         var session = await _temporary.IssueAsync(
             record.CreatedBy,
             record.AppKey,
             lifetime,
-            Normalize(request.MachineCode),
+            machineCode,
             request.InstallGuid,
             cancellationToken);
 

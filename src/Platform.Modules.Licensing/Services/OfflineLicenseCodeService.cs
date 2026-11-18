@@ -260,13 +260,21 @@ public sealed class OfflineLicenseCodeService : IOfflineLicenseCodeService
                 "离线授权码不属于该产品。");
         }
 
-        bool productExists = await _db.Set<LicenseProduct>()
-            .AnyAsync(x => x.AppKey == appKey && x.Key == content.ProductKey, cancellationToken);
-        if (!productExists)
+        LicenseProduct? product = await _db.Set<LicenseProduct>()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.AppKey == appKey && x.Key == content.ProductKey,
+                cancellationToken);
+        if (product is null)
         {
             throw BusinessException.NotFound(
                 ApiErrorCode.LicensingProductNotFound,
                 $"离线授权码对应的产品 {content.ProductKey} 不存在。");
+        }
+
+        if (!product.IsEnabled)
+        {
+            throw BusinessException.Invalid($"产品 {product.Key} 已停用，离线授权码不可用。");
         }
 
         if (_clock.UtcNow > content.NotAfter.AddDays(content.GraceDays))

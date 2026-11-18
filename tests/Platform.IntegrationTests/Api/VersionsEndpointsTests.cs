@@ -541,8 +541,15 @@ public sealed class VersionsEndpointsTests : IClassFixture<PlatformApiFactory>
                 new LoginRequest(IdentityTestHelpers.AdminUserName, IdentityTestHelpers.AdminPassword)));
         var adminToken = login.AccessToken;
 
-        // 未显式切换时平台管理员落在首个启用应用（种子 demo）的上下文
-        await CreateChannelAsync(client, adminToken, "context-demo");
+        // 平台管理员登录只拿到平台上下文（无 app_ctx）：先显式切到种子应用 demo 才能访问应用级资源
+        var demoSession = await ReadDataAsync<AdminSessionResponse>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                "/api/v1/admin/auth/context",
+                adminToken,
+                new SwitchAppContextRequest(IdentityConventions.DemoAppKey))));
+        Assert.Equal(IdentityConventions.DemoAppKey, demoSession.User.AppKey);
+        await CreateChannelAsync(client, demoSession.AccessToken, "context-demo");
 
         const string otherAppKey = "versions-context";
         await ReadDataAsync<AppDetailDto>(

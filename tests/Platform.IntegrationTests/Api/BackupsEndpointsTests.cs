@@ -191,6 +191,18 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
                 (int)ApiErrorCode.BackupsSchemaIncompatible,
                 await IdentityTestHelpers.ReadErrorCodeAsync(incompatible, HttpStatusCode.UnprocessableEntity));
 
+            // 广播没有单一目标安装实例：带"目标当前哈希"无法落到某个安装实例，直接拒绝
+            var broadcastWithHash = await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/backups/{backup.Id}/push",
+                token,
+                new PushBackupRequest(
+                    null, null, "1.1.0", false, false, new string('a', 64), false,
+                    BroadcastToApp: true)));
+            Assert.Equal(
+                (int)ApiErrorCode.ValidationFailed,
+                await IdentityTestHelpers.ReadErrorCodeAsync(broadcastWithHash, HttpStatusCode.BadRequest));
+
             // 目标回执：先在后台排一个 ack，再发起下发
             var ackTask = Task.Run(async () =>
             {
@@ -203,12 +215,12 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
                     $"/api/v1/admin/backups/{backup.Id}/push",
                     token,
                     new PushBackupRequest(
-                        null, null, "1.1.0", false, false, new string('a', 64), false,
+                        null, null, "1.1.0", false, false, null, false,
                         BroadcastToApp: true))));
             await ackTask;
             Assert.True(pushed.Acked);
             Assert.True(pushed.Success);
-            Assert.NotNull(pushed.SnapshotBackupId);
+            Assert.Null(pushed.SnapshotBackupId);
             Assert.Null(pushed.Targets);
 
             // 没有任何回执：按配置的 1 秒超时返回 504

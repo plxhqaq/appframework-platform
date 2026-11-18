@@ -309,6 +309,52 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
         Assert.Equal(backup.Sha256, command.Sha256);
     }
 
+    [Fact]
+    public async Task 应用组广播同样要求跨安装实例确认()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        var token = await DevTokenAsync(client, [PermissionCatalog.BackupPush]);
+        var coordinator = _factory.Services.GetRequiredService<IPlatformPushCoordinator>();
+
+        var source = await RegisterInstallationAsync(token, "PUSH-BC-SRC");
+        await using var sourceConnection = source.Connection;
+
+        var backup = await CreateBackupAsync(client, admin, """{"theme":"light"}""", source.InstallationId);
+
+        var unconfirmed = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            $"/api/v1/admin/backups/{backup.Id}/push",
+            admin,
+            new PushBackupRequest(null, null, "1.0.0", false, false, null, false, BroadcastToApp: true)));
+        Assert.Equal(
+            (int)ApiErrorCode.BackupsPushRejected,
+            await IdentityTestHelpers.ReadErrorCodeAsync(unconfirmed, HttpStatusCode.Conflict));
+
+        coordinator.RegisterConnection("push-broadcast-connection", DemoAppKey);
+        try
+        {
+            var ackTask = Task.Run(async () =>
+            {
+                await Task.Delay(200);
+                coordinator.CompleteAck(DemoAppKey, backup.Id, true, "applied");
+            });
+            var pushed = await IdentityTestHelpers.ReadDataAsync<PushBackupResult>(
+                await client.SendAsync(IdentityTestHelpers.Authorized(
+                    HttpMethod.Post,
+                    $"/api/v1/admin/backups/{backup.Id}/push",
+                    admin,
+                    new PushBackupRequest(null, null, "1.0.0", false, false, null, true, BroadcastToApp: true))));
+            await ackTask;
+            Assert.True(pushed.Acked);
+            Assert.True(pushed.Success);
+        }
+        finally
+        {
+            coordinator.UnregisterConnection("push-broadcast-connection");
+        }
+    }
+
     private sealed record TestInstallation(HubConnection Connection, Guid InstallationId);
 
     private async Task<TestInstallation> RegisterInstallationAsync(string token, string displayName)

@@ -188,6 +188,18 @@ public sealed class LicenseStatusService : ILicenseStatusService
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        using IDisposable seatGate = await LicenseSeatGate.EnterAsync(cancellationToken);
+
+        // 闸门内重读：并发首次校验可能已由另一个请求发出同一机器的试用。
+        LicenseEntitlement? concurrent = await _db.Set<LicenseEntitlement>()
+            .FirstOrDefaultAsync(
+                x => x.ProductId == product.Id && x.MachineCode == machineCode,
+                cancellationToken);
+        if (concurrent is not null)
+        {
+            return concurrent;
+        }
+
         int active = await _db.Set<LicenseEntitlement>()
             .CountAsync(
                 x => x.ProductId == product.Id && x.RevokedAt == null && x.ExpiresAt >= now,

@@ -1160,8 +1160,8 @@ namespace Platform.Infrastructure.Migrations
                         .HasColumnName("last_used_at");
 
                     b.Property<string>("MachineCode")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
                         .HasColumnName("machine_code");
 
                     b.Property<Guid?>("ReplacedByTokenId")

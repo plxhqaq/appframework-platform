@@ -79,21 +79,27 @@ public sealed class JwtTokenIssuer : IAccessTokenIssuer
             claims.Add(new Claim(PlatformClaimTypes.Permission, permission));
         }
 
-        // app 声明是隔离轴：既要去重，也要把"当前应用"固定排在首位（ICurrentPrincipal.AppKey 取第一个值）
+        // app 声明只表示可访问应用；"当前应用"由单独声明承载，平台上下文令牌（无当前应用）不加该声明。
         var appList = (appKeys ?? [])
             .Where(static key => !string.IsNullOrWhiteSpace(key))
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        if (!string.IsNullOrWhiteSpace(appKey))
+        if (!string.IsNullOrWhiteSpace(appKey) && !appList.Contains(appKey, StringComparer.Ordinal))
         {
-            appList.Remove(appKey);
-            appList.Insert(0, appKey);
+            appList.Add(appKey);
         }
+
+        appList.Sort(StringComparer.Ordinal);
 
         foreach (var key in appList)
         {
             claims.Add(new Claim(PlatformClaimTypes.App, key));
+        }
+
+        if (!string.IsNullOrWhiteSpace(appKey))
+        {
+            claims.Add(new Claim(PlatformClaimTypes.AppCurrent, appKey));
         }
 
         if (!string.IsNullOrWhiteSpace(machineCode))

@@ -82,6 +82,12 @@ public sealed class BackupPushService : IBackupPushService
                 "请至少选择一个目标安装实例；留空不再下发到应用内全部在线连接。");
         }
 
+        if (request.BroadcastToApp && !string.IsNullOrWhiteSpace(request.CurrentHash))
+        {
+            throw BusinessException.Invalid(
+                "应用组广播不支持目标当前配置哈希；快照只能对应单个安装实例。");
+        }
+
         if (installationIds.Count > 1 && !string.IsNullOrWhiteSpace(request.CurrentHash))
         {
             throw BusinessException.Invalid(
@@ -109,13 +115,14 @@ public sealed class BackupPushService : IBackupPushService
             throw new BusinessException(code, compatibility.Reason);
         }
 
+        // 广播等同于下发到应用内所有安装实例，因此与"目标列表含其它安装实例"同等对待。
         if (backup.InstallationId is { } sourceInstallationId
-            && installationIds.Any(id => id != sourceInstallationId)
-            && !request.ConfirmCrossInstallation)
+            && !request.ConfirmCrossInstallation
+            && (request.BroadcastToApp || installationIds.Any(id => id != sourceInstallationId)))
         {
             throw new BusinessException(
                 ApiErrorCode.BackupsPushRejected,
-                "备份来源安装实例与目标安装实例不一致，需要显式确认跨安装实例下发。");
+                "备份来源安装实例与下发目标不一致（含应用组广播），需要显式确认跨安装实例下发。");
         }
 
         // 先把所有目标门禁跑完再发送：任何一个不满足就整体拒绝，避免部分安装实例已收到命令。

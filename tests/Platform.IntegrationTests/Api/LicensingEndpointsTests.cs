@@ -286,6 +286,69 @@ public sealed class LicensingEndpointsTests : IClassFixture<PlatformApiFactory>
     }
 
     [Fact]
+    public async Task 复用已吊销的授权行仍占用席位()
+    {
+        using var client = _factory.CreateClient();
+        var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
+
+        await CreateProductAsync(client, token, "revoked-seat", seatLimit: 1, trialDays: 0);
+
+        var first = await IssueAsync(client, token, "revoked-seat", MachineA, addDays: 30, licenseNo: null);
+        await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            $"/api/v1/admin/licensing/entitlements/{first.Id}/revoke",
+            token,
+            new RevokeLicenseRequest("退订")));
+
+        // 吊销后席位释放，可以换一台机器签发
+        var second = await IssueAsync(client, token, "revoked-seat", MachineB, addDays: 30, licenseNo: null);
+        Assert.NotEqual(first.Id, second.Id);
+
+        // B 已占满唯一席位：复活 A 的已吊销行同样是"新增 active 行"，必须按席位用尽拒绝
+        var denied = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            "/api/v1/admin/licensing/entitlements",
+            token,
+            new IssueLicenseRequest("revoked-seat", MachineA, null, null, 30, null, null)));
+        Assert.Equal(
+            (int)ApiErrorCode.LicensingSeatExhausted,
+            await IdentityTestHelpers.ReadErrorCodeAsync(denied, HttpStatusCode.Conflict));
+    }
+
+    [Fact]
+    public async Task 产品停用后离线码校验被拒绝()
+    {
+        using var client = _factory.CreateClient();
+        var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
+
+        var product = await CreateProductAsync(client, token, "offline-disabled", seatLimit: null, trialDays: 0);
+
+        var ledger = await ReadDataAsync<OfflineLicenseCodeDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                "/api/v1/admin/licensing/offline-codes",
+                token,
+                new IssueOfflineLicenseCodeRequest("offline-disabled", MachineA, null, 90, "OFF-DISABLED", null))));
+        Assert.True((await VerifyOfflineAsync(client, token, ledger.Code, MachineA, "offline-disabled")).IsValid);
+
+        var patched = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Patch,
+            $"/api/v1/admin/licensing/products/{product.Id}",
+            token,
+            new UpdateLicenseProductRequest(null, null, false, null, null, null)));
+        Assert.Equal(HttpStatusCode.OK, patched.StatusCode);
+
+        var disabled = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            "/api/v1/client/licensing/offline/verify",
+            token,
+            new VerifyOfflineLicenseCodeRequest(ledger.Code, MachineA, "offline-disabled")));
+        Assert.Equal(
+            (int)ApiErrorCode.ValidationFailed,
+            await IdentityTestHelpers.ReadErrorCodeAsync(disabled, HttpStatusCode.BadRequest));
+    }
+
+    [Fact]
     public async Task 密钥轮换后旧公钥仍参与验签且当前密钥不可退役()
     {
         using var client = _factory.CreateClient();

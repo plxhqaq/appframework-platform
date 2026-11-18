@@ -83,7 +83,7 @@ public sealed class IdentityModelContributor : IPlatformModelContributor
             builder.Property(static x => x.TokenHash).HasColumnName("token_hash").HasMaxLength(64).IsRequired();
             builder.Property(static x => x.DeviceFingerprint).HasColumnName("device_fingerprint").HasMaxLength(256);
             builder.Property(static x => x.AppKey).HasColumnName("app_key").HasMaxLength(64);
-            builder.Property(static x => x.MachineCode).HasColumnName("machine_code").HasMaxLength(128);
+            builder.Property(static x => x.MachineCode).HasColumnName("machine_code").HasMaxLength(32);
             builder.Property(static x => x.InstallGuid).HasColumnName("install_guid");
             builder.Property(static x => x.CreatedByIp).HasColumnName("created_by_ip").HasMaxLength(64);
             builder.Property(static x => x.ExpiresAt).HasColumnName("expires_at");

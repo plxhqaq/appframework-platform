@@ -120,12 +120,17 @@ public sealed class DeviceServiceTests
         var installationB = Guid.NewGuid();
         var nodeId = Guid.NewGuid();
 
-        Assert.Null(registry.Register("app-a", installationA, nodeId, InstallGuid, "conn-a1"));
-        Assert.Null(registry.Register("app-b", installationB, nodeId, InstallGuid, "conn-b1"));
+        var firstRegister = registry.Register("app-a", installationA, nodeId, InstallGuid, "conn-a1");
+        Assert.Null(firstRegister.Previous);
+        Assert.Empty(firstRegister.Displaced);
+        var secondRegister = registry.Register("app-b", installationB, nodeId, InstallGuid, "conn-b1");
+        Assert.Null(secondRegister.Previous);
+        Assert.Empty(secondRegister.Displaced);
         Assert.Equal(2, registry.CountNodeConnections(nodeId));
 
         var replaced = registry.Register("app-a", installationA, nodeId, InstallGuid, "conn-a2");
-        Assert.Equal("conn-a1", replaced);
+        Assert.Null(replaced.Previous);
+        Assert.Equal("conn-a1", Assert.Single(replaced.Displaced).ConnectionId);
         Assert.False(registry.TryGet("conn-a1", out _));
         Assert.True(registry.TryGet("conn-a2", out var currentA));
         Assert.Equal(installationA, currentA.InstallationId);

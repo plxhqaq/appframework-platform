@@ -20,6 +20,10 @@ var channelKey = Environment.GetEnvironmentVariable("PLATFORM_CHANNEL") ?? "stab
 var currentVersion = Environment.GetEnvironmentVariable("PLATFORM_VERSION");
 var productKey = Environment.GetEnvironmentVariable("PLATFORM_PRODUCT_KEY") ?? "erp-pro";
 
+// 授权验签只认安装包内置的公钥（SPKI Base64，多个用逗号分隔）；不内置就等于没有可信凭据。
+var licensePublicKeys = (Environment.GetEnvironmentVariable("PLATFORM_LICENSE_PUBLIC_KEYS") ?? string.Empty)
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
 // 真实客户端的机器码来自本机硬件哈希（C 阶段客户端仓库负责）；这里用机器名派生一个稳定演示值。
 var machineCode = Environment.GetEnvironmentVariable("PLATFORM_MACHINE_CODE")
     ?? DemoMachineCodeOf(Environment.MachineName);
@@ -109,8 +113,8 @@ try
         {
             var status = await client.GetLicenseStatusAsync(productKey, machineCode);
 
-            // 只采信验签通过的快照：status.Status 字段本身不作数
-            var verification = LicenseVerifier.Verify(status, appKey, productKey, machineCode);
+            // 只采信验签通过的快照：status.Status 字段本身不作数；公钥必须是本程序内置的
+            var verification = LicenseVerifier.Verify(status, appKey, productKey, machineCode, licensePublicKeys);
             Console.WriteLine($"  状态 {status.Status}，放行 {verification.IsValid}{(verification.Reason is null ? string.Empty : $"，原因：{verification.Reason}")}");
             if (verification.Payload is { } payload)
             {

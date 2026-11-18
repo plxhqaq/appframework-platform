@@ -1055,22 +1055,22 @@ internal static class VersionsEndpoints
         switch (ticket.Kind)
         {
             case DownloadTicketKinds.Package:
-            {
-                var download = await packages.ResolveDownloadAsync(
-                    ticket.AppKey, ticket.Id, cancellationToken);
-                return await RepresentAsync(
-                    ticket.AppKey, download.Sha256, download.FileName, download.SizeBytes,
-                    archives, cancellationToken);
-            }
+                {
+                    var download = await packages.ResolveDownloadAsync(
+                        ticket.AppKey, ticket.Id, cancellationToken);
+                    return await RepresentAsync(
+                        ticket.AppKey, download.Sha256, download.FileName, download.SizeBytes,
+                        archives, cancellationToken);
+                }
 
             case DownloadTicketKinds.Updater:
-            {
-                var download = await updaters.ResolveDownloadAsync(
-                    ticket.AppKey, ticket.Id, cancellationToken);
-                return await RepresentAsync(
-                    ticket.AppKey, download.Sha256, download.FileName, download.SizeBytes,
-                    archives, cancellationToken);
-            }
+                {
+                    var download = await updaters.ResolveDownloadAsync(
+                        ticket.AppKey, ticket.Id, cancellationToken);
+                    return await RepresentAsync(
+                        ticket.AppKey, download.Sha256, download.FileName, download.SizeBytes,
+                        archives, cancellationToken);
+                }
 
             default:
                 throw new BusinessException(ApiErrorCode.Unauthorized, "下载票据无效或已过期，请回到管理台重新点击下载。");

@@ -263,10 +263,11 @@ public sealed partial class RoleAdminService : IRoleAdminService
             return [];
         }
 
-        // 平台权限恒可用；应用级角色只接受绑定应用声明的权限，平台级角色兼容历史上已授予的应用权限。
+        // 平台目录权限对平台级角色恒可用；应用级角色只接受绑定应用声明的权限，
+        // 且不得持有平台模块（node.* 等）与仅平台管理员可授予的码。
         var known = PermissionCatalog.Codes.ToHashSet(StringComparer.Ordinal);
-        var appCodes = string.Equals(scope, IdentityConventions.ScopeApp, StringComparison.Ordinal)
-                       && !string.IsNullOrWhiteSpace(appKey)
+        var appScoped = string.Equals(scope, IdentityConventions.ScopeApp, StringComparison.Ordinal);
+        var appCodes = appScoped && !string.IsNullOrWhiteSpace(appKey)
             ? await _appPermissions.ListCodesAsync(appKey, cancellationToken)
             : await _appPermissions.ListAllCodesAsync(cancellationToken);
         known.UnionWith(appCodes);
@@ -292,6 +293,13 @@ public sealed partial class RoleAdminService : IRoleAdminService
                 throw new BusinessException(
                     ApiErrorCode.IdentityPermissionUnknown,
                     $"未知权限码：{code}。");
+            }
+
+            if (appScoped && !PermissionCatalog.CanAppRoleHold(code))
+            {
+                throw new BusinessException(
+                    ApiErrorCode.IdentityPermissionDenied,
+                    $"权限码 {code} 仅限平台级角色持有。");
             }
 
             result.Add(code);

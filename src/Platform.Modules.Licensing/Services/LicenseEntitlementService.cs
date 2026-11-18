@@ -182,26 +182,47 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
                 cancellationToken);
 
         // 自动试用可被同机器同产品的正式授权就地升级：沿用原行，不新增席位，也不必先吊销。
-        if (existing is not null
-            && existing.RevokedAt is null
-            && !string.Equals(existing.Kind, LicenseConventions.KindTrial, StringComparison.Ordinal))
+        if (IsActiveOfficial(existing))
         {
             throw new BusinessException(
                 ApiErrorCode.Conflict,
                 "该机器码已有有效授权，请使用续期。");
         }
 
-        if (existing is null)
+        // 复用已吊销/已过期的行同样是"占一个席位"：席位只按 active 行数算，
+        // 若复用时不重新计数，吊销旧行再签发就能无限绕过 SeatLimit。
+        bool seatNeeded = !IsSeatActive(existing, now);
+        using IDisposable? seatGate = seatNeeded
+            ? await LicenseSeatGate.EnterAsync(cancellationToken)
+            : null;
+
+        if (seatNeeded)
         {
-            int active = await _db.Set<LicenseEntitlement>()
-                .CountAsync(
-                    x => x.ProductId == product.Id && x.RevokedAt == null && x.ExpiresAt >= now,
+            // 闸门内重读：并发请求可能在首次读取后已为同一机器插入授权。
+            existing = await _db.Set<LicenseEntitlement>()
+                .FirstOrDefaultAsync(
+                    x => x.ProductId == product.Id && x.MachineCode == machineCode,
                     cancellationToken);
-            if (product.SeatLimit is { } limit && active >= limit)
+            if (IsActiveOfficial(existing))
             {
                 throw new BusinessException(
-                    ApiErrorCode.LicensingSeatExhausted,
-                    $"产品 {product.Key} 的席位已用尽（{active}/{limit}）。");
+                    ApiErrorCode.Conflict,
+                    "该机器码已有有效授权，请使用续期。");
+            }
+
+            // 仍可复用活跃试用行：它已经占着席位，升级为正式授权不增加占用。
+            if (!IsSeatActive(existing, now))
+            {
+                int active = await _db.Set<LicenseEntitlement>()
+                    .CountAsync(
+                        x => x.ProductId == product.Id && x.RevokedAt == null && x.ExpiresAt >= now,
+                        cancellationToken);
+                if (product.SeatLimit is { } limit && active >= limit)
+                {
+                    throw new BusinessException(
+                        ApiErrorCode.LicensingSeatExhausted,
+                        $"产品 {product.Key} 的席位已用尽（{active}/{limit}）。");
+                }
             }
         }
 
@@ -577,14 +598,24 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
         return trimmed;
     }
 
+    private static bool IsActiveOfficial(LicenseEntitlement? entitlement) =>
+        entitlement is not null
+        && entitlement.RevokedAt is null
+        && !string.Equals(entitlement.Kind, LicenseConventions.KindTrial, StringComparison.Ordinal);
+
+    private static bool IsSeatActive(LicenseEntitlement? entitlement, DateTimeOffset now) =>
+        entitlement is not null && entitlement.RevokedAt is null && entitlement.ExpiresAt >= now;
+
     private async Task NotifyAsync(string appKey, string machineCode, string reason)
     {
         try
         {
-            await _hub.Clients.All.SendAsync(
-                PlatformHubEvents.LicenseChanged,
-                new LicenseChangedNotification(appKey, machineCode, reason),
-                CancellationToken.None);
+            await _hub.Clients
+                .Group(PlatformHubGroups.App(appKey))
+                .SendAsync(
+                    PlatformHubEvents.LicenseChanged,
+                    new LicenseChangedNotification(appKey, machineCode, reason),
+                    CancellationToken.None);
         }
         catch (Exception exception)
         {

@@ -46,8 +46,8 @@ public sealed class IdentityAuthEndpointsTests : IClassFixture<PlatformApiFactor
         Assert.Equal(IdentityTestHelpers.AdminUserName, principal.UserName);
         Assert.Single(principal.Roles);
         Assert.Contains(IdentityConventions.DemoAppKey, principal.AppKeys);
-        // 未显式指定应用时，令牌的"当前应用"取可访问列表首个（种子只有 demo）
-        Assert.Equal(IdentityConventions.DemoAppKey, principal.AppKey);
+        // 平台管理员登录未指定应用：只有可访问应用列表，没有当前应用。
+        Assert.Null(principal.AppKey);
     }
 
     [Fact]
@@ -100,6 +100,25 @@ public sealed class IdentityAuthEndpointsTests : IClassFixture<PlatformApiFactor
         Assert.Equal(
             (int)ApiErrorCode.IdentityRefreshTokenRevoked,
             await IdentityTestHelpers.ReadErrorCodeAsync(successor, HttpStatusCode.Unauthorized));
+    }
+
+    [Fact]
+    public async Task 并发刷新同一令牌只有一个请求成功()
+    {
+        using var client = _factory.CreateClient();
+        var login = await IdentityTestHelpers.LoginAsync(
+            client, IdentityTestHelpers.AdminUserName, IdentityTestHelpers.AdminPassword);
+
+        var responses = await Task.WhenAll(
+            client.PostAsJsonAsync(
+                "/api/v1/identity/refresh",
+                new RefreshTokenRequest(login.RefreshToken)),
+            client.PostAsJsonAsync(
+                "/api/v1/identity/refresh",
+                new RefreshTokenRequest(login.RefreshToken)));
+
+        Assert.Equal(1, responses.Count(static r => r.StatusCode == HttpStatusCode.OK));
+        Assert.Equal(1, responses.Count(static r => r.StatusCode == HttpStatusCode.Unauthorized));
     }
 
     [Fact]

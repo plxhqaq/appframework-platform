@@ -2,7 +2,8 @@ namespace Platform.Modules.Devices.Services;
 
 /// <summary>安装实例连接登记：连接 id 与安装实例的映射，用于顶号、定向推送与节点级下发。</summary>
 /// <remarks>
-/// 同一安装实例的新连接会顶替旧连接；同机不同应用（不同安装实例）互不顶号。
+/// 同一安装实例的新连接会顶替旧连接；同一节点同一应用的旧安装（重装产生的新安装实例）也会被顶替；
+/// 同机不同应用（不同安装实例）互不顶号。
 /// </remarks>
 public sealed class InstallationConnectionRegistry
 {
@@ -10,8 +11,8 @@ public sealed class InstallationConnectionRegistry
     private readonly Dictionary<string, InstallationConnection> _byConnection = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, string> _byInstallation = new();
 
-    /// <summary>登记连接；同一安装实例已有其它连接时返回被顶替的连接 id。</summary>
-    public string? Register(
+    /// <summary>登记连接；返回需要移出组并通知被顶替的旧连接。</summary>
+    public InstallationRegistration Register(
         string appKey,
         Guid installationId,
         Guid nodeId,
@@ -20,17 +21,55 @@ public sealed class InstallationConnectionRegistry
     {
         lock (_gate)
         {
-            string? replaced = null;
-            if (_byInstallation.TryGetValue(installationId, out var previous) && previous != connectionId)
+            ReplacedConnection? previous = null;
+            var displaced = new List<ReplacedConnection>();
+
+            if (_byConnection.Remove(connectionId, out var existing))
             {
-                _byConnection.Remove(previous);
-                replaced = previous;
+                if (_byInstallation.TryGetValue(existing.InstallationId, out var mapped)
+                    && string.Equals(mapped, connectionId, StringComparison.Ordinal))
+                {
+                    _byInstallation.Remove(existing.InstallationId);
+                }
+
+                // 同一连接重注册到同一安装：组不变，也不需要通知自己被顶替。
+                if (existing.InstallationId != installationId)
+                {
+                    previous = new ReplacedConnection(connectionId, existing);
+                }
+            }
+
+            // 同一安装实例的旧连接：新连接顶替。
+            if (_byInstallation.TryGetValue(installationId, out var current)
+                && !string.Equals(current, connectionId, StringComparison.Ordinal)
+                && _byConnection.Remove(current, out var replaced))
+            {
+                displaced.Add(new ReplacedConnection(current, replaced));
+            }
+
+            // 同一节点同一应用的其它安装实例（应用重装）：旧安装的连接随新安装作废。
+            foreach (var (otherInstallation, otherConnection) in _byInstallation.ToArray())
+            {
+                if (otherInstallation == installationId
+                    || string.Equals(otherConnection, connectionId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (_byConnection.TryGetValue(otherConnection, out var other)
+                    && other.NodeId == nodeId
+                    && string.Equals(other.AppKey, appKey, StringComparison.Ordinal))
+                {
+                    _byConnection.Remove(otherConnection);
+                    _byInstallation.Remove(otherInstallation);
+                    displaced.Add(new ReplacedConnection(otherConnection, other));
+                }
             }
 
             _byConnection[connectionId] = new InstallationConnection(
                 appKey, installationId, nodeId, installGuid);
             _byInstallation[installationId] = connectionId;
-            return replaced;
+            return new InstallationRegistration(previous, displaced);
         }
     }
 
@@ -131,6 +170,18 @@ public sealed class InstallationConnectionRegistry
         }
     }
 }
+
+/// <summary>登记结果：调用方需要把这里的连接移出旧组，并通知其已被顶替。</summary>
+/// <param name="Previous">同一连接 id 的旧登记（重注册到另一安装实例），只需移组。</param>
+/// <param name="Displaced">被新连接顶替的其它连接（同安装旧连接、同节点同应用旧安装）。</param>
+public sealed record InstallationRegistration(
+    ReplacedConnection? Previous,
+    IReadOnlyList<ReplacedConnection> Displaced);
+
+/// <summary>被顶替的连接：连接 id + 原登记归属。</summary>
+/// <param name="ConnectionId">SignalR 连接 id。</param>
+/// <param name="Previous">原登记归属。</param>
+public sealed record ReplacedConnection(string ConnectionId, InstallationConnection Previous);
 
 /// <summary>连接归属：应用键 + 安装实例 + 物理节点 + 客户端安装 Guid。</summary>
 /// <param name="AppKey">令牌绑定的应用键。</param>

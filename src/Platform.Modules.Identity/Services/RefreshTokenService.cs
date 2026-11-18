@@ -91,6 +91,9 @@ public sealed class RefreshTokenService : IRefreshTokenService
     private readonly IdentityTokenOptions _options;
     private readonly IDeviceNodeDirectory? _nodes;
 
+    /// <summary>非关系型提供程序（单元测试内存库）没有原子 UPDATE，用进程内闸门串行化轮换。</summary>
+    private static readonly SemaphoreSlim InMemoryRotationGate = new(1, 1);
+
     /// <summary>构造。</summary>
     public RefreshTokenService(
         PlatformDbContext db,
@@ -140,21 +143,121 @@ public sealed class RefreshTokenService : IRefreshTokenService
         string? ipAddress,
         CancellationToken cancellationToken = default)
     {
-        var token = await FindAsync(plaintext, cancellationToken)
-                    ?? throw new BusinessException(
-                        ApiErrorCode.IdentityRefreshTokenInvalid,
-                        "刷新令牌无效，请重新登录。");
-
+        var token = await FindForRotationAsync(plaintext, cancellationToken)
+                    ?? throw InvalidRefreshToken();
         var now = _clock.UtcNow;
 
+        await ThrowIfUnrotatableAsync(token, now, cancellationToken);
+
+        var plaintextNew = CreatePlaintext();
+        var replacement = new RefreshToken
+        {
+            UserId = token.UserId,
+            FamilyId = token.FamilyId,
+            TokenHash = Hash(plaintextNew),
+            AppKey = token.AppKey,
+            MachineCode = token.MachineCode,
+            InstallGuid = token.InstallGuid,
+            DeviceFingerprint = token.DeviceFingerprint,
+            CreatedByIp = token.CreatedByIp,
+            ExpiresAt = now.AddDays(Math.Max(1, _options.RefreshTokenDays)),
+        };
+
+        // 读到的令牌状态可能已经过时：抢占式的原子 UPDATE 保证同一令牌只有一个请求轮换成功。
+        var rotated = _db.Database.IsRelational()
+            ? await TryRotateRelationalAsync(token, replacement, now, cancellationToken)
+            : await TryRotateInMemoryAsync(token.Id, replacement, now, cancellationToken);
+
+        if (!rotated)
+        {
+            var current = await FindForRotationAsync(plaintext, cancellationToken)
+                          ?? throw InvalidRefreshToken();
+            await ThrowIfUnrotatableAsync(current, now, cancellationToken);
+            throw InvalidRefreshToken();
+        }
+
+        return new RotatedRefreshToken(
+            replacement.UserId,
+            plaintextNew,
+            replacement.ExpiresAt,
+            replacement.AppKey,
+            replacement.MachineCode,
+            replacement.InstallGuid);
+    }
+
+    private async Task<bool> TryRotateRelationalAsync(
+        RefreshToken token,
+        RefreshToken replacement,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+
+        var claimed = await _db.Set<RefreshToken>()
+            .Where(x => x.Id == token.Id && x.RevokedAt == null && x.ExpiresAt > now)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(static x => x.LastUsedAt, now)
+                    .SetProperty(static x => x.RevokedAt, now)
+                    .SetProperty(static x => x.RevokedReason, RefreshTokenRevokeReasons.Rotated)
+                    .SetProperty(static x => x.ReplacedByTokenId, replacement.Id)
+                    .SetProperty(static x => x.UpdatedAt, now),
+                cancellationToken);
+
+        if (claimed != 1)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return false;
+        }
+
+        _db.Set<RefreshToken>().Add(replacement);
+        await _db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+
+    private async Task<bool> TryRotateInMemoryAsync(
+        Guid tokenId,
+        RefreshToken replacement,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        await InMemoryRotationGate.WaitAsync(cancellationToken);
+        try
+        {
+            var current = await _db.Set<RefreshToken>()
+                .FirstOrDefaultAsync(x => x.Id == tokenId, cancellationToken);
+            if (current is null || current.RevokedAt is not null || current.ExpiresAt <= now)
+            {
+                return false;
+            }
+
+            current.LastUsedAt = now;
+            current.RevokedAt = now;
+            current.RevokedReason = RefreshTokenRevokeReasons.Rotated;
+            current.ReplacedByTokenId = replacement.Id;
+            _db.Set<RefreshToken>().Add(replacement);
+            await _db.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        finally
+        {
+            InMemoryRotationGate.Release();
+        }
+    }
+
+    private async Task ThrowIfUnrotatableAsync(
+        RefreshToken token,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
         if (token.RevokedAt is not null)
         {
             if (string.Equals(token.RevokedReason, RefreshTokenRevokeReasons.Rotated, StringComparison.Ordinal)
                 || string.Equals(token.RevokedReason, RefreshTokenRevokeReasons.ReuseDetected, StringComparison.Ordinal))
             {
                 // 已轮换的令牌再次出现 = 泄露：同一家族全部吊销，合法持有人在下次刷新时被迫重新登录。
-                await RevokeFamilyAsync(token.FamilyId, RefreshTokenRevokeReasons.ReuseDetected, now, cancellationToken);
-                await _db.SaveChangesAsync(cancellationToken);
+                await RevokeFamilyForReuseAsync(token.FamilyId, now, cancellationToken);
             }
 
             throw new BusinessException(
@@ -175,37 +278,32 @@ public sealed class RefreshTokenService : IRefreshTokenService
                 ApiErrorCode.IdentityUserDisabled,
                 "账号已被禁用，请重新登录。");
         }
-
-        var plaintextNew = CreatePlaintext();
-        var replacement = new RefreshToken
-        {
-            UserId = token.UserId,
-            FamilyId = token.FamilyId,
-            TokenHash = Hash(plaintextNew),
-            AppKey = token.AppKey,
-            MachineCode = token.MachineCode,
-            InstallGuid = token.InstallGuid,
-            DeviceFingerprint = token.DeviceFingerprint,
-            CreatedByIp = token.CreatedByIp,
-            ExpiresAt = now.AddDays(Math.Max(1, _options.RefreshTokenDays)),
-        };
-
-        _db.Set<RefreshToken>().Add(replacement);
-        token.LastUsedAt = now;
-        token.RevokedAt = now;
-        token.RevokedReason = RefreshTokenRevokeReasons.Rotated;
-        token.ReplacedByTokenId = replacement.Id;
-
-        await _db.SaveChangesAsync(cancellationToken);
-
-        return new RotatedRefreshToken(
-            replacement.UserId,
-            plaintextNew,
-            replacement.ExpiresAt,
-            replacement.AppKey,
-            replacement.MachineCode,
-            replacement.InstallGuid);
     }
+
+    private async Task RevokeFamilyForReuseAsync(
+        Guid familyId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (_db.Database.IsRelational())
+        {
+            await _db.Set<RefreshToken>()
+                .Where(x => x.FamilyId == familyId && x.RevokedAt == null)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(static x => x.RevokedAt, now)
+                        .SetProperty(static x => x.RevokedReason, RefreshTokenRevokeReasons.ReuseDetected)
+                        .SetProperty(static x => x.UpdatedAt, now),
+                    cancellationToken);
+            return;
+        }
+
+        await RevokeFamilyAsync(familyId, RefreshTokenRevokeReasons.ReuseDetected, now, cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static BusinessException InvalidRefreshToken() =>
+        new(ApiErrorCode.IdentityRefreshTokenInvalid, "刷新令牌无效，请重新登录。");
 
     /// <inheritdoc />
     public async Task<RefreshTokenContext?> SetAppKeyAsync(
@@ -348,6 +446,19 @@ public sealed class RefreshTokenService : IRefreshTokenService
         }
 
         return await _db.Set<RefreshToken>()
+            .Include(static x => x.User)
+            .FirstOrDefaultAsync(x => x.TokenHash == hash, cancellationToken);
+    }
+
+    private async Task<RefreshToken?> FindForRotationAsync(string? plaintext, CancellationToken cancellationToken)
+    {
+        if (!TryHash(plaintext, out var hash))
+        {
+            return null;
+        }
+
+        return await _db.Set<RefreshToken>()
+            .AsNoTracking()
             .Include(static x => x.User)
             .FirstOrDefaultAsync(x => x.TokenHash == hash, cancellationToken);
     }

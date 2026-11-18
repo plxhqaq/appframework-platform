@@ -35,9 +35,14 @@ public interface IInstallationPresence
     /// 连接断开且该安装实例已无其它活跃连接时立即标记离线，
     /// 不等待心跳超时扫描（客户端正常退出的场景）。
     /// </summary>
+    /// <param name="appKey">应用键。</param>
+    /// <param name="installationId">安装实例主键。</param>
+    /// <param name="disconnectedAt">判定断开的时刻；此后登记的新连接不得被离线覆盖。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
     Task MarkDisconnectedAsync(
         string appKey,
         Guid installationId,
+        DateTimeOffset disconnectedAt,
         CancellationToken cancellationToken = default);
 }
 
@@ -183,14 +188,33 @@ public sealed class InstallationPresence : IInstallationPresence
     public async Task MarkDisconnectedAsync(
         string appKey,
         Guid installationId,
+        DateTimeOffset disconnectedAt,
         CancellationToken cancellationToken = default)
     {
+        // 注册与断开并发时，新连接可能已经落库但还没进登记表；带时间条件更新避免把 online 覆盖回 offline。
+        if (_db.Database.IsRelational())
+        {
+            var now = _clock.UtcNow;
+            await _db.Set<DeviceInstallation>()
+                .Where(x => x.AppKey == appKey
+                            && x.Id == installationId
+                            && x.OnlineStatus == DeviceOnlineStatuses.Online
+                            && (x.LastConnectedAt == null || x.LastConnectedAt <= disconnectedAt))
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(static x => x.OnlineStatus, DeviceOnlineStatuses.Offline)
+                        .SetProperty(static x => x.UpdatedAt, now),
+                    cancellationToken);
+            return;
+        }
+
         var installation = await _db.Set<DeviceInstallation>()
             .FirstOrDefaultAsync(
                 x => x.AppKey == appKey && x.Id == installationId,
                 cancellationToken);
         if (installation is null
-            || string.Equals(installation.OnlineStatus, DeviceOnlineStatuses.Offline, StringComparison.Ordinal))
+            || string.Equals(installation.OnlineStatus, DeviceOnlineStatuses.Offline, StringComparison.Ordinal)
+            || installation.LastConnectedAt > disconnectedAt)
         {
             return;
         }

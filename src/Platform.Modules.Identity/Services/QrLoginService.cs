@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Platform.Contracts;
+using Platform.Contracts.Devices;
 using Platform.Contracts.Hubs;
 using Platform.Contracts.Identity;
 using Platform.Infrastructure.Persistence;
@@ -118,6 +119,16 @@ public sealed class QrLoginService : IQrLoginService
             throw BusinessException.Invalid($"应用 {appKey} 不存在或已停用，不能发起扫码登录。");
         }
 
+        string? machineCode;
+        try
+        {
+            machineCode = DeviceIdentityHasher.NormalizeMachineCode(request.MachineCode);
+        }
+        catch (ArgumentException exception)
+        {
+            throw BusinessException.Invalid(exception.Message);
+        }
+
         var now = _clock.UtcNow;
         var session = new QrLoginSession
         {
@@ -125,7 +136,7 @@ public sealed class QrLoginService : IQrLoginService
             AppKey = appKey,
             ClientName = Normalize(request.ClientName),
             DeviceFingerprint = Normalize(request.DeviceFingerprint),
-            MachineCode = Normalize(request.MachineCode),
+            MachineCode = machineCode,
             InstallGuid = request.InstallGuid is { } install && install != Guid.Empty ? install : null,
             CreatedByIp = Normalize(ipAddress),
             ExpiresAt = now.AddMinutes(Math.Max(1, _options.ExpireMinutes)),

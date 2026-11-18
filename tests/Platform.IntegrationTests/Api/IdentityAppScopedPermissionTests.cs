@@ -126,6 +126,40 @@ public sealed class IdentityAppScopedPermissionTests : IClassFixture<PlatformApi
             await IdentityTestHelpers.ReadErrorCodeAsync(response, HttpStatusCode.Forbidden));
     }
 
+    [Fact]
+    public async Task 应用级角色不能持有平台专属权限码()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var appKey = $"scope-node-{suffix}";
+        await CreateAppAsync(client, admin, appKey);
+
+        var denied = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            "/api/v1/admin/identity/roles",
+            admin,
+            new CreateRoleRequest(
+                $"role-node-{suffix}",
+                DisplayName: "越权角色",
+                Scope: IdentityConventions.ScopeApp,
+                AppKey: appKey,
+                Permissions: [PermissionCatalog.NodeRead])));
+        Assert.Equal(
+            (int)ApiErrorCode.IdentityPermissionDenied,
+            await IdentityTestHelpers.ReadErrorCodeAsync(denied, HttpStatusCode.Forbidden));
+
+        // 同一权限码归平台级角色所有
+        var platformRole = await CreateRoleAsync(
+            client,
+            admin,
+            $"platform-node-{suffix}",
+            IdentityConventions.ScopePlatform,
+            appKey: null,
+            [PermissionCatalog.NodeRead]);
+        Assert.Contains(PermissionCatalog.NodeRead, platformRole.Permissions);
+    }
+
     private static async Task<AppDetailDto> CreateAppAsync(HttpClient client, string token, string key) =>
         await IdentityTestHelpers.ReadDataAsync<AppDetailDto>(
             await client.SendAsync(IdentityTestHelpers.Authorized(

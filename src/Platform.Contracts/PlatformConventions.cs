@@ -104,6 +104,9 @@ public static class PlatformClaimTypes
     /// <summary>令牌可访问的应用键（可多条）。</summary>
     public const string App = "app";
 
+    /// <summary>令牌的当前应用（单条）；平台上下文令牌不带此声明。</summary>
+    public const string AppCurrent = "app_ctx";
+
     /// <summary>令牌类型：<c>user</c> / <c>service</c>（API Key 换取的 M2M 令牌）。</summary>
     public const string PrincipalKind = "pkind";
 

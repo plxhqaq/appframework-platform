@@ -98,31 +98,31 @@ catch (PlatformClientException failure)
 ```csharp
 var status = await client.GetLicenseStatusAsync("erp-pro", machineCode);
 
-// 受信任公钥随响应一起返回（status.TrustedKeys），验签在本地完成
+// 受信任公钥必须内置在安装包里；响应里的 status.TrustedKeys 一律不采信
 var verdict = LicenseVerifier.Verify(status,
     expectedAppKey: "demo",
     expectedProductKey: "erp-pro",
-    expectedMachineCode: machineCode);
+    expectedMachineCode: machineCode,
+    pinnedPublicKeys: [bundledLicensePublicKey]);
 
 if (!verdict.IsValid)
 {
-    LockedOut(verdict.Reason);   // 验签失败 / appKey·产品·机器码不符 / 过期 / 未生效 / unmanaged
+    LockedOut(verdict.Reason);   // 未内置公钥 / 验签失败 / appKey·产品·机器码不符 / 过期 / 未生效 / unmanaged
 }
 ```
 
 `LicenseVerifier` 的三条硬规则：
 
-1. 只接受 `ECDSA-P256-SHA256` 且签名可验的快照，任一受信任公钥验过即算通过；
+1. 只接受 `ECDSA-P256-SHA256` 且签名可验的快照，且验签只用调用方内置的公钥
+   —— 响应里的 `TrustedKeys` 不参与验签，明文 HTTP 下响应可被整体替换，拿响应公钥验响应签名等于没有验签；
 2. 快照里的 `appKey` / `productKey` / `machineCode` 必须与本次请求一致，机器码先规范化再比
    （手抄的 `O/I/L` 会被纠正）；
 3. 到期判定用快照里的 `ServerTime`，不看本机时钟 —— 回拨系统时间不能延长授权。
 
-离线码同理，纯本地验签，无需联网。公钥（SPKI Base64）内置于安装包，或从匿名的
-`GetTrustedSigningKeysAsync` 预先取回：
+离线码同理，纯本地验签，无需联网。公钥（SPKI Base64）内置于安装包：
 
 ```csharp
-var keys = await client.GetTrustedSigningKeysAsync();
-IReadOnlyCollection<string> publicKeys = [.. keys.Select(static k => k.PublicKey)];
+IReadOnlyCollection<string> publicKeys = [bundledLicensePublicKey];
 
 var offline = LicenseVerifier.VerifyOfflineCode(code, machineCode, "erp-pro", "demo", publicKeys);
 ```

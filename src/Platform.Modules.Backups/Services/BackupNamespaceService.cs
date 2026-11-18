@@ -110,7 +110,20 @@ public sealed partial class BackupNamespaceService : IBackupNamespaceService
         };
 
         _db.Set<BackupNamespace>().Add(entity);
-        await _db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception)
+        {
+            // 先查后插的并发窗口由 (app_key, key) 唯一索引兜底。
+            _db.ChangeTracker.Clear();
+            throw new BusinessException(
+                ApiErrorCode.BackupsNamespaceKeyExists,
+                $"命名空间 {key} 已存在。",
+                exception);
+        }
+
         return ToDto(entity, 0);
     }
 

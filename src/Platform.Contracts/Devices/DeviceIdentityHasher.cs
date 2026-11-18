@@ -96,6 +96,27 @@ public static class DeviceIdentityHasher
     /// <summary>主键前 <see cref="ShortIdLength"/> 位（日志/人工核对用）。</summary>
     public static string ShortId(Guid id) => id.ToString("N")[..ShortIdLength];
 
+    /// <summary>
+    /// 规范化客户端上报的机器码：空返回 <c>null</c>；非 16 位 Crockford Base32 时抛
+    /// <see cref="ArgumentException"/>（调用方映射为 400，不做静默截断或丢弃）。
+    /// </summary>
+    public static string? NormalizeMachineCode(string? machineCode)
+    {
+        if (string.IsNullOrWhiteSpace(machineCode))
+        {
+            return null;
+        }
+
+        var normalized = Base32Crockford.Normalize(machineCode)
+            .Replace('I', '1')
+            .Replace('L', '1')
+            .Replace('O', '0');
+        return normalized.Length == MachineCodeLength
+               && Base32Crockford.TryDecode(normalized, out _)
+            ? normalized
+            : throw new ArgumentException("机器码必须是 16 位 Crockford Base32 字符串。", nameof(machineCode));
+    }
+
     /// <summary>规范化主标识：只保留字母数字并统一大写（去分隔符、去空白）。</summary>
     public static string NormalizeIdentifier(string? identifier)
     {

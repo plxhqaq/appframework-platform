@@ -333,6 +333,35 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
     }
 
     [Fact]
+    public async Task 平台上下文签发单次密钥必须显式指定应用()
+    {
+        using var client = _factory.CreateClient();
+
+        // 平台管理员登录只拿到平台上下文（无 app_ctx），单次密钥必须落到具体应用上
+        var login = await IdentityTestHelpers.ReadDataAsync<AdminSessionResponse>(
+            await client.PostAsJsonAsync(
+                "/api/v1/admin/auth/login",
+                new LoginRequest(IdentityTestHelpers.AdminUserName, IdentityTestHelpers.AdminPassword)));
+
+        var missing = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            "/api/v1/admin/identity/singlekeys",
+            login.AccessToken,
+            new IssueSingleLoginKeyRequest(AppKey: null)));
+        Assert.Equal(
+            (int)ApiErrorCode.ValidationFailed,
+            await IdentityTestHelpers.ReadErrorCodeAsync(missing, HttpStatusCode.BadRequest));
+
+        var issued = await IdentityTestHelpers.ReadDataAsync<SingleLoginKeyDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                "/api/v1/admin/identity/singlekeys",
+                login.AccessToken,
+                new IssueSingleLoginKeyRequest(AppKey: IdentityConventions.DemoAppKey))));
+        Assert.Equal(SingleLoginConventions.KeyLength, issued.Key.Length);
+    }
+
+    [Fact]
     public async Task 现场工程师账号能签发密钥也能审批扫码()
     {
         using var client = _factory.CreateClient();
@@ -538,6 +567,16 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         Assert.Equal(
             (int)ApiErrorCode.ValidationFailed,
             await IdentityTestHelpers.ReadErrorCodeAsync(missingQrApp, HttpStatusCode.BadRequest));
+
+        // 机器码口径统一为 16 位 Crockford：非法码在兑换被拒，且不消耗密钥
+        var invalidMachineKey = await IssueKeyAsync(client, admin);
+        var invalidMachine = await client.PostAsJsonAsync(
+            RedeemPath,
+            new RedeemSingleLoginKeyRequest(invalidMachineKey.Key, MachineCode: "0011-2233"));
+        Assert.Equal(
+            (int)ApiErrorCode.ValidationFailed,
+            await IdentityTestHelpers.ReadErrorCodeAsync(invalidMachine, HttpStatusCode.BadRequest));
+        Assert.Equal("demo", (await RedeemAsync(client, invalidMachineKey.Key)).User.AppKey);
 
         var issued = await IssueKeyAsync(client, admin);
         var installGuid = Guid.CreateVersion7();

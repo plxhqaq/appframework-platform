@@ -47,7 +47,7 @@ public sealed class HttpCurrentPrincipal : ICurrentPrincipal
     public IReadOnlyList<string> AppKeys => _appKeys ??= Values(PlatformClaimTypes.App);
 
     /// <inheritdoc />
-    public string? AppKey => AppKeys.Count > 0 ? AppKeys[0] : null;
+    public string? AppKey => User?.FindFirst(PlatformClaimTypes.AppCurrent)?.Value;
 
     /// <inheritdoc />
     public Guid? InstallGuid =>

@@ -41,6 +41,47 @@ public sealed class LicenseCodecTests
     }
 
     [Fact]
+    public void payload固定段与契约一致且机器码紧邻应用键()
+    {
+        var issued = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
+        var payload = OfflineLicenseCodec.BuildPayload(
+            "demo", "erp-pro", MachineA, LicenseConventions.KindOfficial, issued, issued.AddDays(30), 0);
+
+        Assert.Equal(22, OfflineLicenseCodec.PayloadFixedLength);
+        Assert.Equal(MachineA, Base32Crockford.Encode(payload.AsSpan(12, 10)));
+        Assert.Equal(4, payload[22]);
+        Assert.Equal("demo", System.Text.Encoding.ASCII.GetString(payload, 23, 4));
+        Assert.Equal(7, payload[27]);
+        Assert.Equal("erp-pro", System.Text.Encoding.ASCII.GetString(payload, 28, 7));
+        Assert.Equal(0, payload[35]);
+        Assert.Equal(36, payload.Length);
+    }
+
+    [Fact]
+    public void 校验位容忍把0抄成O或把1抄成I()
+    {
+        var issued = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
+        string? code = null;
+        for (int i = 0; i < 512 && code is null; i++)
+        {
+            string candidate = OfflineLicenseCodec.Encode(
+                "demo", "erp-pro", MachineA, LicenseConventions.KindOfficial, issued, issued.AddDays(30), 0,
+                Keys.Value.PrivateKey, $"LIC-{i}");
+            if (candidate[^1] is '0' or '1')
+            {
+                code = candidate;
+            }
+        }
+
+        Assert.NotNull(code);
+        char check = code![^1];
+        string confused = code[..^1] + (check == '0' ? 'O' : 'I');
+        Assert.True(
+            OfflineLicenseCodec.TryParse(confused, [Keys.Value.PublicKey], out _, out string? error),
+            error);
+    }
+
+    [Fact]
     public void 离线码篡改一个字符即被拒绝()
     {
         var issued = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);

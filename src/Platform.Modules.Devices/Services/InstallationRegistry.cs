@@ -116,9 +116,9 @@ public sealed class InstallationRegistry : IInstallationRegistry
                 await _db.SaveChangesAsync(cancellationToken);
                 break;
             }
-            catch (DbUpdateException) when (attempt == 0)
+            catch (DbUpdateException) when (attempt < 2)
             {
-                // 并发首次注册：唯一索引兜底，清掉跟踪后按两条唯一键重新走 upsert。
+                // 并发首次注册：唯一索引兜底，清掉跟踪后按两条唯一键重新走 upsert（最多重试两次）。
                 _db.ChangeTracker.Clear();
             }
         }

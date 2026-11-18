@@ -22,7 +22,7 @@ public sealed class PlatformHub : Hub
     /// <inheritdoc />
     public override async Task OnConnectedAsync()
     {
-        var appKey = Context.User?.FindFirst(PlatformClaimTypes.App)?.Value;
+        var appKey = Context.User?.FindFirst(PlatformClaimTypes.AppCurrent)?.Value;
         if (!string.IsNullOrWhiteSpace(appKey))
         {
             await Groups.AddToGroupAsync(Context.ConnectionId, PlatformHubGroups.App(appKey));
@@ -43,7 +43,7 @@ public sealed class PlatformHub : Hub
     /// <param name="ack">回执内容。</param>
     public Task ConfigPushAck(ConfigPushAck ack)
     {
-        var appKey = Context.User?.FindFirst(PlatformClaimTypes.App)?.Value;
+        var appKey = Context.User?.FindFirst(PlatformClaimTypes.AppCurrent)?.Value;
         if (string.IsNullOrWhiteSpace(appKey))
         {
             return Task.CompletedTask;
