@@ -41,17 +41,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ pending: true });
     try {
       const issued = await authApi.login({ userName, password });
-      // 平台管理员首次登录不带当前应用：自动进入首个可访问应用，应用级页面无需手动切换。
-      const active = issued.user.appKey == null && issued.user.appKeys.length > 0
-        ? await authApi.switchAppContext(issued.user.appKeys[0])
-        : issued;
+      // 先注入令牌：切换应用上下文的请求必须带这次登录签发的访问令牌。
       set({
-        accessToken: active.accessToken,
-        expiresAt: active.expiresAt,
-        session: active.user,
+        accessToken: issued.accessToken,
+        expiresAt: issued.expiresAt,
+        session: issued.user,
         status: 'authenticated',
       });
-      return active.user;
+      // 平台管理员首次登录不带当前应用：自动进入首个可访问应用，应用级页面无需手动切换。
+      if (issued.user.appKey == null && issued.user.appKeys.length > 0) {
+        return await get().switchAppContext(issued.user.appKeys[0]);
+      }
+      return issued.user;
+    } catch (error) {
+      set(cleared);
+      throw error;
     } finally {
       set({ pending: false });
     }

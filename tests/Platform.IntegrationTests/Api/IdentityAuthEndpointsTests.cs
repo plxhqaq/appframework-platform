@@ -51,6 +51,18 @@ public sealed class IdentityAuthEndpointsTests : IClassFixture<PlatformApiFactor
     }
 
     [Fact]
+    public async Task 匿名切换应用上下文返回未认证()
+    {
+        using var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/admin/auth/context",
+            new SwitchAppContextRequest(IdentityConventions.DemoAppKey));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
     public async Task 错误口令与未知用户统一返回无效凭据()
     {
         using var client = _factory.CreateClient();

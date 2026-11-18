@@ -169,7 +169,8 @@ internal static class AdminAuthEndpoints
                     }
                 })
             .WithName("identity.admin.context")
-            .WithSummary("切换应用上下文（换发访问令牌，刷新令牌同步记录应用键）");
+            .WithSummary("切换应用上下文（换发访问令牌，刷新令牌同步记录应用键）")
+            .RequireAuthorization();
 
         group.MapPost(
                 "/logout",
