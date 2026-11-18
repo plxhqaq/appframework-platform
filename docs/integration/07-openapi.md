@@ -83,7 +83,7 @@ dotnet pack src/Platform.Contracts/Platform.Contracts.csproj -c Release \
 | 错误码分段枚举 | `ApiErrorCode`（0–99 通用 / 100 身份 / 200 版本 / 300 授权 / 400 备份 / 500 文档 / 600 应用 / 700 Webhook / 800 设备） |
 | 统一返回信封 | `ApiResult` / `ApiResult<T>` |
 | 权限码目录 | `PermissionCatalog`（平台权限，含 `Wildcard`）、`PermissionDescriptor`；客户端权限由各应用通过权限清单自行声明 |
-| SignalR 契约 | `PlatformHubPaths.Root = "/hubs/platform"`、`DeviceHubPaths.Root = "/hubs/devices"`、分组 `app:{appKey}` / `device:{deviceId}`、事件名 `LicenseChanged` / `ConfigPush` / `ConfigPushAck` / `QrLoginApproved` / `ReleasePublished` / `DocumentChanged` / `Restart` / `SessionReplaced` 及通知记录类型 |
+| SignalR 契约 | `PlatformHubPaths.Root = "/hubs/platform"`、`DeviceHubPaths.Root = "/hubs/devices"`、分组 `app:{appKey}` / `installation:{installationId}` / `node:{nodeId}`、方法名 `RegisterInstallation` / `Heartbeat` / `ReportStationState` / `AcknowledgeConfigPush`、事件名 `LicenseChanged` / `ConfigPush` / `ConfigPushAck` / `QrLoginApproved` / `ReleasePublished` / `DocumentChanged` / `Restart` / `SessionReplaced` 及通知记录类型 |
 | 设备身份 | `DeviceIdentityHasher`（稳定键/机器码，客户端与服务端必须同结果）、`DeviceNaming` 与状态词表 |
 | 分页 | `PageQuery` / `PageResult<T>` |
 | 约定与常量 | `PlatformConventions`（路由前缀、头名、声明名、认证方案名）、`PlatformModuleKeys`、`PlatformRoutes` |

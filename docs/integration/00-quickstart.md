@@ -273,8 +273,8 @@ curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sess
 
 ### 4.3 切换应用上下文（管理台进入应用级模块）
 
-应用隔离轴只来自令牌：平台管理员登录后默认落在首个启用应用（通常是 `demo`），进入版本、授权这类
-应用级模块前需要换一个绑定到目标应用的访问令牌：
+应用隔离轴只来自令牌。平台管理员没有应用级角色，登录后**不带应用上下文**（`whoami.appKey` 为
+`null`），进入版本、授权、安装实例、备份这类应用级模块前必须换一个绑定到目标应用的访问令牌：
 
 ```bash
 curl -s -b admin.jar -c admin.jar -X POST http://localhost:5080/api/v1/admin/auth/context \
@@ -460,7 +460,7 @@ curl -s -X POST http://localhost:5080/api/v1/admin/licensing/products \
 ### 6.3 签发 / 续期 / 吊销授权
 
 机器码是客户端「授权」页展示的 16 位 Crockford Base32（10 字节哈希）。手抄时 `O/I/L` 会被纠正为 `0/1/1`，
-但长度必须完整。
+但长度必须完整。签发也可以改传设备节点 `nodeId`（与 `machineCode` 至少给一个，两者都给必须指向同一台机器）。
 
 ```bash
 # 签发（addDays 与 notAfter 二选一；licenseNo 留空自动生成）
@@ -514,17 +514,17 @@ curl -s -X POST http://localhost:5080/api/v1/admin/licensing/offline-codes \
 ```
 
 返回 `code`（原始串）与 `formattedCode`（每 8 字符插 `-`，仅人读）。格式为
-`AF3 | payload 长度(2) | payload | 签名(103) | 校验位(1)`，绑定**产品键 + 机器码**，
-复制到另一台机器或另一个产品均会被拒。服务端校验端点（客户端离线时可不用）：
+`AF4 | payload 长度(2) | payload | 签名(103) | 校验位(1)`，绑定**应用键 + 产品键 + 机器码**，
+复制到另一个应用、另一台机器或另一个产品均会被拒。服务端校验端点（客户端离线时可不用）：
 
 ```bash
 curl -s -X POST http://localhost:5080/api/v1/client/licensing/offline/verify \
   -H "Authorization: Bearer $CLIENT_TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"code":"AF3...","machineCode":"008J4CT4ANK7F24S","productKey":"erp-pro"}'
+  -d '{"code":"AF4...","machineCode":"008J4CT4ANK7F24S","productKey":"erp-pro"}'
 ```
 
-失败码：`306` 码非法/验签失败、`307` 机器码不匹配、`303` 已过期。
+失败码：`306` 码非法/验签失败/应用或产品不符、`307` 机器码不匹配、`303` 已过期。
 **离线码没有吊销通道**：台账删除不影响已发出的码，只能等它到期；请保留台账用于对账。
 
 ### 6.5 密钥轮换
@@ -561,11 +561,11 @@ curl -s -X POST http://localhost:5080/api/v1/admin/backups \
 curl -s "http://localhost:5080/api/v1/admin/backups/$ID/download" \
   -H "Authorization: Bearer $TOKEN" -o backup.json
 
-# 下发：必须显式指定目标设备（可多选）；留空不再广播全部在线连接
-# 同渠道硬门禁；force 只放宽主版本；currentHash 仅单设备时可用
+# 下发：必须显式指定目标安装实例（可多选）；留空不再广播全部在线连接
+# 同渠道硬门禁；force 只放宽主版本；currentHash 仅单安装实例时可用
 curl -s -X POST http://localhost:5080/api/v1/admin/backups/$ID/push \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"targetDeviceIds":["<DEVICE_ID>"],"targetChannel":"default",
+  -d '{"targetInstallationIds":["<INSTALLATION_ID>"],"targetChannel":"default",
        "targetFrameworkVersion":"3.2.0","force":false}'
 
 # 文档集合 + 上传（multipart；visibility 缺省 internal）
@@ -587,29 +587,44 @@ curl -s http://localhost:5080/api/v1/client/documents/manifest \
 “先删文件、再删行”。完整语义、兼容矩阵与配置项见 [`04-backups.md`](04-backups.md)、
 [`05-documents.md`](05-documents.md)。
 
-### 7.1 设备连接与按设备下发（S1–S4）
+### 7.1 节点与安装实例、按安装实例下发（S1–S4）
 
-设备用带 `app` 声明的令牌连 SignalR `/hubs/devices`（WebSocket 走 `?access_token=<JWT>`），
-首帧 `RegisterDevice`，随后按周期 `Heartbeat` / `ReportStationState`，收到 `ConfigPush` 后回
-`AcknowledgeConfigPush`。设备身份由平台按 `(primaryIdentifier, installGuid)` 计算稳定键，
-同一应用内重复注册复用同一条记录；顶号时旧连接收到 `SessionReplaced`。
+物理机器是**节点**（`device_nodes`），某台机器上的某个应用安装是**安装实例**
+（`device_installations`，唯一键 `(appKey, installGuid)`）。同一台机器跑 3 个应用 = 1 个节点 +
+3 个安装实例；机器码全局唯一、只属于节点，授权席位也按「产品 + 机器码」计数。
+
+安装实例用带 `app` 声明的令牌连 SignalR `/hubs/devices`（WebSocket 走 `?access_token=<JWT>`），
+首帧 `RegisterInstallation`，随后按周期 `Heartbeat` / `ReportStationState`，收到 `ConfigPush` 后回
+`AcknowledgeConfigPush`。机器码由平台按 SMBIOS UUID（缺失时系统盘序列号）计算，两者都没有直接拒绝注册
+（`808`）；`installGuid` 标识一次安装，重装会产生新安装实例，旧实例保留为历史。同安装的新连接顶替旧连接
+（旧连接收到 `SessionReplaced`），同机不同应用互不顶号。
 
 ```bash
-# 管理端：看设备与在线状态（device.read）
-curl -s "http://localhost:5080/api/v1/admin/devices?onlineStatus=online&keyword=line3" \
+# 平台级：看物理节点（跨应用；node.read）
+curl -s "http://localhost:5080/api/v1/admin/nodes?onlineStatus=online&keyword=line3" \
   -H "Authorization: Bearer $TOKEN"
 
-# 按设备下发：targetDeviceIds 可多选；留空返回 400，应用组广播需显式 broadcastToApp=true
-# 门禁：留空 400、停用 802/403、离线 803/409、运行中 804/409、跨设备未确认 407
+# 应用级：看当前应用的安装实例（installation.read；令牌需先切到该应用）
+curl -s "http://localhost:5080/api/v1/admin/installations?onlineStatus=online" \
+  -H "Authorization: Bearer $TOKEN"
+
+# 按安装实例下发：targetInstallationIds 可多选；留空返回 400，应用组广播需显式 broadcastToApp=true
+# 门禁：不存在 805/404、节点停用 806/403、安装停用 807/403、离线 803/409、运行中 804/409、
+#       跨安装实例未确认 407
 curl -s -X POST http://localhost:5080/api/v1/admin/backups/$ID/push \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"targetDeviceIds":["<DEVICE_ID>"],"targetChannel":"default",
-       "targetFrameworkVersion":"3.2.0","confirmCrossDevice":false}'
+  -d '{"targetInstallationIds":["<INSTALLATION_ID>"],"targetChannel":"default",
+       "targetFrameworkVersion":"3.2.0","confirmCrossInstallation":false}'
 ```
+
+节点级重启（`POST /api/v1/admin/nodes/{id}/restart`，`node.restart`）发到 `node:{nodeId}`，
+该节点全部在线安装实例都收到；安装级重启（`POST /api/v1/admin/installations/{id}/restart`，
+`installation.restart`）只发到 `installation:{installationId}`。节点停用是全局开关，
+优先于应用级安装实例启用。
 
 **设备通路走明文 HTTP**：现场设备连 API 的明文端口（部署默认 `--api-port 8080`；老端默认 8082
 就按现场实际配），不要连管理台的自签 https（8443/8444）——客户端不信任自签证书，会直接连不上。
-客户端备份上传/列表用 `/api/v1/client/backups`（`deviceId` 必填，默认 `device-backups` 命名空间）。
+客户端备份上传/列表用 `/api/v1/client/backups`（`installationId` 必填，默认 `device-backups` 命名空间）。
 完整语义、错误码与迁移说明见 [`11-devices.md`](11-devices.md)。
 
 ---
@@ -691,7 +706,8 @@ dotnet run --project samples/ConsoleQuickstart
 using var client = new PlatformClient(new PlatformClientOptions { BaseUrl = "http://localhost:5080" });
 await client.SignInAsync("admin", "Admin@12345", "demo");
 var update = await client.CheckUpdateAsync("stable", "1.2.2", "win-x64");
-var ok = LicenseVerifier.Verify(await client.GetLicenseStatusAsync("erp-pro", machineCode), "demo", "erp-pro", machineCode);
+var ok = LicenseVerifier.Verify(
+    await client.GetLicenseStatusAsync("erp-pro", machineCode), "demo", "erp-pro", machineCode, pinnedPublicKeys);
 ```
 
 要点（展开在 [`src/AppFramework.Platform.Client/README.md`](../../src/AppFramework.Platform.Client/README.md) 与 [`07-openapi.md`](07-openapi.md)）：
@@ -699,7 +715,7 @@ var ok = LicenseVerifier.Verify(await client.GetLicenseStatusAsync("erp-pro", ma
 - 业务端点 `401` 时自动用刷新令牌续期并**恰好重试一次**（不递归）；
 - 桌面端重启后把安全存储里的刷新令牌赋回 `client.RefreshToken` 即可静默续命；
 - 下载走流式 + 增量哈希校验 + `*.tmp` 原子改名，`304` 返回 `false`；
-- `LicenseVerifier` 只信 ECDSA-P256-SHA256 且必须绑定 `appKey`/`productKey`/`machineCode`，`unmanaged` 一律拒；
+- `LicenseVerifier` 只信 ECDSA-P256-SHA256 且必须绑定 `appKey`/`productKey`/`machineCode`，验签只认安装包内置公钥（响应 `TrustedKeys` 不采信），`unmanaged` 一律拒；
 - `PlatformClientException` 带 `Code` / `StatusCode` / `TraceId`，`HasPermission` 与平台管理员的 `*` 通配同语义。
 
 ---
@@ -876,10 +892,12 @@ pnpm dev            # http://localhost:5173，/api 自动代理到 http://localh
 （`identity.user.read`、`identity.role.read`、`identity.session.read`）。
 「版本与渠道」页（`versions.channel.*` / `versions.release.*` / `versions.artifact.upload`）
 支持新建/编辑渠道、选文件后浏览器端算 SHA-256 并直传、创建并发布、查看产物清单与归档；
-「设备」页（`device.read` / `device.manage` / `device.restart`）按关键字/在线/分支筛选，详情里看机器码、
-心跳、报警与工位，可改名/启停与重启在线设备；
-「配置备份」页的下发表单用「选择在线设备」打开设备表格（关键字/分支筛选、多选、跨页保留，
-默认勾选备份来源设备；留空会被拒绝，跨设备仍需勾选确认），下发后按设备展示逐台回执，
+「物理节点」页（平台级，`node.read`；改名/启停 `node.manage`，重启 `node.restart`）按机器码/名称/IP/
+在线/启用筛选，详情按应用分组展示该节点上的安装实例，可改名、启停节点与重启节点全部在线安装实例；
+「安装实例」页（应用级，`installation.read` / `installation.manage` / `installation.restart`）按
+关键字/在线/分支筛选，可应用级启停与单实例重启；
+「配置备份」页的下发表单用「选择在线安装实例」打开安装实例表格（关键字/分支筛选、多选、跨页保留，
+默认勾选备份来源安装实例；留空会被拒绝，跨安装实例仍需勾选确认），下发后按安装实例展示逐台回执，
 「文档」页支持填写/修改「适用版本」并在列表与详情中展示；
 「授权」页（`license.product.*` / `license.issue` / `license.revoke` / `license.offlinecode.issue` /
 `license.signingkey.manage`）按标签页提供授权产品、授权主体（签发/续期/吊销）、离线码台账
@@ -923,9 +941,9 @@ pnpm build
 | B2–B3 | `/identity/login`、`/identity/refresh`、`/identity/logout`、`/identity/password/change`、`/admin/auth/*`（含 `/context`）、`/admin/identity/users*`、`/admin/identity/roles*`、`/admin/identity/sessions*`、`/identity/singlekey/redeem`、`/identity/qr/sessions*`、`/admin/identity/singlekeys`、`/admin/identity/qr/sessions*` |
 | B4 | `/admin/versions/channels*`、`/admin/versions/releases*`、`/admin/versions/uploads*`、`/client/versions/check`、`/client/versions/{channel}/{version}/manifest`、`/client/versions/download/{sha256}` |
 | B5 | `/admin/licensing/products*`、`/admin/licensing/entitlements*`、`/admin/licensing/offline-codes*`、`/admin/licensing/signing-keys*`、`/client/licensing/status`、`/client/licensing/offline/verify`、`/client/licensing/keys` |
-| B6 | `/admin/backups*`（含 `/{id}/download`、`/{id}/push`）、`/client/backups*`（含按设备上传/列表）、`/admin/documents*`、`/client/documents/manifest`、`/client/documents/{id}*` |
+| B6 | `/admin/backups*`（含 `/{id}/download`、`/{id}/push`）、`/client/backups*`（含按安装实例上传/列表）、`/admin/documents*`、`/client/documents/manifest`、`/client/documents/{id}*` |
 | B7 | `/admin/webhooks`（含 `/{id}`、`/{id}/secret/rotate`、`/{id}/test`、`/deliveries`、`/deliveries/{id}/redeliver`）、`/webhooks/info`、`/admin/audit-logs`、`/metrics`、`/openapi/v1.json`、`/scalar/v1` |
-| S1–S4 | `/hubs/devices`（设备注册/心跳/工位/回执）、`/admin/devices*`（含 `/{id}`、`/{id}/restart`） |
+| S1–S4 | `/hubs/devices`（安装实例注册/心跳/工位/回执）、`/admin/nodes*`（含 `/{id}`、`/{id}/installations`、`/{id}/restart`）、`/admin/installations*`（含 `/{id}`、`/{id}/restart`） |
 
 约定不变：路由 `/api/v1/{module}/...`，管理端与客户端入口分离（`/admin/*` 与 `/client/*`），服务端强制可见性。
 每个模块还有一个 `/{module}/info` 自述端点（匿名，返回版本、权限码与路由前缀）。

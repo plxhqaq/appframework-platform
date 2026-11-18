@@ -1,7 +1,7 @@
 # 授权（B5）
 
 > 本文面向**客户端接入方**，说明授权产品、授权主体、离线码与签名密钥四件套，
-> 以及客户端侧的三条采信铁律（快照验签、离线码验签、机器码绑定）。端点、字段、常量、错误码与默认值均取自源码。
+> 以及客户端侧的三条采信铁律（快照验签、离线码验签、应用/产品/机器码绑定）。端点、字段、常量、错误码与默认值均取自源码。
 > 概览与最短路径见 [`00-quickstart.md`](00-quickstart.md) 第 6 节。
 
 ---
@@ -23,7 +23,7 @@
 **两条通路**：
 
 - **在线快照**：客户端调 `/client/licensing/status`，服务端返回带签名的 `snapshot`，验签后采信；随时可续期/吊销。
-- **离线码**：无网现场用，服务端签发一串 `AF3` 文本码，客户端本地用内置公钥验签；**码本身没有吊销通道**，只能等到期。
+- **离线码**：无网现场用，服务端签发一串 `AF4` 文本码（内含应用键、产品键与机器码），客户端本地用内置公钥验签；**码本身没有吊销通道**，只能等到期。
   但授权主体的「完全吊销」会让该机器在线状态恒为 `revoked`，客户端据此锁定并忽略本地离线码；
   「仅在线注销」则不影响离线码（见 §5）。
 
@@ -143,7 +143,7 @@ curl -s http://localhost:5080/api/v1/admin/licensing/signing-keys \
 `licensing.entitlement.issue` / `licensing.offlinecode.issue`。列表的 `status` 过滤只接受
 `active` / `expired` / `revoked`（其余值校验失败）。
 
-**签发** `IssueLicenseRequest`：`productKey`、`machineCode`、`licenseNo`、`notAfter`、`addDays`、`graceDays`、`notes`。
+**签发** `IssueLicenseRequest`：`productKey`、`machineCode`、`nodeId`、`licenseNo`、`notAfter`、`addDays`、`graceDays`、`notes`。
 
 ```bash
 curl -s -X POST http://localhost:5080/api/v1/admin/licensing/entitlements \
@@ -161,6 +161,11 @@ curl -s -X POST http://localhost:5080/api/v1/admin/licensing/entitlements \
 - 该机器码**已有未吊销的非试用授权**时返回通用 `Conflict`（HTTP 409，"请使用续期"）；新发时席位用尽返回 `309`（HTTP 409）。
 - 该机器码已有的是**同产品自动试用**（`kind=trial`、未吊销）时，签发正式授权**就地升级**同一行：沿用原 `id`
   （客户端不用改绑定）、不再占新席位，`kind` 变为 `official`，`notBefore`/`notAfter`/`graceDays` 按本次请求重写，无需先吊销。
+- `nodeId` 与 `machineCode` 至少给一个，缺两者返回 `308`（HTTP 400）；两个都给时必须指向同一台机器，
+  否则返回 `2`（HTTP 400）。只给 `nodeId` 时服务端按节点解析机器码（节点不存在返回 `809`/404，
+  设备域未启用返回 `10`/503）。
+- 列表/详情按机器码关联设备节点，回显 `nodeId` / `nodeDisplayName`（只读回显，授权表不落 `node_id`，
+  签发时机器可能还没注册节点）。
 - 类型固定为 `official`。
 
 **续期** `RenewLicenseRequest`：`notAfter`、`addDays`、`graceDays`、`notes`。`addDays` 的**追加基准**是
@@ -225,8 +230,9 @@ curl -s -X POST http://localhost:5080/api/v1/client/licensing/status \
 ```
 
 `LicenseStatusResponse` 关键字段：`appKey`、`productKey`、`machineCode`、`status`、`kind`、`notBefore`、
-`notAfter`、`graceDays`、`serverTime`、`licenseNo`、`keyId`、`snapshot`、`trustedKeys[]`
-（每把 `LicenseKeyDescriptorDto` 含 `keyId`/`algorithm`/`publicKey`/`fingerprint`/`status`）。
+`notAfter`、`graceDays`、`serverTime`、`licenseNo`、`keyId`、`snapshot`、`trustedKeys[]`、`nodeId`
+（按机器码关联节点，未注册节点为 `null`）。`trustedKeys[]` 每把 `LicenseKeyDescriptorDto` 含
+`keyId`/`algorithm`/`publicKey`/`fingerprint`/`status`。
 
 `snapshot` 是 Base64 的**签名快照**，载荷字段顺序固定（格式版本 2，魔数 `AFLIC2\0`）：
 `ver | kind | status | 保留 | grace(4) | notBefore(8) | notAfter(8) | serverTime(8) | machine(10) |
@@ -274,32 +280,36 @@ curl -s -X POST http://localhost:5080/api/v1/admin/licensing/offline-codes \
   -d '{"productKey":"erp-pro","machineCode":"008J4CT4ANK7F24S","addDays":365,"licenseNo":"LIC-OFF-001"}'
 ```
 
-`IssueOfflineLicenseCodeRequest`：`productKey`、`machineCode`、`notAfter`、`addDays`、`licenseNo`、`remark`。
+`IssueOfflineLicenseCodeRequest`：`productKey`、`machineCode`、`nodeId`、`notAfter`、`addDays`、`licenseNo`、`remark`。
+`nodeId` 与 `machineCode` 的规则同 §5（至少给一个，二者都给必须指向同一台机器）。
 `addDays` 缺省 365、上限同样按 `Licensing:MaxLicenseDays` 夹到 `1..3650`。类型固定 `official`，
 **离线码宽限天数恒为 0**（码一经发出无人可控，宽限只属于可在线吊销的授权）。
 
 响应 `OfflineLicenseCodeDto` 有 `code`（原始串，入库）与 `formattedCode`（`Base32Crockford.FormatGroups(code, 8)`，
 即**每 8 个字符插一个 `-`**，仅供人读，不参与存储与校验）。`licenseNo` 重复返回 `Conflict`（HTTP 409）。
 
-**AF3 线格式**：`AF3 | payload 字符数(2) | payload | 签名(103) | 校验位(1)`，全串 Crockford Base32。
-`payload = ver(1)=3 | kind(1) | grace(1) | flags(1) | issued(4) | notAfter(4) | machine(10) |
-productKeyLen(1) | productKey | noLen(1) | licenseNo`。时间用 32 位 Unix 秒（1970–2106），
+**AF4 线格式**：`AF4 | payload 字符数(2) | payload | 签名(103) | 校验位(1)`，全串 Crockford Base32。
+`payload = ver(1)=4 | kind(1) | grace(1) | flags(1) | issued(4) | notAfter(4) | machine(10) |
+appKeyLen(1) | appKey | productKeyLen(1) | productKey | noLen(1) | licenseNo`。时间用 32 位 Unix 秒（1970–2106），
 签名是 IEEE-P1363 的 64 字节再 Base32 编码成 103 字符；末尾校验位取 `SHA-256(payload+签名)` 首字节高 5 位，
-只用于先挡手抄/截断错误，**真正信任仍由验签决定**。与旧版差异：AF3 把**产品键**写进码里，
-同一机器在不同产品的离线码不能混用。
+只用于先挡手抄/截断错误，**真正信任仍由验签决定**。AF4 把**应用键与产品键**都写进码里：
+同一机器在不同应用、不同产品的离线码不能混用；服务端**只解析 AF4**，AF3 一律按「版本不支持」拒绝。
+码长比 AF3 多出 `appKey` 对应的 Base32 字符，不压缩、不缩短。
 
 服务端校验端点（客户端离线时改用本地验签，见第 10 节）：
 
 ```bash
 curl -s -X POST http://localhost:5080/api/v1/client/licensing/offline/verify \
   -H "Authorization: Bearer $CLIENT_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"code":"AF3...","machineCode":"008J4CT4ANK7F24S","productKey":"erp-pro"}'
+  -d '{"code":"AF4...","machineCode":"008J4CT4ANK7F24S","productKey":"erp-pro"}'
 ```
 
-`OfflineLicenseVerificationDto`：`isValid`、`productKey`、`machineCode`、`kind`、`issuedAt`、`notAfter`、
-`graceDays`、`licenseNo`。校验顺序：机器码格式 → 解析验签（前缀/长度/校验位/版本/签名）→ 机器码匹配 →
-产品匹配 → 产品存在 → 是否过期（`now > notAfter + graceDays`）。**离线码绑定「产品键 + 机器码」，
-复制到另一台机器或另一个产品都会被拒。**
+应用键以令牌 `app` 声明为准；请求里的 `appKey` 可省略，省略即按令牌应用校验，填了就必须与令牌一致。
+`OfflineLicenseVerificationDto`：`isValid`、`appKey`、`productKey`、`machineCode`、`kind`、`issuedAt`、
+`notAfter`、`graceDays`、`licenseNo`。校验顺序：机器码格式 → 解析验签（前缀/长度/校验位/版本/签名）→
+应用绑定（码内 `appKey` 与令牌应用一致；请求 `appKey` 若给出也须一致）→ 机器码匹配 →
+产品匹配 → 产品存在且启用 → 是否过期（`now > notAfter + graceDays`）。
+**离线码绑定「应用键 + 产品键 + 机器码」，复制到另一个应用、另一台机器或另一个产品都会被拒。**
 
 > 码本身无吊销通道：`DELETE /offline-codes/{id}` 只删台账行，**不影响已发出的码**，它在到期前依旧可被本地验签通过。
 > 请保留台账用于对账，签发时尽量带上可追踪的 `licenseNo`。要停用某台机器的离线能力，
@@ -362,19 +372,21 @@ curl -s -X POST http://localhost:5080/api/v1/admin/licensing/signing-keys/sync \
 **不要**直接读 `status` 字段判权限：
 
 ```csharp
-// 在线：取状态 → 验签 → 判定
+// 在线：取状态 → 验签（只用安装包内置公钥）→ 判定
 var status = await client.GetLicenseStatusAsync("erp-pro", machineCode);
+IReadOnlyCollection<string> pinnedPublicKeys = await LoadBundledPublicKeysAsync();
 
-// trustedKeys 可来自本次响应，也可用安装包内置的公钥
+// 响应里的 status.TrustedKeys 一律不采信：明文 HTTP 下响应可被整体替换
 var verdict = LicenseVerifier.Verify(
     status,
     expectedAppKey: "demo",
     expectedProductKey: "erp-pro",
-    expectedMachineCode: machineCode);
+    expectedMachineCode: machineCode,
+    pinnedPublicKeys);
 
 if (!verdict.IsValid)
 {
-    // unmanaged / 验签失败 / 绑定不符 / 未生效 / 已过期(含宽限) / 已吊销
+    // unmanaged / 未内置公钥 / 验签失败 / 绑定不符 / 未生效 / 已过期(含宽限) / 已吊销
     Log.Warning("授权不放行：{Status} {Reason}", verdict.Status, verdict.Reason);
     return;
 }
@@ -390,11 +402,12 @@ var offline = LicenseVerifier.VerifyOfflineCode(
     code,              // 原始码或带 '-' 分组的 formattedCode 都可（会先归一）
     machineCode,
     "erp-pro",
+    "demo",            // 期望的应用键，与码内 appKey 不一致即拒
     publicKeys);
 
 if (!offline.IsValid)
 {
-    // 验签失败 / 产品不符 / 机器码不符 / 已过期
+    // 验签失败 / 应用不符 / 产品不符 / 机器码不符 / 已过期
     Show(offline.Reason);
     return;
 }
@@ -415,6 +428,8 @@ if (!offline.IsValid)
 - **直接看 `status` 字段放行**：错。只有 `LicenseVerifier` 验签通过的快照才可信；被篡改的响应也能带 `status=active`。
 - **用本机时钟判到期**：在线会绕过服务端时间保护，回拨时钟即"续命"。必须用 `payload.ServerTime`。
 - **机器码只抄对字符不抄长度**：漏一位整串作废（`308`）；O/I/L 误抄反而能被归一纠正。
+- **按机器码签发但机器还没注册节点**：授权照常可用，`nodeId`/`nodeDisplayName` 回显为空；节点注册后自动关联。
+- **跨应用复用一个离线码**：AF4 拒绝。码内 `appKey` 必须与当前应用一致，`306` 提示「属于应用 X」。
 - **以为删台账能吊销离线码**：删台账不影响已发出的码，只能等到期；要连带停用离线能力，对授权主体做
   `scope=all` 的完全吊销（客户端在线校验锁定）；`scope=online` 只停在线、不动离线码。
 - **把「仅在线」当永久吊销**：`online` 之后可以升级为 `all`（补一次吊销即可），但 `all` 不能降回 `online`。

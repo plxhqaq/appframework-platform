@@ -17,11 +17,11 @@
 
 ## 1. 前置：应用上下文只来自令牌
 
-- 隔离轴是 JWT 的 `app` 声明：签发时去重并把「当前应用」固定排在首位，`ICurrentPrincipal.AppKey` 取第一个值（`src/Platform.Api/Auth/JwtTokenIssuer.cs:80`）。
+- 隔离轴是 JWT 的 `app_ctx` 声明（当前应用，单条）；`app` 声明只表示可访问应用（多条），`ICurrentPrincipal.AppKey` 读 `app_ctx`（`src/Platform.Api/Auth/JwtTokenIssuer.cs:82`）。平台上下文令牌没有 `app_ctx`，`AppKey` 为空。
 - 服务端**不接受**请求体或请求头里的 `appKey` 作为隔离依据；版本、授权、备份、文档这类应用级模块直接从令牌取应用键。
 - 两种拒绝要分清：应用级模块发现令牌没有应用上下文时返回 `4`（HTTP 403，「当前令牌没有应用上下文，无法访问版本资源」，`VersionsEndpoints.cs:484`）；登录或切换时指定了无权访问的应用返回 `118`（HTTP 403）。
 - 进入应用的三条路：登录/换发时带 `appKey`、管理台 `POST /api/v1/admin/auth/context` 切换、M2M 令牌由 API Key 所属应用自动绑定。
-- 平台管理员（`platform-admin`，权限 `*`）默认落在首个启用应用；不主动进入某应用时，会话 DTO 的 `user.appKey` 为空，令牌 `app` 仍覆盖全部启用应用，`ICurrentPrincipal.AppKey` 取首个（whoami 会显示一个具体应用）。
+- 平台管理员（`platform-admin`，权限 `*`）不指定应用登录时得到**平台上下文**令牌：`user.appKey` 为空，`app` 覆盖全部启用应用，但没有 `app_ctx`；此时应用级模块返回 `4`（403），签发单次密钥也必须显式给 `appKey`。管理台登录后会自动进入首个可访问应用，也可随时用顶部切换器换应用。
 - **应用停用后**：登录/切换/刷新立即拒绝（`118`/403）；已签发的访问令牌由请求路径上的应用上下文守卫拦截（`602`/403），不必等访问令牌自然过期。守卫按 `AppContextGuard:CacheSeconds`（默认 30 秒）缓存状态，启用/停用在本副本立即失效，多副本最迟一个窗口后收敛。
 - 平台管理员（通配权限 `*`）不受停用守卫影响——否则停用应用后就没人能从管理端把它重新启用。
 
@@ -74,7 +74,7 @@ curl -s -X POST http://localhost:5080/api/v1/identity/login \
 ```
 
 - `userName` 大小写不敏感（服务端 `Trim().ToLowerInvariant()`）；空用户名或空口令统一返回 `101`。
-- `appKey` 可选：期望进入的应用，不在可访问集合内返回 `118`（403）。`deviceFingerprint` 与 `machineCode` 可选，前者写入刷新令牌记录供按设备排查/吊销，后者同时写入访问令牌 `machine` 声明与刷新令牌记录，供授权绑定。
+- `appKey` 可选：期望进入的应用，不在可访问集合内返回 `118`（403）。`deviceFingerprint` 与 `machineCode` 可选，前者写入刷新令牌记录供按设备排查/吊销，后者同时写入访问令牌 `machine` 声明与刷新令牌记录，供授权绑定；`machineCode` 非空时必须是 16 位 Crockford Base32（`O/I/L` 按 `0/1/1` 容错），格式不符直接 400。
 - 响应 `LoginResponse`：`accessToken` / `expiresAt` / `refreshToken` / `refreshExpiresAt` / `user`；`user` 即 `UserSessionDto`：`userId` / `userName` / `displayName` / `roles` / `permissions` / `appKeys` / `mustChangePassword` / `appKey` / `permissionsLocked`。`permissionsLocked` 仅在进入应用上下文时有意义，客户端据此决定是否还需要上传权限清单。
 - 管理端 `/api/v1/admin/auth/login` 用同一个 `LoginRequest`，但返回 `AdminSessionResponse`（只有 `accessToken` / `expiresAt` / `user`）：刷新令牌改由 httpOnly + SameSite=Strict 的 Cookie `af_refresh_v2` 承载，`Path` 固定 `/api/v1/admin/auth`，`Secure` 跟随请求是否 HTTPS（`AdminAuthEndpoints.cs`）。旧名 `af_refresh` 仅在读不到新名时兼容续期一次，并在登录/刷新/登出时清除；重命名是为了绕开「HTTPS 部署留下的 Secure 旧 Cookie 无法被 HTTP 响应覆盖」的浏览器保护（表现为 HTTP 部署后 Edge/Chromium 每次刷新都要重登）。现象、定位与处置见仓库 README 的「HTTP ↔ HTTPS 切换与登录 Cookie（排障必读）」。
 
@@ -116,7 +116,8 @@ curl -s -X POST http://localhost:5080/api/v1/identity/password/change \
 | 名称 | `name` | 否 | 用户名或 `应用名 (密钥名)` |
 | 角色 | `role` | 是 | 角色名（M2M 固定 `service`） |
 | 权限码 | `perms` | 是 | 角色权限并集，`*` 表示通配 |
-| 应用键 | `app` | 是 | 可访问应用；首个为当前应用 |
+| 应用键 | `app` | 是 | 可访问应用（平台管理员为全部启用应用） |
+| 当前应用 | `app_ctx` | 否 | 当前令牌固定的应用；平台上下文令牌没有此声明 |
 | 主体类型 | `pkind` | 否 | `user` / `service` |
 | 临时标记 | `is_temporary` | 否 | 单次密钥与扫码为 `true` |
 | 令牌 id | `jti` | 否 | v7 guid |
@@ -150,12 +151,13 @@ curl -s -X POST http://localhost:5080/api/v1/admin/identity/singlekeys \
 ```bash
 curl -s -X POST http://localhost:5080/api/v1/identity/singlekey/redeem \
   -H 'Content-Type: application/json' \
-  -d '{"key":"123456","deviceFingerprint":"line-1-pc","machineCode":"PC-001"}'
+  -d '{"key":"123456","deviceFingerprint":"line-1-pc","machineCode":"008J4CT4ANK7F24S"}'
 ```
 
 - **原子单次**：消费靠一条带条件的 UPDATE（`used_at IS NULL AND expires_at > now AND attempt_count < maxAttempts AND 指纹匹配`），受影响行数为 1 才算赢，多副本并发只有一个成功（`SingleLoginKeyService.cs:136`）。尝试上限 `SingleLogin:MaxAttempts`（默认 5）；指纹不匹配同样累计一次尝试，累计到上限后密钥作废。
-- 临时令牌有效期 = **密钥剩余时间**（`record.ExpiresAt - now`），不是重新计 30 分钟；已过期返回 `106`。响应 `TemporarySessionResponse{accessToken, expiresAt, user}`，**没有刷新令牌**，过期即失去访问。错误码 `105`/`107`/`108` 见第 7 节。
-- 临时主体绑定密钥签发人：`sub`/`name`/`role`/`perms` 全部来自该用户当前会话（与口令登录共用 `UserSessionFactory`），`displayName` 为用户的显示名，`is_temporary` = `true`，`app` = 该用户可进入的首个应用，`machine` = 请求里的 `machineCode`（只写入声明，不与密钥记录比对）。签发人账号被禁用/删除时兑换返回对应的身份错误。
+- `machineCode` 非空时必须是 16 位 Crockford Base32（`O/I/L` 按 `0/1/1` 容错），格式不符直接 400 且**不消耗密钥**；`installGuid` 可选，用于会话的设备绑定。
+- 临时令牌有效期**独立取默认值**（`SingleLogin:DefaultDurationMinutes` 默认 30 分钟，上限 `MaxDurationMinutes` 120）：签发密钥时选的有效期只约束密钥本身，不再压缩兑换后的会话。响应 `TemporarySessionResponse{accessToken, expiresAt, user}`，**没有刷新令牌**，过期即失去访问。错误码 `105`/`107`/`108` 见第 7 节。
+- 临时主体绑定密钥签发人：`sub`/`name`/`role`/`perms` 全部来自该用户当前会话（与口令登录共用 `UserSessionFactory`），`displayName` 为用户的显示名，`is_temporary` = `true`，`app` = 该用户可进入的首个应用，`machine` = 规范化后的 `machineCode`（只写入声明，不与密钥记录比对）。签发人账号被禁用/删除时兑换返回对应的身份错误。
 - 客户端因此拿到签发人的真实角色与权限（管理员签发就是 `*`）。边界靠身份种类而不是权限集合：四个管理端点都挂了 `RequireNonTemporaryPrincipal()`，临时令牌即便权限齐全也返回 `102`（403），无法自我续期。
 
 ---
@@ -288,7 +290,7 @@ client.UseAccessToken(stillValidAccessToken, expiresAt);  // 或接管外部令�
 bool canReset = client.HasPermission(PermissionCatalog.IdentityUserPasswordReset);
 
 // 5) 临时登录与服务令牌
-var temp = await client.RedeemSingleKeyAsync("123456", "line-1-pc", machineCode: "PC-001");
+var temp = await client.RedeemSingleKeyAsync("123456", "line-1-pc", machineCode: "008J4CT4ANK7F24S");
 var service = await client.RequestServiceTokenAsync("demo", apiKey, scopes: null);
 
 // 6) 扫码：推送只是提示，以轮询为准
