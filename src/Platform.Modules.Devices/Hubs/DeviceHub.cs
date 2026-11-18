@@ -29,6 +29,18 @@ public sealed class DeviceHub : Hub
             new EventId(2, "InstallationSessionReplaced"),
             "安装实例 {InstallationId} 顶替旧连接 {ConnectionId}。");
 
+    private static readonly Action<ILogger, Guid, Exception?> DisconnectedOfflineLog =
+        LoggerMessage.Define<Guid>(
+            LogLevel.Information,
+            new EventId(3, "InstallationMarkedOfflineOnDisconnect"),
+            "安装实例 {InstallationId} 最后一条连接断开，已立即标记离线。");
+
+    private static readonly Action<ILogger, Guid, Exception?> DisconnectedOfflineFailedLog =
+        LoggerMessage.Define<Guid>(
+            LogLevel.Warning,
+            new EventId(4, "InstallationOfflineOnDisconnectFailed"),
+            "安装实例 {InstallationId} 断开后标记离线失败，等待离线扫描兜底。");
+
     private readonly IInstallationRegistry _registry;
     private readonly IInstallationPresence _presence;
     private readonly InstallationConnectionRegistry _connections;
@@ -53,7 +65,24 @@ public sealed class DeviceHub : Hub
     /// <inheritdoc />
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
+        bool registered = _connections.TryGet(Context.ConnectionId, out var connection);
         _connections.Unregister(Context.ConnectionId);
+
+        // 顶号断开不影响新连接；只有该安装实例的最后一条连接断开才立即离线。
+        if (registered && !_connections.HasConnection(connection.InstallationId))
+        {
+            try
+            {
+                await _presence.MarkDisconnectedAsync(
+                    connection.AppKey, connection.InstallationId, CancellationToken.None);
+                DisconnectedOfflineLog(_logger, connection.InstallationId, null);
+            }
+            catch (Exception ex)
+            {
+                DisconnectedOfflineFailedLog(_logger, connection.InstallationId, ex);
+            }
+        }
+
         await base.OnDisconnectedAsync(exception);
     }
 

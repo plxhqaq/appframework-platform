@@ -177,12 +177,14 @@ public sealed record DeviceIdentity(
 /// <param name="IpAddress">客户端上报的本机 IP。</param>
 /// <param name="Branch">版本分支；为空表示不改既有值。</param>
 /// <param name="HeartbeatSeconds">客户端心跳周期，决定离线阈值。</param>
+/// <param name="CustomName">客户端连接设置里的自定义设备名；管理端改过名后不再覆盖。</param>
 public sealed record DeviceRegistrationRequest(
     DeviceIdentity Identity,
     string DisplayName,
     string? IpAddress = null,
     string? Branch = null,
-    int? HeartbeatSeconds = null);
+    int? HeartbeatSeconds = null,
+    string? CustomName = null);
 
 /// <summary>安装实例注册结果。</summary>
 /// <param name="InstallationId">安装实例主键（同应用同安装重连保持稳定）。</param>

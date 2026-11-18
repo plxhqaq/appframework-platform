@@ -711,6 +711,11 @@ namespace Platform.Infrastructure.Migrations
                         .HasColumnType("character varying(128)")
                         .HasColumnName("custom_name");
 
+                    b.Property<string>("CustomNameSource")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("custom_name_source");
+
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasMaxLength(256)

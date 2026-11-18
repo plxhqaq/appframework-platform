@@ -69,6 +69,8 @@ public sealed class InstallationRegistry : IInstallationRegistry
         }
 
         var autoName = DeviceValidation.RequireName(request.DisplayName, "设备名");
+        var customName = DeviceValidation.Optional(
+            request.CustomName, DeviceConventions.MaxNameLength, "自定义设备名");
         var ipAddress = DeviceValidation.Optional(
             request.IpAddress, DeviceConventions.MaxIpAddressLength, "IP 地址");
         var branch = DeviceValidation.Optional(
@@ -96,9 +98,9 @@ public sealed class InstallationRegistry : IInstallationRegistry
         {
             node = await _db.Set<DeviceNode>()
                 .FirstOrDefaultAsync(x => x.MachineCode == machineCode, cancellationToken)
-                ?? CreateNode(machineCode, autoName, ipAddress, now);
+                ?? CreateNode(machineCode, autoName, customName, ipAddress, now);
             EnsureNodeEnabled(node);
-            ApplyNodeConnection(node, autoName, ipAddress, now);
+            ApplyNodeConnection(node, autoName, customName, ipAddress, now);
 
             installation = await _db.Set<DeviceInstallation>()
                 .FirstOrDefaultAsync(
@@ -132,13 +134,19 @@ public sealed class InstallationRegistry : IInstallationRegistry
     }
 
     private DeviceNode CreateNode(
-        string machineCode, string autoName, string? ipAddress, DateTimeOffset now)
+        string machineCode,
+        string autoName,
+        string? customName,
+        string? ipAddress,
+        DateTimeOffset now)
     {
         var node = new DeviceNode
         {
             MachineCode = machineCode,
             AutoName = autoName,
-            DisplayName = DeviceNaming.ResolveDisplayName(autoName, customName: null, machineCode),
+            CustomName = customName,
+            CustomNameSource = customName is null ? null : DeviceCustomNameSources.Client,
+            DisplayName = DeviceNaming.ResolveDisplayName(autoName, customName, machineCode),
             IpAddress = ipAddress,
             FirstSeenAt = now,
             LastSeenAt = now,
@@ -189,9 +197,26 @@ public sealed class InstallationRegistry : IInstallationRegistry
     }
 
     private static void ApplyNodeConnection(
-        DeviceNode node, string autoName, string? ipAddress, DateTimeOffset now)
+        DeviceNode node,
+        string autoName,
+        string? customName,
+        string? ipAddress,
+        DateTimeOffset now)
     {
         node.AutoName = autoName;
+
+        // 旧数据没有来源列：非空自定义名一律视为管理端设置过，避免客户端注册把管理端改名顶掉。
+        if (node.CustomNameSource is null && !string.IsNullOrWhiteSpace(node.CustomName))
+        {
+            node.CustomNameSource = DeviceCustomNameSources.Admin;
+        }
+
+        if (!string.Equals(node.CustomNameSource, DeviceCustomNameSources.Admin, StringComparison.Ordinal))
+        {
+            node.CustomName = customName;
+            node.CustomNameSource = customName is null ? null : DeviceCustomNameSources.Client;
+        }
+
         node.DisplayName = DeviceNaming.ResolveDisplayName(node.AutoName, node.CustomName, node.MachineCode);
         node.FirstSeenAt ??= now;
         node.LastSeenAt = now;

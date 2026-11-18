@@ -17,8 +17,11 @@ public sealed class DeviceNode : IAuditableEntity
     /// <summary>自动名（客户端上报的机器名），每次注册刷新。</summary>
     public string? AutoName { get; set; }
 
-    /// <summary>自定义名（仅管理端修改）。</summary>
+    /// <summary>自定义名（管理端改名后客户端不再覆盖）。</summary>
     public string? CustomName { get; set; }
+
+    /// <summary>自定义名来源：<c>admin</c>/<c>client</c>；为空表示没有自定义名。</summary>
+    public string? CustomNameSource { get; set; }
 
     /// <summary>展示名：自定义名 &gt; 自动名 &gt; 机器码。</summary>
     public required string DisplayName { get; set; }
@@ -43,4 +46,14 @@ public sealed class DeviceNode : IAuditableEntity
 
     /// <summary>该节点上的安装实例。</summary>
     public List<DeviceInstallation> Installations { get; set; } = [];
+}
+
+/// <summary>节点自定义名来源：管理端改名后客户端注册不得覆盖。</summary>
+internal static class DeviceCustomNameSources
+{
+    /// <summary>管理端设置（包含管理端清空，客户端不再回填）。</summary>
+    public const string Admin = "admin";
+
+    /// <summary>客户端连接设置上报。</summary>
+    public const string Client = "client";
 }

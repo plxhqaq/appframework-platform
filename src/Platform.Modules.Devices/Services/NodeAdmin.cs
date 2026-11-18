@@ -131,6 +131,8 @@ public sealed class NodeAdmin : INodeAdmin
             var customName = DeviceValidation.Optional(
                 request.CustomName, DeviceConventions.MaxNameLength, "自定义设备名");
             node.CustomName = customName;
+            // 管理端改过（含清空）后客户端注册不再回填自定义名。
+            node.CustomNameSource = DeviceCustomNameSources.Admin;
             node.DisplayName = DeviceNaming.ResolveDisplayName(
                 node.AutoName, node.CustomName, node.MachineCode);
         }

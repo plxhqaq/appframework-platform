@@ -30,6 +30,15 @@ public interface IInstallationPresence
 
     /// <summary>把心跳超时的在线安装实例标记为离线；返回本次标记数量。</summary>
     Task<int> MarkOfflineAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 连接断开且该安装实例已无其它活跃连接时立即标记离线，
+    /// 不等待心跳超时扫描（客户端正常退出的场景）。
+    /// </summary>
+    Task MarkDisconnectedAsync(
+        string appKey,
+        Guid installationId,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>安装实例在线状态实现。</summary>
@@ -168,6 +177,26 @@ public sealed class InstallationPresence : IInstallationPresence
         }
 
         return marked;
+    }
+
+    /// <inheritdoc />
+    public async Task MarkDisconnectedAsync(
+        string appKey,
+        Guid installationId,
+        CancellationToken cancellationToken = default)
+    {
+        var installation = await _db.Set<DeviceInstallation>()
+            .FirstOrDefaultAsync(
+                x => x.AppKey == appKey && x.Id == installationId,
+                cancellationToken);
+        if (installation is null
+            || string.Equals(installation.OnlineStatus, DeviceOnlineStatuses.Offline, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        installation.OnlineStatus = DeviceOnlineStatuses.Offline;
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<DeviceInstallation> FindAsync(
