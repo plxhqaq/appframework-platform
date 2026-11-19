@@ -331,33 +331,72 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
             (int)ApiErrorCode.BackupsPushRejected,
             await IdentityTestHelpers.ReadErrorCodeAsync(unconfirmed, HttpStatusCode.Conflict));
 
-        coordinator.RegisterConnection("push-broadcast-connection", DemoAppKey);
-        try
+        // 源安装实例的真实 Hub 连接已让应用组在线门禁通过，无需伪造连接。
+        var ackTask = Task.Run(async () =>
         {
-            var ackTask = Task.Run(async () =>
+            await Task.Delay(200);
+            coordinator.CompleteAck(DemoAppKey, backup.Id, true, "applied");
+        });
+        var pushed = await IdentityTestHelpers.ReadDataAsync<PushBackupResult>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/backups/{backup.Id}/push",
+                admin,
+                new PushBackupRequest(null, null, "1.0.0", false, false, null, true, BroadcastToApp: true))));
+        await ackTask;
+        Assert.True(pushed.Acked);
+        Assert.True(pushed.Success);
+    }
+
+    [Fact]
+    public async Task 顶替后旧连接不再收到应用组广播()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        var token = await DevTokenAsync(client, [PermissionCatalog.BackupPush]);
+
+        var installGuid = Guid.NewGuid();
+        var old = await RegisterInstallationAsync(token, "PUSH-DISPLACE-OLD", installGuid);
+        await using var oldConnection = old.Connection;
+        var oldReceived = false;
+        oldConnection.On<DeviceConfigPush>(DeviceHubEvents.ConfigPush, _ => oldReceived = true);
+
+        var replacement = await RegisterInstallationAsync(token, "PUSH-DISPLACE-NEW", installGuid);
+        await using var newConnection = replacement.Connection;
+        Assert.Equal(old.InstallationId, replacement.InstallationId);
+
+        var received = new TaskCompletionSource<DeviceConfigPush>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        newConnection.On<DeviceConfigPush>(
+            DeviceHubEvents.ConfigPush,
+            async command =>
             {
-                await Task.Delay(200);
-                coordinator.CompleteAck(DemoAppKey, backup.Id, true, "applied");
+                received.TrySetResult(command);
+                await newConnection.InvokeAsync(
+                    DeviceHubMethods.AcknowledgeConfigPush,
+                    new DeviceConfigPushAck(command.BackupId, true, null));
             });
-            var pushed = await IdentityTestHelpers.ReadDataAsync<PushBackupResult>(
-                await client.SendAsync(IdentityTestHelpers.Authorized(
-                    HttpMethod.Post,
-                    $"/api/v1/admin/backups/{backup.Id}/push",
-                    admin,
-                    new PushBackupRequest(null, null, "1.0.0", false, false, null, true, BroadcastToApp: true))));
-            await ackTask;
-            Assert.True(pushed.Acked);
-            Assert.True(pushed.Success);
-        }
-        finally
-        {
-            coordinator.UnregisterConnection("push-broadcast-connection");
-        }
+
+        var backup = await CreateBackupAsync(client, admin, """{"a":1}""", old.InstallationId);
+        var pushed = await IdentityTestHelpers.ReadDataAsync<PushBackupResult>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/backups/{backup.Id}/push",
+                admin,
+                new PushBackupRequest(null, null, "1.0.0", false, false, null, true, BroadcastToApp: true))));
+        Assert.True(pushed.Acked);
+        Assert.True(pushed.Success);
+
+        await received.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        // 给旧连接一个接收窗口：若仍留在 app 组，广播早已送达。
+        await Task.Delay(500);
+        Assert.False(oldReceived);
     }
 
     private sealed record TestInstallation(HubConnection Connection, Guid InstallationId);
 
-    private async Task<TestInstallation> RegisterInstallationAsync(string token, string displayName)
+    private async Task<TestInstallation> RegisterInstallationAsync(
+        string token, string displayName, Guid? installGuid = null)
     {
         var connection = new HubConnectionBuilder()
             .WithUrl(
@@ -371,14 +410,14 @@ public sealed class DevicePushTests : IClassFixture<PlatformApiFactory>
             .Build();
 
         await connection.StartAsync();
-        var installGuid = Guid.NewGuid();
+        var guid = installGuid ?? Guid.NewGuid();
         var registered = await connection.InvokeAsync<DeviceRegistrationResponse>(
             DeviceHubMethods.RegisterInstallation,
             new DeviceRegistrationRequest(
                 new DeviceIdentity(
-                    InstallGuid: installGuid,
+                    InstallGuid: guid,
                     SmbiosUuid: null,
-                    SystemDiskSerial: $"push-{installGuid:N}",
+                    SystemDiskSerial: $"push-{guid:N}",
                     FrameworkVersion: "1.0.0"),
                 displayName,
                 IpAddress: "10.9.8.7"));

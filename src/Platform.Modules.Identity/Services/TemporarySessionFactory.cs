@@ -70,6 +70,7 @@ public sealed class TemporarySessionFactory : ITemporarySessionFactory
             PrincipalKind = PlatformPrincipalKinds.User,
             MachineCode = machineCode,
             InstallGuid = installGuid,
+            TokenEpoch = context.TokenEpoch,
             Lifetime = lifetime,
         });
 

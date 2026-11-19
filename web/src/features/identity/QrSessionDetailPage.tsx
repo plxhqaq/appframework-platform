@@ -31,7 +31,7 @@ import {
   useTicker,
 } from './singleLoginUi';
 
-const PENDING_REFETCH_MS = 5000;
+const PENDING_REFETCH_MS = 60_000;
 
 /**
  * 手机扫码落点：`/qr-login/{请求id}`。

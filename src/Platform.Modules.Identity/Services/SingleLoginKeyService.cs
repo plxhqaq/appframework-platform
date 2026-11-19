@@ -79,6 +79,29 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
         var duration = ClampDuration(request.DurationMinutes);
         var fingerprint = Normalize(request.DeviceFingerprint);
 
+        // 节点/实例绑定与指纹并列：管理台选择设备走这两列（兑换请求本就携带 machineCode/installGuid），
+        // 指纹保留给手工录入的旧口径；三者都绑定时按「与」判定。
+        string? boundMachineCode;
+        try
+        {
+            boundMachineCode = DeviceIdentityHasher.NormalizeMachineCode(request.MachineCode);
+        }
+        catch (ArgumentException exception)
+        {
+            throw BusinessException.Invalid($"单次密钥绑定设备无效：{exception.Message}");
+        }
+
+        Guid? boundInstallGuid = null;
+        if (request.InstallGuid is { } installGuid)
+        {
+            if (installGuid == Guid.Empty)
+            {
+                throw BusinessException.Invalid("单次密钥绑定安装实例时 InstallGuid 不能为空 Guid。");
+            }
+
+            boundInstallGuid = installGuid;
+        }
+
         for (var attempt = 0; attempt < 5; attempt++)
         {
             var keyText = RandomNumberGenerator.GetInt32(0, 1_000_000)
@@ -94,6 +117,8 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
                 Key = keyText,
                 AppKey = appKey,
                 DeviceFingerprint = fingerprint,
+                BoundMachineCode = boundMachineCode,
+                BoundInstallGuid = boundInstallGuid,
                 CreatedBy = createdBy,
                 ExpiresAt = now.AddMinutes(duration),
             };
@@ -143,8 +168,7 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
 
         ThrowIfUnusable(record, now, maxAttempts);
 
-        if (record.DeviceFingerprint is not null
-            && !string.Equals(record.DeviceFingerprint, fingerprint, StringComparison.Ordinal))
+        if (!DeviceMatches(record, fingerprint, machineCode, request.InstallGuid))
         {
             await IncrementAttemptsAsync(keyText, now, cancellationToken);
             throw new BusinessException(ApiErrorCode.IdentitySingleKeyDeviceMismatch, DeviceMismatchMessage);
@@ -152,12 +176,15 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
 
         if (_db.Database.IsRelational())
         {
+            var installGuid = request.InstallGuid;
             var affected = await _db.Set<SingleLoginKey>()
                 .Where(x => x.Key == keyText
                             && x.UsedAt == null
                             && x.ExpiresAt > now
                             && x.AttemptCount < maxAttempts
-                            && (x.DeviceFingerprint == null || x.DeviceFingerprint == fingerprint))
+                            && (x.DeviceFingerprint == null || x.DeviceFingerprint == fingerprint)
+                            && (x.BoundMachineCode == null || x.BoundMachineCode == machineCode)
+                            && (x.BoundInstallGuid == null || x.BoundInstallGuid == installGuid))
                 .ExecuteUpdateAsync(
                     setters => setters
                         .SetProperty(static x => x.UsedAt, now)
@@ -177,7 +204,7 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
         }
         else
         {
-            await RedeemWithGateAsync(keyText, fingerprint, now, maxAttempts, cancellationToken);
+            await RedeemWithGateAsync(keyText, fingerprint, machineCode, request.InstallGuid, now, maxAttempts, cancellationToken);
         }
 
         // 临时令牌时长独立取默认值（签发时选择的有效期只约束密钥本身，不再压缩兑换后的会话）。
@@ -198,6 +225,8 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
     private async Task RedeemWithGateAsync(
         string keyText,
         string? fingerprint,
+        string? machineCode,
+        Guid? installGuid,
         DateTimeOffset now,
         int maxAttempts,
         CancellationToken cancellationToken)
@@ -211,8 +240,7 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
 
             ThrowIfUnusable(record, now, maxAttempts);
 
-            if (record.DeviceFingerprint is not null
-                && !string.Equals(record.DeviceFingerprint, fingerprint, StringComparison.Ordinal))
+            if (!DeviceMatches(record, fingerprint, machineCode, installGuid))
             {
                 record.AttemptCount++;
                 await _db.SaveChangesAsync(cancellationToken);
@@ -228,6 +256,16 @@ public sealed class SingleLoginKeyService : ISingleLoginKeyService
             InMemoryGate.Release();
         }
     }
+
+    /// <summary>设备绑定判定：指纹/机器码/安装实例三类绑定各自为空即不约束，非空必须与兑换请求一致。</summary>
+    private static bool DeviceMatches(
+        SingleLoginKey record,
+        string? fingerprint,
+        string? machineCode,
+        Guid? installGuid) =>
+        (record.DeviceFingerprint is null || string.Equals(record.DeviceFingerprint, fingerprint, StringComparison.Ordinal))
+        && (record.BoundMachineCode is null || string.Equals(record.BoundMachineCode, machineCode, StringComparison.Ordinal))
+        && (record.BoundInstallGuid is null || record.BoundInstallGuid == installGuid);
 
     private async Task IncrementAttemptsAsync(
         string keyText,

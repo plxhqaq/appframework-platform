@@ -96,6 +96,8 @@ export function NodesPage() {
     queryKey: ['nodes', 'list', onlineStatus, isEnabled, keyword, page, pageSize],
     queryFn: ({ signal }) =>
       nodesApi.listNodes({ onlineStatus, isEnabled, keyword, page, pageSize }, signal),
+    // 跃迁事件失效为主，60s 兜底。
+    refetchInterval: 60_000,
   });
 
   const detail = useQuery({

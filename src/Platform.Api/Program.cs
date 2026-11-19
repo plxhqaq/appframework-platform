@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Auth;
 using Platform.Api.Diagnostics;
@@ -78,7 +79,14 @@ try
 
     // ── 实时推送 ──────────────────────────────────────────────────────
     // 推送只作提示（授权/版本/扫码审批），客户端收到后必须回拉接口校验。
-    builder.Services.AddSignalR();
+    // 传输层 ping 保活（15s/30s）与业务心跳（10s，承载在线状态）各司其职，不可互相替代。
+    builder.Services.AddSignalR(options =>
+        {
+            options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+            options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);
+        })
+        .AddHubOptions<DeviceHub>(options => options.AddFilter<DeviceHubGuardFilter>())
+        .AddHubOptions<AdminHub>(options => options.AddFilter<AdminHubGuardFilter>());
 
     // ── 宿主诊断 ──────────────────────────────────────────────────────
     // 后台采样进程 CPU/内存，仪表盘只读快照，不在请求线程里等采样窗口。
@@ -290,6 +298,8 @@ try
     app.UseAuthentication();
     // 令牌自包含：应用停用后，旧访问令牌要靠请求路径上的短缓存校验拦下来
     app.UsePlatformAppContextGuard();
+    // 会话吊销/改密后，残余访问令牌（含 /context 自续期与 QR 审批）靠用户级 epoch 守卫在 ≤30s 内全路径 401
+    app.UsePlatformUserEpochGuard();
     app.UseAuthorization();
 
     // ── 端点 ──────────────────────────────────────────────────────────
@@ -297,8 +307,8 @@ try
     app.MapAuditEndpoints();
     app.MapPlatformMetrics();
     app.MapPlatformModules();
-    app.MapHub<PlatformHub>(PlatformHubPaths.Root);
     app.MapHub<DeviceHub>(DeviceHubPaths.Root);
+    app.MapHub<AdminHub>(AdminHubPaths.Root);
 
     // OpenAPI 3.1 导出 + Scalar 在线调试
     app.MapOpenApi();

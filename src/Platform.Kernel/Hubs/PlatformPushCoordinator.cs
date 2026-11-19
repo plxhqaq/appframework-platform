@@ -3,44 +3,15 @@ using Platform.Kernel.Abstractions;
 
 namespace Platform.Kernel.Hubs;
 
-/// <summary>进程内回执协调器：连接按应用记录，回执按（应用，备份）配对。</summary>
+/// <summary>进程内广播回执协调器：回执按（应用，备份）配对，先到者胜。</summary>
 /// <remarks>
 /// 多实例部署时回执会落在另一台实例上导致超时，届时换 Redis 背板实现；接口不变。
 /// 当前由启动期 <c>SingleInstanceGuard</c> 阻止多副本，这个假设才有保证。
 /// </remarks>
 public sealed class PlatformPushCoordinator : IPlatformPushCoordinator
 {
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> _connections =
-        new(StringComparer.Ordinal);
-
     private readonly ConcurrentDictionary<string, TaskCompletionSource<PushAckResult>> _acks =
         new(StringComparer.Ordinal);
-
-    /// <inheritdoc />
-    public void RegisterConnection(string connectionId, string appKey)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(connectionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(appKey);
-
-        var connections = _connections.GetOrAdd(appKey, static _ => new ConcurrentDictionary<string, byte>());
-        connections[connectionId] = 0;
-    }
-
-    /// <inheritdoc />
-    public void UnregisterConnection(string connectionId)
-    {
-        foreach (var pair in _connections)
-        {
-            if (pair.Value.TryRemove(connectionId, out _) && pair.Value.IsEmpty)
-            {
-                _connections.TryRemove(pair.Key, out _);
-            }
-        }
-    }
-
-    /// <inheritdoc />
-    public int ConnectionCount(string appKey) =>
-        _connections.TryGetValue(appKey, out var connections) ? connections.Count : 0;
 
     /// <inheritdoc />
     public void CompleteAck(string appKey, Guid backupId, bool succeeded, string? message)

@@ -265,6 +265,22 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $CLIENT_TOKEN
 响应带 `Content-Disposition: attachment; filename="..."`（原文件名）与 `X-Content-Sha256`；归档版本后
 包立即不可下载。`check` 返回的 `installer.id` 直接拼该路径，不需要再查清单。
 
+### 发布与摄取的实时提示
+
+**SignalR `ReleasePublished` 只是提示，不是事实来源**：版本发布成功（创建即发布、草稿 `publish`、
+增量包摄取携带 `publish=true` 自动发布，均收敛在 `ReleaseService`/摄取服务的同一落库点）后，服务端经
+`/hubs/devices` 向该应用全部注册连接（`app:{appKey}` 组）广播 `ReleasePublished`
+（负载 `ReleasePublishedNotification{ appKey, channelKey, version }`）。幂等重复发布不重发；
+推送失败只记日志，不影响已落库的发布结果。客户端收到后应在 **0–5 秒随机抖动**后回拉
+`POST /client/versions/check`（抖动是为了避免广播同刻到达全部在线实例时把回拉变成限流洪峰），
+是否有更新以 `check` 结果为准，载荷里的版本号只用于提示文案。
+
+增量包摄取的状态迁移（认领 `processing`、完成 `ready`、失败 `failed`）另外向管理台
+`/hubs/admin` 的 `domain:versions` 组广播 `ReleaseIngestionProgress`
+（负载 `AdminReleaseIngestionProgressNotification{ appKey, packageId, status, progress, occurredAt }`，
+`progress` 认领 0、完成 1、失败 0，语义由 `status` 承载），管理台据此失效回拉包详情；登记弹窗与详情抽屉只保留 60 秒兜底轮询。事件定义见 `Platform.Contracts`（`DeviceHubEvents` / `AdminHubEvents`），
+载荷与接口的对应关系见 11-devices。
+
 ### 管理台浏览器下载票据
 
 管理台的安装包 / 更新器下载不把整文件读进页面内存，而是先换一张短期票据，再把 URL 交给浏览器下载
@@ -567,8 +583,8 @@ InMemory 集成测试覆盖不到。
 脚本或 CLI 申请票据后 `PUT`；前端提交的清单路径已做与服务端 `NormalizePath` 一致的规范化
 （`\` 转 `/`、去掉所选根目录段）。上传安装包的弹窗**只选文件**（可选旁挂清单），渠道、版本、包类型、
 运行时与说明全部取自包内清单，不做人工输入；登记固定为**草稿**（`publish=false`），成功后可直接
-「查看草稿版本」。增量包登记后弹窗每 3 秒轮询包状态，`ready` 显示清单文件数，`failed` 原地重试；
-版本详情有未完成包时同样自动刷新。**发布必须先过确认弹窗**：加载详情、展示渠道/版本/包与文件汇总，
+「查看草稿版本」。增量包登记后弹窗按摄取事件失效回拉（60 秒兜底轮询），`ready` 显示清单文件数，`failed` 原地重试；
+版本详情有未完成包时同样按 60 秒兜底自动刷新。**发布必须先过确认弹窗**：加载详情、展示渠道/版本/包与文件汇总，
 草稿阶段可改发布说明，确认后按「`PATCH` 说明 → `publish`」提交；详情抽屉另有「编辑说明」入口，
 已发布版本不提供。更新器页的「最新」标记由服务端
 `/client/versions/updater` 逐 target 解析，不依赖前端版本比较。安装包与更新器的「下载」按钮先

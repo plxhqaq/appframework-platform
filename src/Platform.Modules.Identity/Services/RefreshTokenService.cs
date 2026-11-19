@@ -8,6 +8,7 @@ using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
 using Platform.Kernel.Paging;
+using Platform.Kernel.Security;
 using Platform.Modules.Identity.Domain;
 using Platform.Modules.Identity.Options;
 
@@ -90,6 +91,7 @@ public sealed class RefreshTokenService : IRefreshTokenService
     private readonly IClock _clock;
     private readonly IdentityTokenOptions _options;
     private readonly IDeviceNodeDirectory? _nodes;
+    private readonly UserEpochCache _epochs;
 
     /// <summary>非关系型提供程序（单元测试内存库）没有原子 UPDATE，用进程内闸门串行化轮换。</summary>
     private static readonly SemaphoreSlim InMemoryRotationGate = new(1, 1);
@@ -99,12 +101,14 @@ public sealed class RefreshTokenService : IRefreshTokenService
         PlatformDbContext db,
         IClock clock,
         IOptions<IdentityTokenOptions> options,
-        IEnumerable<IDeviceNodeDirectory> nodes)
+        IEnumerable<IDeviceNodeDirectory> nodes,
+        UserEpochCache epochs)
     {
         _db = db;
         _clock = clock;
         _options = options.Value;
         _nodes = nodes.FirstOrDefault();
+        _epochs = epochs;
     }
 
     /// <inheritdoc />
@@ -257,7 +261,8 @@ public sealed class RefreshTokenService : IRefreshTokenService
                 || string.Equals(token.RevokedReason, RefreshTokenRevokeReasons.ReuseDetected, StringComparison.Ordinal))
             {
                 // 已轮换的令牌再次出现 = 泄露：同一家族全部吊销，合法持有人在下次刷新时被迫重新登录。
-                await RevokeFamilyForReuseAsync(token.FamilyId, now, cancellationToken);
+                // epoch 为用户级（D7）：疑似泄露直接把该用户全部访问令牌作废（≤30s 缓存窗口）。
+                await RevokeFamilyForReuseAsync(token.FamilyId, token.UserId, now, cancellationToken);
             }
 
             throw new BusinessException(
@@ -282,6 +287,7 @@ public sealed class RefreshTokenService : IRefreshTokenService
 
     private async Task RevokeFamilyForReuseAsync(
         Guid familyId,
+        Guid userId,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
@@ -295,11 +301,13 @@ public sealed class RefreshTokenService : IRefreshTokenService
                         .SetProperty(static x => x.RevokedReason, RefreshTokenRevokeReasons.ReuseDetected)
                         .SetProperty(static x => x.UpdatedAt, now),
                     cancellationToken);
+            await BumpEpochAsync(userId, now, cancellationToken);
             return;
         }
 
         await RevokeFamilyAsync(familyId, RefreshTokenRevokeReasons.ReuseDetected, now, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
+        await BumpEpochAsync(userId, now, cancellationToken);
     }
 
     private static BusinessException InvalidRefreshToken() =>
@@ -346,6 +354,7 @@ public sealed class RefreshTokenService : IRefreshTokenService
             token.RevokedReason = reason;
             await RevokeFamilyAsync(token.FamilyId, reason, now, cancellationToken, token.Id);
             await _db.SaveChangesAsync(cancellationToken);
+            await BumpEpochAsync(token.UserId, now, cancellationToken);
         }
 
         return true;
@@ -371,6 +380,7 @@ public sealed class RefreshTokenService : IRefreshTokenService
         if (tokens.Count > 0)
         {
             await _db.SaveChangesAsync(cancellationToken);
+            await BumpEpochAsync(userId, now, cancellationToken);
         }
 
         return tokens.Count;
@@ -432,6 +442,7 @@ public sealed class RefreshTokenService : IRefreshTokenService
         {
             await RevokeFamilyAsync(token.FamilyId, reason, now, cancellationToken);
             await _db.SaveChangesAsync(cancellationToken);
+            await BumpEpochAsync(token.UserId, now, cancellationToken);
         }
 
         var node = await FindNodeAsync(token.MachineCode, cancellationToken);
@@ -479,6 +490,40 @@ public sealed class RefreshTokenService : IRefreshTokenService
             token.RevokedAt = now;
             token.RevokedReason = reason;
         }
+    }
+
+    /// <summary>
+    /// 吊销收口 bump（D7）：用户 <c>token_epoch</c> 递增并失效守卫缓存，本副本即时生效，
+    /// 该用户全部残余访问令牌在守卫下一个缓存窗口内全路径 401（含 /context 换发、QR 审批、单次密钥签发）。
+    /// </summary>
+    private async Task BumpEpochAsync(
+        Guid userId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (_db.Database.IsRelational())
+        {
+            await _db.Set<User>()
+                .Where(x => x.Id == userId)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(static x => x.TokenEpoch, static x => x.TokenEpoch + 1)
+                        .SetProperty(static x => x.UpdatedAt, now),
+                    cancellationToken);
+        }
+        else
+        {
+            var user = await _db.Set<User>()
+                .FirstOrDefaultAsync(x => x.Id == userId, cancellationToken);
+            if (user is not null)
+            {
+                user.TokenEpoch++;
+                user.UpdatedAt = now;
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+        }
+
+        _epochs.Invalidate(userId);
     }
 
     private async Task<IReadOnlyDictionary<string, DeviceNodeDirectoryEntry>> LoadNodesAsync(

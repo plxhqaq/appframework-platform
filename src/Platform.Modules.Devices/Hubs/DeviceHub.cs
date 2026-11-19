@@ -46,6 +46,7 @@ public sealed class DeviceHub : Hub
     private readonly IInstallationPresence _presence;
     private readonly InstallationConnectionRegistry _connections;
     private readonly IInstallationCommandAcks _acks;
+    private readonly IPlatformPushCoordinator _broadcastAcks;
     private readonly IClock _clock;
     private readonly ILogger<DeviceHub> _logger;
 
@@ -55,6 +56,7 @@ public sealed class DeviceHub : Hub
         IInstallationPresence presence,
         InstallationConnectionRegistry connections,
         IInstallationCommandAcks acks,
+        IPlatformPushCoordinator broadcastAcks,
         IClock clock,
         ILogger<DeviceHub> logger)
     {
@@ -62,6 +64,7 @@ public sealed class DeviceHub : Hub
         _presence = presence;
         _connections = connections;
         _acks = acks;
+        _broadcastAcks = broadcastAcks;
         _clock = clock;
         _logger = logger;
     }
@@ -115,6 +118,10 @@ public sealed class DeviceHub : Hub
             Context.ConnectionId,
             DeviceHubPaths.NodeGroup(response.NodeId),
             Context.ConnectionAborted);
+        await Groups.AddToGroupAsync(
+            Context.ConnectionId,
+            DeviceHubPaths.AppGroup(appKey),
+            Context.ConnectionAborted);
 
         if (registration.Previous is { } previous)
         {
@@ -125,6 +132,10 @@ public sealed class DeviceHub : Hub
             await Groups.RemoveFromGroupAsync(
                 previous.ConnectionId,
                 DeviceHubPaths.NodeGroup(previous.Previous.NodeId),
+                Context.ConnectionAborted);
+            await Groups.RemoveFromGroupAsync(
+                previous.ConnectionId,
+                DeviceHubPaths.AppGroup(previous.Previous.AppKey),
                 Context.ConnectionAborted);
         }
 
@@ -137,6 +148,10 @@ public sealed class DeviceHub : Hub
             await Groups.RemoveFromGroupAsync(
                 displaced.ConnectionId,
                 DeviceHubPaths.NodeGroup(displaced.Previous.NodeId),
+                Context.ConnectionAborted);
+            await Groups.RemoveFromGroupAsync(
+                displaced.ConnectionId,
+                DeviceHubPaths.AppGroup(displaced.Previous.AppKey),
                 Context.ConnectionAborted);
             await Clients.Client(displaced.ConnectionId).SendAsync(
                 DeviceHubEvents.SessionReplaced,
@@ -169,13 +184,15 @@ public sealed class DeviceHub : Hub
             connection.AppKey, connection.InstallationId, request, Context.ConnectionAborted);
     }
 
-    /// <summary>配置下发回执：完成命令网关的等待；无等待者时忽略（超时后才到）。</summary>
+    /// <summary>配置下发回执：完成命令网关的等待；无等待者时忽略（超时后才到）。
+    /// 同时唤醒应用组广播的等待者（若存在）：广播回执先到者胜，语义与原应用级通道一致。</summary>
     /// <param name="ack">回执内容。</param>
     public Task AcknowledgeConfigPush(DeviceConfigPushAck ack)
     {
         ArgumentNullException.ThrowIfNull(ack);
         var connection = RequireConnection();
         _acks.Complete(connection.AppKey, connection.InstallationId, ack);
+        _broadcastAcks.CompleteAck(connection.AppKey, ack.BackupId, ack.Succeeded, ack.Message);
         return Task.CompletedTask;
     }
 

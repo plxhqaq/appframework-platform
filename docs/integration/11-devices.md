@@ -10,13 +10,14 @@
 2. **安装实例只属于一个应用**；在线/工位/报警/版本分支/命令回执都落在安装实例上。
 3. **授权席位按「产品 + 机器码」计数**，与安装实例数量无关。
 
-> 两个 Hub 别混：`/hubs/devices` 是**安装实例连接**（注册/心跳/工位/回执），
-> `/hubs/platform` 是**应用级广播**（`ConfigPush`、`ReleasePublished`、`LicenseChanged` 等）。
-> 按安装实例下发只走 `installation:{installationId}` 分组，不会广播到整个应用。
+> 两个 Hub 别混：`/hubs/devices` 是**安装实例连接**（注册/心跳/工位/回执，以及全部设备侧事件），
+> `/hubs/admin` 是**管理台浏览器连接**（按权限域分组的管理侧事件，`Touch` 上行保活）。
+> 按安装实例下发只走 `installation:{installationId}` 分组；应用级广播走 `app:{appKey}` 分组。
 
 | 能力 | 端点 | 权限 |
 |---|---|---|
 | 安装实例连接（注册/心跳/工位/回执） | SignalR `/hubs/devices` | 任何带 `app` 声明的令牌 |
+| 管理台实时事件 | SignalR `/hubs/admin` | 用户令牌，按 `perms` 入域组（`domain:devices` 等） |
 | 物理节点（跨应用，平台级） | `/api/v1/admin/nodes` | `node.read` / `node.manage` / `node.restart` |
 | 应用安装实例 | `/api/v1/admin/installations` | `installation.read` / `installation.manage` / `installation.restart` |
 | 客户端备份上传/列表/下载 | `/api/v1/client/backups` | `backup.read` / `backup.create` |
@@ -75,7 +76,8 @@ wss://<服务端>/hubs/devices?access_token=<JWT>
 ```
 
 令牌没有 `app` 声明时 `RegisterInstallation` 抛 `HubException`；连接未注册前调用心跳/工位/回执
-同样被拒（`HubException`）。
+同样被拒（`HubException`）。服务端在每次上行调用时校验令牌 `exp`，过期即断开连接
+（最多滞后一个心跳周期）；传输层 ping 保活 15s/30s，与业务心跳（10s，承载在线状态）各司其职。
 
 安装实例 → 服务端方法与返回：
 
@@ -90,15 +92,22 @@ wss://<服务端>/hubs/devices?access_token=<JWT>
 
 | 事件 | 负载 | 说明 |
 |---|---|---|
-| `ConfigPush` | `DeviceConfigPush` | 定向下发；大载荷只给 `downloadUrl`，不给内联内容 |
+| `ConfigPush` | `DeviceConfigPush` | 定向下发或应用组广播；大载荷只给 `downloadUrl`，不给内联内容 |
 | `Restart` | `DeviceRestart` | 重启命令，`reason` 透传给设备显示 |
 | `SessionReplaced` | `InstallationSessionReplaced` | 本连接已被顶替，应停止重连并让位 |
-| `StateChanged` | — | 契约已预留，当前服务端不发送 |
+| `LicenseChanged` | `LicenseChangedNotification` | 授权变更提示（吊销/续期/签发），定向到目标机器上该应用的活跃安装实例；客户端必须回拉验签，推送不作事实来源 |
+| `QrLoginApproved` | `QrLoginApprovedNotification` | 扫码审批结果，只发给发起会话的安装实例（`installGuid` 优先，退而机器码）；客户端仍以轮询领取为准 |
+| `InstallationDisabled` | `InstallationDisabledNotification` | 本安装实例被管理端停用；随后服务端在下次上行即断线 |
+| `NodeDisabled` | `NodeDisabledNotification` | 所在物理节点被停用，节点组广播（同机全部应用都受影响）；随后同上行即断线 |
+| `UserSessionRevoked` | `UserSessionRevokedNotification` | 会话被吊销提示（登出/管理员吊销/改密），定向 `installGuid` 优先、退机器码；`sessionId` 非空表示单会话吊销；强制兜底是用户 epoch 守卫 |
+| `ReleasePublished` | `ReleasePublishedNotification` | 新版本发布提示（`appKey`/`channelKey`/`version`），应用组广播；创建即发布、草稿发布与摄取自动发布都触发（幂等重复发布不重发）；客户端 0–5s 随机抖动后回拉 `versions/check`，推送不作事实来源 |
+| `DocumentChanged` | `DocumentChangedNotification` | 客户端可见文档上传/修订/变更/删除提示（`appKey`/`collectionKey`），应用组广播；仅 `visibility=client` 触发，内部文档静默；客户端回拉文档 manifest 比对 |
+| `PermissionManifestChanged` | `PermissionManifestChangedNotification` | 权限清单上传锁定/人工解锁提示（`appKey`/`locked`），应用组广播（仅锁态翻转触发）；客户端抖动后强制换令牌复核锁态，解锁则重新上报清单 |
 
-注册成功后连接加入两个分组：`installation:{installationId}`（按安装实例下发）与
-`node:{nodeId}`（节点级重启）。顶号规则：
+注册成功后连接加入三个分组：`installation:{installationId}`（按安装实例下发）、
+`node:{nodeId}`（节点级重启）与 `app:{appKey}`（应用级广播）。顶号规则：
 
-- **同一安装实例**的新连接顶替旧连接：旧连接移出两个分组并收到 `SessionReplaced`；
+- **同一安装实例**的新连接顶替旧连接：旧连接移出三个分组并收到 `SessionReplaced`；
 - **同一节点同一应用**的旧安装（重装产生）的连接也会被顶替：旧安装不可能与新安装同时在线；
 - **不同应用**（同机不同安装实例）互不顶号，可同时在线；
 - 同一条 SignalR 连接重复 `RegisterInstallation` 到同一安装实例不会通知自己被顶替。
@@ -106,6 +115,18 @@ wss://<服务端>/hubs/devices?access_token=<JWT>
 设备端收到 `SessionReplaced` **不要立刻重连**，否则同一安装的两个进程会互相顶号死循环；
 应先确认本机是否还有另一实例在跑。节点停用返回 `DevicesNodeDisabled`（`806`），
 安装实例停用返回 `DevicesInstallationDisabled`（`807`）。
+
+**停用即时踢线**（管理端 PATCH 启停触发，顺序固定为「先推事件、再打待踢标记」）：
+
+- 停用瞬间按连接登记表快照该安装实例/该节点的全部 connectionId 进入待踢集合；
+- 服务端 Hub 守卫在每次上行调用（心跳/工位/回执）前检查：令牌 `exp` 过期或命中待踢标记即 `Abort`，
+  业务方法不再执行——因此停用后断线不依赖空闲扫描周期，下一次上行即断开（验收 ≤10s）；
+- 待踢标记随连接登记/注销自动清理，不会漂移到重连后的新连接上；重连的新连接会被
+  注册路径按 `806`/`807` 拒绝，形成「断开—拒入」闭环；
+- 重复停用不重复推事件（只认真实启用→停用翻转）；事件推送失败只记日志，踢线标记仍生效。
+
+客户端收到 `InstallationDisabled`/`NodeDisabled` 应置为停用态并把重连退避拉长（≥5 分钟），
+注册成功后清除标记；收到 `UserSessionRevoked` 且归属命中本地会话时立即登出。
 
 断线处理：连接的安装实例**最后一条**连接断开时，服务端立即把该安装实例标记为离线（带时间条件，
 不会覆盖随后新连接的在线状态），不等待心跳超时；离线扫描仍作为兜底。
@@ -133,6 +154,19 @@ wss://<服务端>/hubs/devices?access_token=<JWT>
   即节点运行；报警取最严重级别（同级取最近心跳）；`lastHeartbeatAt` 取最大值。
 
 `ReportStationState` 只接受 `idle` / `online`，会同时把安装实例置为在线；下发门禁只看 `station_status`。
+
+### 管理台实时事件（`/hubs/admin` `domain:devices`）
+
+令牌 `perms` 含 `installation.*` 或 `node.*` 前缀的连接进入 `domain:devices`。状态跃迁落库后单向推送，**只是提示**：管理台收到即失效回拉列表/详情，推送失败只记日志、不影响已落库事实。
+
+| 事件 | 负载 | 触发条件 |
+|---|---|---|
+| `InstallationStateChanged` | `AdminInstallationStateChangedNotification{ appKey, installationId, nodeId, onlineStatus, stationStatus, alarmLevel, occurredAt }` | 安装实例三值（在线/工位/报警）任一变化；相同心跳完全静默 |
+| `NodeStateChanged` | `AdminNodeStateChangedNotification{ nodeId, onlineStatus, stationStatus, alarmLevel, occurredAt }` | 节点**聚合**三值变化；实例跃迁但聚合不变时不发 |
+
+- 覆盖全部跃迁路径：心跳/工位上报、断开即时离线、离线扫描批量（每实例一条、每节点聚合至多一条）、重连注册即上线；注册新行的首帧不发（无前值可比）。
+- 节点聚合口径与 `NodeSummaryDto` 一致：任一实例在线即在线、任一在线实例工位运行即运行、报警取最严重级别。
+- 节点事件故意不带 `appKey`：节点跨应用，管理台对该事件一律失效回拉。
 
 ## 3. 管理端 API
 
@@ -248,8 +282,9 @@ Ack 等待键是 `(appKey, installationId, backupId)`：同一安装实例同一
 提供 `currentHash` 时下发前会在同一命名空间落一条 `pre-push-snapshot`
 （`name=pre-push-snapshot`，记录目标安装实例、节点与当前哈希，`sizeBytes=0`），返回 `snapshotBackupId`。
 
-应用组广播（`broadcastToApp=true`）走 `/hubs/platform` 的 `app:{appKey}` 分组，
-回执键是 `(appKey, backupId)`、只认一个回执；应用无在线连接时立即返回 `407`（HTTP 409）。
+应用组广播（`broadcastToApp=true`）走 `/hubs/devices` 的 `app:{appKey}` 分组，
+负载与定向下发同为 `DeviceConfigPush`；回执键是 `(appKey, backupId)`、只认第一个回执
+（任一安装实例的 `AcknowledgeConfigPush` 都可完成等待）；应用无在线连接时立即返回 `407`（HTTP 409）。
 广播同样受跨安装实例确认约束：备份来源安装实例非空时，必须 `confirmCrossInstallation=true`。
 
 ## 5. 客户端备份端点

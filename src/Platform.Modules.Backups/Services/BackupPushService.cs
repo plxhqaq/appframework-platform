@@ -1,13 +1,10 @@
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
 using Platform.Contracts;
 using Platform.Contracts.Backups;
 using Platform.Contracts.Devices;
-using Platform.Contracts.Hubs;
 using Platform.Contracts.Webhooks;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
-using Platform.Kernel.Hubs;
 using Platform.Modules.Backups.Options;
 
 namespace Platform.Modules.Backups.Services;
@@ -26,24 +23,25 @@ public interface IBackupPushService
 
 /// <summary>下发服务实现。</summary>
 /// <remarks>
-/// 推送只是提示：客户端收到 <see cref="PlatformHubEvents.ConfigPush"/> 后回拉下载，
-/// 应用完成再调用 Hub 的 <c>ConfigPushAck</c>。服务端只等待回执，不把推送当事实来源。
+/// 推送只是提示：客户端收到 <see cref="DeviceHubEvents.ConfigPush"/> 后回拉下载，
+/// 应用完成再调用 Hub 的 <c>AcknowledgeConfigPush</c>。服务端只等待回执，不把推送当事实来源。
+/// 应用组广播经设备 Hub 的 app 组下发，回执先到者胜（协调器按应用+备份配对）。
 /// </remarks>
 public sealed class BackupPushService : IBackupPushService
 {
     private readonly IBackupService _backups;
     private readonly IPlatformPushCoordinator _coordinator;
-    private readonly IHubContext<PlatformHub> _hub;
+    private readonly IInstallationEventRouter? _router;
     private readonly BackupsOptions _options;
     private readonly IPlatformEventPublisher _events;
     private readonly IClock _clock;
     private readonly IInstallationCommandGateway? _installationGateway;
 
-    /// <summary>构造。安装实例网关可选：Devices 模块缺席时应用组下发仍然可用。</summary>
+    /// <summary>构造。安装实例网关与事件路由可选：Devices 模块缺席时按安装实例下发与应用组广播均拒绝。</summary>
     public BackupPushService(
         IBackupService backups,
         IPlatformPushCoordinator coordinator,
-        IHubContext<PlatformHub> hub,
+        IEnumerable<IInstallationEventRouter> routers,
         IOptions<BackupsOptions> options,
         IPlatformEventPublisher events,
         IClock clock,
@@ -51,7 +49,7 @@ public sealed class BackupPushService : IBackupPushService
     {
         _backups = backups;
         _coordinator = coordinator;
-        _hub = hub;
+        _router = routers.FirstOrDefault();
         _options = options.Value;
         _events = events;
         _clock = clock;
@@ -94,7 +92,7 @@ public sealed class BackupPushService : IBackupPushService
                 "多安装实例下发不支持目标当前配置哈希；快照只能对应单个安装实例。");
         }
 
-        if (request.BroadcastToApp && _coordinator.ConnectionCount(appKey) == 0)
+        if (request.BroadcastToApp && (_router?.AppConnectionCount(appKey) ?? 0) == 0)
         {
             throw new BusinessException(
                 ApiErrorCode.BackupsPushRejected,
@@ -147,7 +145,7 @@ public sealed class BackupPushService : IBackupPushService
 
         if (targets.Count == 0)
         {
-            return await PushToAppGroupAsync(appKey, backup, snapshotId, cancellationToken);
+            return await PushToAppGroupAsync(appKey, backup, request, snapshotId, cancellationToken);
         }
 
         var timeout = TimeSpan.FromSeconds(Math.Max(1, _options.PushAckTimeoutSeconds));
@@ -272,27 +270,28 @@ public sealed class BackupPushService : IBackupPushService
         return target;
     }
 
-    /// <summary>应用组广播：显式声明时才走这里，先注册等待再发送。</summary>
+    /// <summary>应用组广播：显式声明时才走这里，先注册等待再发送；回执先到者胜。</summary>
     private async Task<PushBackupResult> PushToAppGroupAsync(
         string appKey,
         BackupDto backup,
+        PushBackupRequest request,
         Guid? snapshotId,
         CancellationToken cancellationToken)
     {
         var timeout = TimeSpan.FromSeconds(Math.Max(1, _options.PushAckTimeoutSeconds));
         var waitTask = _coordinator.WaitForAckAsync(appKey, backup.Id, timeout, cancellationToken);
 
-        await _hub.Clients
-            .Group(PlatformHubGroups.App(appKey))
-            .SendAsync(
-                PlatformHubEvents.ConfigPush,
-                new ConfigPushNotification(
-                    appKey,
-                    backup.Id,
-                    backup.NamespaceKey,
-                    backup.SchemaVersion,
-                    Required: true),
-                cancellationToken);
+        var command = new DeviceConfigPush(
+            backup.Id,
+            backup.Kind,
+            PayloadJson: null,
+            DownloadUrl: $"/api/v1/client/backups/{backup.Id:D}/download",
+            Sha256: backup.Sha256,
+            RestartAfterApply: request.RestartAfterApply,
+            Branch: backup.Channel);
+
+        // 前置门禁已保证在线连接数 > 0，即路由必然存在。
+        await _router!.ToAppAsync(appKey, DeviceHubEvents.ConfigPush, command, cancellationToken);
 
         var ack = await waitTask;
         if (!ack.Received)

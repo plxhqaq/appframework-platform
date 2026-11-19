@@ -44,7 +44,7 @@ import {
 } from './singleLoginUi';
 
 const DEFAULT_PAGE_SIZE = 20;
-const PENDING_REFETCH_MS = 5000;
+const FALLBACK_REFETCH_MS = 60_000;
 
 const STATUS_OPTIONS = [
   { value: 'pending', get label() { return tr("待审批"); } },
@@ -103,7 +103,8 @@ export function QrApprovalPage() {
   const sessions = useQuery({
     queryKey: ['identity', 'qr-sessions', query],
     queryFn: ({ signal }) => identityApi.listQrSessions(query, signal),
-    refetchInterval: status === 'pending' ? PENDING_REFETCH_MS : false,
+    // 创建/取消/审批都有 QrSessionChanged 推送；轮询只作 60s 兜底。
+    refetchInterval: status === 'pending' ? FALLBACK_REFETCH_MS : false,
   });
 
   const items = sessions.data?.items ?? [];
@@ -279,7 +280,7 @@ export function QrApprovalPage() {
               {tr("刷新")}</Button>
             {status === 'pending' ? (
               <Typography.Text type="secondary">
-                {tr("每")}{PENDING_REFETCH_MS / 1000} {tr("秒自动刷新")}</Typography.Text>
+                {tr("状态变化实时推送，60 秒兜底刷新")}</Typography.Text>
             ) : null}
           </Space>
 

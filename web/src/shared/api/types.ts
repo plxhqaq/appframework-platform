@@ -278,6 +278,10 @@ export interface ReplaceAppPermissionsRequest {
 export interface IssueSingleLoginKeyRequest {
   durationMinutes?: number | null;
   deviceFingerprint?: string | null;
+  /** 绑定节点机器码（选择设备时回填）；兑换请求的机器码必须一致。 */
+  machineCode?: string | null;
+  /** 绑定安装实例；兑换请求的 installGuid 必须一致。 */
+  installGuid?: string | null;
 }
 
 /** 单次密钥；明文只在此响应出现一次。 */

@@ -33,7 +33,7 @@ server {
 
     client_max_body_size 2100m;   # 版本安装包从管理台直传（业务上限 ~2GB）
 
-    # 设备端 SignalR（/hubs/platform）要透传 Upgrade，否则只能一路退到长轮询；
+    # SignalR（/hubs/devices、/hubs/admin）要透传 Upgrade，否则只能一路退到长轮询；
     # 客户端平时直连 API 发布端口，走这条路的只是「浏览器和设备共用一个地址」的拓扑。
     location /hubs/ {
         proxy_pass http://${API_UPSTREAM};

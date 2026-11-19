@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Platform.Contracts;
 using Platform.Contracts.Devices;
+using Platform.Contracts.Hubs;
 
 namespace Platform.Api.Auth;
 
@@ -50,7 +51,8 @@ public static class AuthenticationSetup
                     {
                         var accessToken = context.Request.Query["access_token"];
                         if (!string.IsNullOrEmpty(accessToken)
-                            && context.HttpContext.Request.Path.StartsWithSegments(DeviceHubPaths.Root))
+                            && (context.HttpContext.Request.Path.StartsWithSegments(DeviceHubPaths.Root)
+                                || context.HttpContext.Request.Path.StartsWithSegments(AdminHubPaths.Root)))
                         {
                             context.Token = accessToken;
                         }

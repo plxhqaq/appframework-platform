@@ -70,6 +70,7 @@ public sealed partial class ReleaseService : IReleaseService
     private readonly IClock _clock;
     private readonly VersionsOptions _options;
     private readonly IPlatformEventPublisher _events;
+    private readonly IVersionEventsPublisher _versionEvents;
     private readonly IUpdaterReleaseService _updaters;
     private readonly PlatformMetrics _metrics;
 
@@ -80,6 +81,7 @@ public sealed partial class ReleaseService : IReleaseService
         IClock clock,
         IOptions<VersionsOptions> options,
         IPlatformEventPublisher events,
+        IVersionEventsPublisher versionEvents,
         IUpdaterReleaseService updaters,
         PlatformMetrics metrics)
     {
@@ -88,6 +90,7 @@ public sealed partial class ReleaseService : IReleaseService
         _clock = clock;
         _options = options.Value;
         _events = events;
+        _versionEvents = versionEvents;
         _updaters = updaters;
         _metrics = metrics;
     }
@@ -689,12 +692,13 @@ public sealed partial class ReleaseService : IReleaseService
                || comparison < 0;
     }
 
-    private Task PublishReleasedAsync(
+    private async Task PublishReleasedAsync(
         string appKey,
         Release release,
         string channelKey,
-        CancellationToken cancellationToken) =>
-        _events.PublishAsync(
+        CancellationToken cancellationToken)
+    {
+        await _events.PublishAsync(
             new PlatformEvent(
                 WebhookConventions.EventVersionReleased,
                 appKey,
@@ -707,6 +711,9 @@ public sealed partial class ReleaseService : IReleaseService
                 },
                 _clock.UtcNow),
             cancellationToken);
+
+        await _versionEvents.ReleasePublishedAsync(appKey, channelKey, release.Version, cancellationToken);
+    }
 
     /// <summary>校验并规范化客户端提交的清单；任何结构问题都先于落库被拒绝。</summary>
     private List<ArtifactInput> ValidateArtifacts(IReadOnlyList<CreateReleaseArtifactRequest>? artifacts)

@@ -1,7 +1,9 @@
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Platform.Contracts;
+using Platform.Contracts.Devices;
 using Platform.Contracts.Documents;
 using Platform.Contracts.Webhooks;
 using Platform.Infrastructure.Persistence;
@@ -99,6 +101,14 @@ public sealed partial class DocumentService : IDocumentService
     private readonly IDocumentCollectionService _collections;
     private readonly DocumentsOptions _options;
     private readonly IPlatformEventPublisher _events;
+    private readonly IInstallationEventRouter? _router;
+    private readonly ILogger<DocumentService> _logger;
+
+    private static readonly Action<ILogger, string, Exception?> ChangedPushFailedLog =
+        LoggerMessage.Define<string>(
+            LogLevel.Warning,
+            new EventId(1, "DocumentChangedPushFailed"),
+            "文档变更提示推送失败（落库结果不受影响）：应用 {AppKey}。");
 
     /// <summary>构造。</summary>
     public DocumentService(
@@ -107,14 +117,19 @@ public sealed partial class DocumentService : IDocumentService
         IClock clock,
         IDocumentCollectionService collections,
         IOptions<DocumentsOptions> options,
-        IPlatformEventPublisher events)
+        IPlatformEventPublisher events,
+        IEnumerable<IInstallationEventRouter> routers,
+        ILogger<DocumentService> logger)
     {
+        ArgumentNullException.ThrowIfNull(routers);
         _db = db;
         _blobs = blobs;
         _clock = clock;
         _collections = collections;
         _options = options.Value;
         _events = events;
+        _router = routers.FirstOrDefault();
+        _logger = logger;
     }
 
     [GeneratedRegex(@"[\x00-\x1f<>:""/\\|?*]", RegexOptions.CultureInvariant)]
@@ -284,6 +299,11 @@ public sealed partial class DocumentService : IDocumentService
                 _clock.UtcNow),
             cancellationToken);
 
+        if (string.Equals(document.Visibility, DocumentConventions.VisibilityClient, StringComparison.Ordinal))
+        {
+            await NotifyClientChangedAsync(appKey, collection.Key, cancellationToken);
+        }
+
         return ToDetail(document, collection.Key, [revision]);
     }
 
@@ -383,6 +403,11 @@ public sealed partial class DocumentService : IDocumentService
         }
 
         var revisions = row.Revisions.Append(revision).ToList();
+        if (string.Equals(document.Visibility, DocumentConventions.VisibilityClient, StringComparison.Ordinal))
+        {
+            await NotifyClientChangedAsync(appKey, row.CollectionKey, cancellationToken);
+        }
+
         return ToDetail(document, row.CollectionKey, revisions);
     }
 
@@ -396,6 +421,7 @@ public sealed partial class DocumentService : IDocumentService
         ArgumentNullException.ThrowIfNull(request);
 
         var document = await FindTrackedAsync(appKey, id, cancellationToken);
+        var previousVisibility = document.Visibility;
 
         if (request.Title is not null)
         {
@@ -413,7 +439,15 @@ public sealed partial class DocumentService : IDocumentService
         }
 
         await _db.SaveChangesAsync(cancellationToken);
-        return await GetAsync(appKey, id, cancellationToken);
+        var detail = await GetAsync(appKey, id, cancellationToken);
+        // 新旧可见性任一为 client：客户端清单集合都可能变化，需要提示回拉。
+        if (string.Equals(previousVisibility, DocumentConventions.VisibilityClient, StringComparison.Ordinal)
+            || string.Equals(detail.Visibility, DocumentConventions.VisibilityClient, StringComparison.Ordinal))
+        {
+            await NotifyClientChangedAsync(appKey, detail.CollectionKey, cancellationToken);
+        }
+
+        return detail;
     }
 
     /// <inheritdoc />
@@ -450,6 +484,12 @@ public sealed partial class DocumentService : IDocumentService
                 new { documentId = row.Document.Id, collectionKey = row.CollectionKey },
                 deletedAt),
             cancellationToken);
+
+        if (string.Equals(row.Document.Visibility, DocumentConventions.VisibilityClient, StringComparison.Ordinal))
+        {
+            await NotifyClientChangedAsync(appKey, row.CollectionKey, cancellationToken);
+        }
+
         return ToSummary(row.Document, row.CollectionKey);
     }
 
@@ -625,6 +665,28 @@ public sealed partial class DocumentService : IDocumentService
         }
 
         return value;
+    }
+
+    /// <summary>客户端可见文档变化提示：app 组广播，客户端按需回拉 manifest；推送失败不影响落库结果。</summary>
+    private async Task NotifyClientChangedAsync(string appKey, string collectionKey, CancellationToken cancellationToken)
+    {
+        if (_router is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _router.ToAppAsync(
+                appKey,
+                DeviceHubEvents.DocumentChanged,
+                new DocumentChangedNotification(appKey, collectionKey),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            ChangedPushFailedLog(_logger, appKey, exception);
+        }
     }
 
     private static string NormalizeVisibility(string? visibility)

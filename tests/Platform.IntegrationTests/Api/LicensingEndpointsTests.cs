@@ -2,11 +2,15 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Platform.Api.Endpoints;
 using Platform.Contracts;
 using Platform.Contracts.Apps;
+using Platform.Contracts.Devices;
 using Platform.Contracts.Licensing;
 using Platform.Contracts.Permissions;
 using Platform.Infrastructure.Persistence;
@@ -630,6 +634,73 @@ public sealed class LicensingEndpointsTests : IClassFixture<PlatformApiFactory>
             await IdentityTestHelpers.ReadErrorCodeAsync(other, HttpStatusCode.UnprocessableEntity));
     }
 
+    [Fact]
+    public async Task 签发与吊销经设备Hub定向推送到该机器安装实例()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        var deviceToken = await DeviceTokenAsync(client);
+
+        var connection = new HubConnectionBuilder()
+            .WithUrl(
+                new Uri(_factory.Server.BaseAddress, DeviceHubPaths.Root),
+                options =>
+                {
+                    options.Transports = HttpTransportType.LongPolling;
+                    options.HttpMessageHandlerFactory = _ => _factory.Server.CreateHandler();
+                    options.AccessTokenProvider = () => Task.FromResult<string?>(deviceToken);
+                })
+            .Build();
+        await using var _ = connection;
+        await connection.StartAsync();
+
+        var installGuid = Guid.NewGuid();
+        var registered = await connection.InvokeAsync<DeviceRegistrationResponse>(
+            DeviceHubMethods.RegisterInstallation,
+            new DeviceRegistrationRequest(
+                new DeviceIdentity(
+                    InstallGuid: installGuid,
+                    SmbiosUuid: null,
+                    SystemDiskSerial: $"lic-push-{installGuid:N}",
+                    FrameworkVersion: "1.0.0"),
+                "LIC-PUSH",
+                IpAddress: "10.9.8.9"));
+
+        var issuedNotice = new TaskCompletionSource<LicenseChangedNotification>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var revokedNotice = new TaskCompletionSource<LicenseChangedNotification>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        connection.On<LicenseChangedNotification>(DeviceHubEvents.LicenseChanged, notice =>
+        {
+            if (notice.Reason == DeviceNotificationConventions.LicenseReasonIssued)
+            {
+                issuedNotice.TrySetResult(notice);
+            }
+            else if (notice.Reason == DeviceNotificationConventions.LicenseReasonRevoked)
+            {
+                revokedNotice.TrySetResult(notice);
+            }
+        });
+
+        await CreateProductAsync(client, admin, "lic-push-pro", seatLimit: null, trialDays: 0);
+        var issued = await IssueAsync(
+            client, admin, "lic-push-pro", registered.MachineCode, addDays: 30, licenseNo: "LIC-PUSH-001");
+
+        var issuedPayload = await issuedNotice.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("demo", issuedPayload.AppKey);
+        Assert.Equal(registered.MachineCode, issuedPayload.MachineCode);
+
+        await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            $"/api/v1/admin/licensing/entitlements/{issued.Id}/revoke",
+            admin,
+            new RevokeLicenseRequest("集成测试吊销")));
+
+        var revokedPayload = await revokedNotice.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("demo", revokedPayload.AppKey);
+        Assert.Equal(registered.MachineCode, revokedPayload.MachineCode);
+    }
+
     private static async Task<LicenseProductDto> CreateProductAsync(
         HttpClient client,
         string token,
@@ -687,4 +758,17 @@ public sealed class LicensingEndpointsTests : IClassFixture<PlatformApiFactory>
 
     private static string MachineFromHex(string hex) =>
         Base32Crockford.Encode(Convert.FromHexString(hex));
+
+    private static async Task<string> DeviceTokenAsync(HttpClient client)
+    {
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/dev/token",
+            new DevTokenRequest(
+                Subject: $"lic-push-{Guid.NewGuid():N}",
+                Name: "demo",
+                Permissions: [],
+                Apps: ["demo"],
+                AppKey: "demo"));
+        return (await IdentityTestHelpers.ReadDataAsync<DevTokenResponse>(response)).AccessToken;
+    }
 }

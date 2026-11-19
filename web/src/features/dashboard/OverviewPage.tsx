@@ -27,7 +27,7 @@ import type { ModuleInfo } from '../../shared/api/types';
 import { formatBytes, formatDateTime } from '../../shared/format';
 import { renderTableExpandIcon } from '../../shared/ui/TableExpandIcon';
 
-const DEFAULT_INTERVAL_SECONDS = 10;
+const DEFAULT_INTERVAL_SECONDS = 60;
 const MIN_INTERVAL_SECONDS = 1;
 const MAX_INTERVAL_SECONDS = 3600;
 
@@ -303,7 +303,7 @@ function renderModuleDetails(module: ModuleInfo) {
  * 总览仪表盘：运行状态、进程资源、服务器资源监控、节点/安装实例与平台信息。
  *
  * - 服务器运行时间由本地秒表推进（每秒一次），轮询只校准锚点，和自动刷新开关解耦；
- * - 其余内容的自动刷新默认开启、间隔可调（最小 1s），切换路由时组件卸载即暂停；
+ * - 节点/实例等状态跃迁由 AdminHub 事件失效回拉；自动刷新默认 60s 兜底、间隔可调（最小 1s），切换路由卸载即暂停；
  * - 百分比一律用 antd dashboard 仪表盘：CPU/内存环内分段同时显示整机总量与平台进程占用，
  *   数量类指标用彩色信息块区分语义，避免整页灰白。
  */

@@ -27,6 +27,7 @@ public static class KernelServiceCollectionExtensions
         services.TryAddSingleton<IClock, SystemClock>();
         services.TryAddScoped<ICurrentPrincipal, HttpCurrentPrincipal>();
         services.TryAddSingleton<IPlatformPushCoordinator, PlatformPushCoordinator>();
+        services.TryAddSingleton<IAdminEventPublisher, AdminEventPublisher>();
         services.TryAddScoped<IPlatformEventPublisher, NullPlatformEventPublisher>();
         services.TryAddSingleton<PlatformMetrics>();
         services.TryAddSingleton(sp => new AppStateCache(
@@ -34,6 +35,12 @@ public static class KernelServiceCollectionExtensions
             TimeSpan.FromSeconds(Math.Max(
                 0,
                 sp.GetRequiredService<IConfiguration>().GetValue("AppContextGuard:CacheSeconds", 30)))));
+        services.TryAddSingleton(sp => new UserEpochCache(
+            sp.GetRequiredService<IClock>(),
+            TimeSpan.FromSeconds(Math.Max(
+                0,
+                sp.GetRequiredService<IConfiguration>().GetValue("UserEpochGuard:CacheSeconds", 30)))));
+        services.TryAddSingleton<UserTokenEpochGuard>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IPlatformMetricSource, ProcessMetricSource>());
 
         services.AddAuthorization();

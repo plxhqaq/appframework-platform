@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using Platform.Contracts;
 using Platform.Contracts.Backups;
 using Platform.Kernel.Abstractions;
+using Platform.Modules.Devices.Services;
 using Platform.IntegrationTests.Support;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -143,6 +144,7 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
         using var client = _factory.CreateClient();
         var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
         var coordinator = _factory.Services.GetRequiredService<IPlatformPushCoordinator>();
+        var registry = _factory.Services.GetRequiredService<InstallationConnectionRegistry>();
 
         await CreateNamespaceAsync(client, token, "push-backup", "下发");
         var backup = await CreateBackupAsync(
@@ -168,7 +170,7 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
             (int)ApiErrorCode.BackupsPushRejected,
             await IdentityTestHelpers.ReadErrorCodeAsync(noConnection, HttpStatusCode.Conflict));
 
-        coordinator.RegisterConnection("push-test-connection", DemoAppKey);
+        registry.Register(DemoAppKey, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "push-test-connection");
         try
         {
             var channelMismatch = await client.SendAsync(IdentityTestHelpers.Authorized(
@@ -236,7 +238,7 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
         }
         finally
         {
-            coordinator.UnregisterConnection("push-test-connection");
+            registry.Unregister("push-test-connection");
         }
     }
 

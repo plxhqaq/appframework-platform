@@ -109,34 +109,39 @@ internal static class InventoryMapper
                 .Select(x => ToSummary(x, node))]);
     }
 
-    private static NodeState Aggregate(IReadOnlyList<DeviceInstallation> installations)
+    private static NodeState Aggregate(IReadOnlyList<DeviceInstallation> installations) =>
+        AggregateViews([.. installations.Select(static x => new InstallationStateView(
+            x.OnlineStatus, x.StationStatus, x.AlarmLevel, x.AlarmMessage, x.LastHeartbeatAt))]);
+
+    /// <summary>节点聚合的视图入口：状态跃迁差分用「前值替换后的行视图」算旧聚合。</summary>
+    internal static NodeState AggregateViews(IReadOnlyList<InstallationStateView> views)
     {
         bool online = false;
         bool running = false;
         DateTimeOffset? lastHeartbeat = null;
-        DeviceInstallation? alarmSource = null;
+        InstallationStateView? alarmSource = null;
         int alarmSeverity = 0;
 
-        foreach (var installation in installations)
+        foreach (var view in views)
         {
-            bool isOnline = installation.OnlineStatus == DeviceOnlineStatuses.Online;
+            bool isOnline = view.OnlineStatus == DeviceOnlineStatuses.Online;
             online |= isOnline;
-            running |= isOnline && installation.StationStatus == DeviceStationStatuses.Online;
+            running |= isOnline && view.StationStatus == DeviceStationStatuses.Online;
 
-            if (installation.LastHeartbeatAt is { } heartbeat
+            if (view.LastHeartbeatAt is { } heartbeat
                 && (lastHeartbeat is null || heartbeat > lastHeartbeat))
             {
                 lastHeartbeat = heartbeat;
             }
 
-            int severity = DeviceAlarmLevels.Severity(installation.AlarmLevel);
+            int severity = DeviceAlarmLevels.Severity(view.AlarmLevel);
             if (severity > alarmSeverity
                 || (severity == alarmSeverity
                     && severity > 0
-                    && installation.LastHeartbeatAt > alarmSource?.LastHeartbeatAt))
+                    && view.LastHeartbeatAt > alarmSource?.LastHeartbeatAt))
             {
                 alarmSeverity = severity;
-                alarmSource = installation;
+                alarmSource = view;
             }
         }
 
@@ -150,7 +155,14 @@ internal static class InventoryMapper
             lastHeartbeat);
     }
 
-    private sealed record NodeState(
+    internal sealed record InstallationStateView(
+        string OnlineStatus,
+        string StationStatus,
+        string AlarmLevel,
+        string? AlarmMessage,
+        DateTimeOffset? LastHeartbeatAt);
+
+    internal sealed record NodeState(
         string OnlineStatus,
         string StationStatus,
         string AlarmLevel,

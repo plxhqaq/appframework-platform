@@ -31,15 +31,46 @@ public sealed class DeviceServiceTests
         string? clientName = null) =>
         new(Identity(primary, installGuid), machineName, "10.1.2.3", branch, heartbeatSeconds, clientName);
 
+    private static InstallationStateNotifier States(PlatformDbContext db, IClock clock) =>
+        new(db, new NoopAdminPublisher(), clock, NullLogger<InstallationStateNotifier>.Instance);
+
     private static InstallationRegistry Registry(PlatformDbContext db, IClock clock) =>
-        new(db, clock, Options.Create(new DevicesOptions()), NullLogger<InstallationRegistry>.Instance);
+        new(db, clock, Options.Create(new DevicesOptions()), States(db, clock), NullLogger<InstallationRegistry>.Instance);
 
     private static InstallationPresence Presence(PlatformDbContext db, IClock clock) =>
-        new(db, clock, Options.Create(new DevicesOptions()), NullLogger<InstallationPresence>.Instance);
+        new(db, clock, Options.Create(new DevicesOptions()), States(db, clock), NullLogger<InstallationPresence>.Instance);
 
-    private static InstallationAdmin Installations(PlatformDbContext db) => new(db);
+    private static InstallationAdmin Installations(PlatformDbContext db) =>
+        new(db, new InstallationConnectionRegistry(), new NoopEventRouter(), NullLogger<InstallationAdmin>.Instance);
 
-    private static NodeAdmin Nodes(PlatformDbContext db) => new(db);
+    private static NodeAdmin Nodes(PlatformDbContext db) =>
+        new(db, new InstallationConnectionRegistry(), new NoopEventRouter(), NullLogger<NodeAdmin>.Instance);
+
+    /// <summary>事件路由桩：Postgres 测试无真实推送；停用踢线由集成测试单独覆盖。</summary>
+    private sealed class NoopEventRouter : IInstallationEventRouter
+    {
+        public Task ToInstallationAsync(string appKey, Guid installationId, string eventName, object payload, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task ToMachineAsync(string appKey, string machineCode, string eventName, object payload, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task ToInstallGuidAsync(string appKey, Guid installGuid, string eventName, object payload, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task ToAppAsync(string appKey, string eventName, object payload, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task ToNodeAsync(Guid nodeId, string eventName, object payload, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public int AppConnectionCount(string appKey) => 0;
+    }
+
+    /// <summary>管理台事件发布桩：Postgres 测试只验数据契约，不消费推送。</summary>
+    private sealed class NoopAdminPublisher : IAdminEventPublisher
+    {
+        public Task PublishAsync(
+            string domain,
+            string eventName,
+            object payload,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
 
     private static string NewAppKey() => "dev-" + Guid.NewGuid().ToString("N")[..12];
 

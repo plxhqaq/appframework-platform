@@ -65,6 +65,7 @@ public sealed class IngestionClaimTests
                 new UnlimitedStorageCapacity(),
                 new TestClock(),
                 new NullPlatformEventPublisher(),
+                new NullVersionEventsPublisher(),
                 Options.Create(new VersionsOptions()),
                 NullLogger<ReleasePackageIngestionService>.Instance,
                 new PlatformMetrics());
@@ -84,5 +85,24 @@ public sealed class IngestionClaimTests
         Assert.True(
             rows.All(static x => x.Attempts == 1),
             string.Join(" | ", rows.Select(static x => $"{x.Id:N} a={x.Attempts} s={x.Status} l={x.LockedBy} e={x.ErrorCode}")));
+    }
+
+    /// <summary>认领用例只关心互斥，Hub 提示一律吞掉。</summary>
+    private sealed class NullVersionEventsPublisher : IVersionEventsPublisher
+    {
+        public Task ReleasePublishedAsync(
+            string appKey,
+            string channelKey,
+            string version,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task IngestionProgressAsync(
+            string appKey,
+            Guid packageId,
+            string status,
+            double progress,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 }

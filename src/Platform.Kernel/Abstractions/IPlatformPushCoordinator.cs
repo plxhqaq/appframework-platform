@@ -1,20 +1,12 @@
 namespace Platform.Kernel.Abstractions;
 
 /// <summary>
-/// 配置下发回执协调器：Hub 维护在线连接，下发端点等待目标回执。
+/// 应用组广播回执协调器：下发端点等待（应用，备份）配对的首个回执。
+/// 连接在线事实由 Devices 模块的连接登记表提供，这里只管回执等待。
 /// 实现为进程内单例；多实例部署时应替换为带背板的实现（Redis 等）。
 /// </summary>
 public interface IPlatformPushCoordinator
 {
-    /// <summary>连接建立：登记连接所属应用。</summary>
-    void RegisterConnection(string connectionId, string appKey);
-
-    /// <summary>连接断开：注销连接。</summary>
-    void UnregisterConnection(string connectionId);
-
-    /// <summary>应用当前在线连接数。</summary>
-    int ConnectionCount(string appKey);
-
     /// <summary>收到回执：唤醒等待方（同一备份只认第一个回执）。</summary>
     void CompleteAck(string appKey, Guid backupId, bool succeeded, string? message);
 

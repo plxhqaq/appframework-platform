@@ -72,7 +72,8 @@ export function InstallationPickerModal({
         signal,
       ),
     enabled: open && appKey !== null,
-    refetchInterval: open && mode === 'push' ? 15000 : false,
+    // 在线态跃迁由 InstallationStateChanged 推送失效；打开时仅保留 60s 兜底。
+    refetchInterval: open && mode === 'push' ? 60_000 : false,
   });
 
   const canSelect = mode === 'push' ? isInstallationSelectable : isInstallationAvailable;

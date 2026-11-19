@@ -174,11 +174,11 @@ curl -s -X POST http://localhost:5080/api/v1/admin/backups/$ID/push \
 响应中的 `targets` 逐台给出 `{ installationId, nodeId, delivered, acked, success, message }`；
 `acked` / `success` 顶层字段表示**全部目标**是否回执/成功。
 
-应用组广播（仅 `broadcastToApp=true`）走 SignalR `/hubs/platform` 的 `app:{appKey}` 分组：
+应用组广播（仅 `broadcastToApp=true`）走 SignalR `/hubs/devices` 的 `app:{appKey}` 分组：
 
-1. 服务端先注册等待，再广播 `ConfigPush`（`ConfigPushNotification`）；
-2. 客户端收到后回拉 `GET /api/v1/client/backups/{id}/download`，应用完成再回 `ConfigPushAck`
-   （`{ backupId, succeeded, message }`）；
+1. 服务端先注册等待，再广播 `ConfigPush`（`DeviceConfigPush`，与定向下发同一负载）；
+2. 客户端收到后回拉 `GET /api/v1/client/backups/{id}/download`，应用完成再调 `AcknowledgeConfigPush`
+   （`DeviceConfigPushAck{ backupId, succeeded, message }`）；回执先到者胜，只认第一个；
 3. 服务端只把 Ack 当结果，不把广播当事实来源；超时即失败，客户端后续应用不会补记成功；
 4. 应用无在线连接时立即返回 `407`（HTTP 409），且该检查先于兼容矩阵；
 5. 广播等同于下发到应用内全部安装实例，因此备份有来源安装实例时同样需要

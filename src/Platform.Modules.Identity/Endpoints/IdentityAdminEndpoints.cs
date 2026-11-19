@@ -369,6 +369,7 @@ internal static class IdentityAdminEndpoints
                     HttpContext context,
                     Guid id,
                     IRefreshTokenService sessions,
+                    ISessionRevocationNotifier push,
                     IAuditWriter audit,
                     ICurrentPrincipal principal,
                     CancellationToken cancellationToken) =>
@@ -376,6 +377,12 @@ internal static class IdentityAdminEndpoints
                     var revoked = await sessions.RevokeSessionAsync(
                         id,
                         RefreshTokenRevokeReasons.RevokedByAdmin,
+                        cancellationToken);
+                    await push.NotifyAsync(
+                        revoked.UserId,
+                        RefreshTokenRevokeReasons.RevokedByAdmin,
+                        [new RevokedSessionTarget(revoked.AppKey, revoked.MachineCode, revoked.InstallGuid, revoked.Id)],
+                        userWide: false,
                         cancellationToken);
                     await WriteAuditAsync(
                         context, audit, principal,
@@ -396,14 +403,22 @@ internal static class IdentityAdminEndpoints
                     HttpContext context,
                     Guid id,
                     IRefreshTokenService sessions,
+                    ISessionRevocationNotifier push,
                     IAuditWriter audit,
                     ICurrentPrincipal principal,
                     CancellationToken cancellationToken) =>
                 {
+                    // 吊销会清掉活跃行，先抓设备归属再推 UserSessionRevoked。
+                    var targets = await push.CaptureUserTargetsAsync(id, cancellationToken);
                     var revoked = await sessions.RevokeAllAsync(
                         id,
                         RefreshTokenRevokeReasons.RevokedByAdmin,
                         cancellationToken);
+                    if (revoked > 0)
+                    {
+                        await push.NotifyAsync(
+                            id, RefreshTokenRevokeReasons.RevokedByAdmin, targets, userWide: true, cancellationToken);
+                    }
                     await WriteAuditAsync(
                         context, audit, principal,
                         action: "identity.sessions.revoke-all",

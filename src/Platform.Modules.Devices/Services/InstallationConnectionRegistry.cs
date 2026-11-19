@@ -10,6 +10,7 @@ public sealed class InstallationConnectionRegistry
     private readonly object _gate = new();
     private readonly Dictionary<string, InstallationConnection> _byConnection = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, string> _byInstallation = new();
+    private readonly HashSet<string> _kickPending = new(StringComparer.Ordinal);
 
     /// <summary>登记连接；返回需要移出组并通知被顶替的旧连接。</summary>
     public InstallationRegistration Register(
@@ -21,6 +22,9 @@ public sealed class InstallationConnectionRegistry
     {
         lock (_gate)
         {
+            // 新登记即视为干净连接；待踢标记只针对停用瞬间快照的旧连接。
+            _kickPending.Remove(connectionId);
+
             ReplacedConnection? previous = null;
             var displaced = new List<ReplacedConnection>();
 
@@ -44,6 +48,7 @@ public sealed class InstallationConnectionRegistry
                 && !string.Equals(current, connectionId, StringComparison.Ordinal)
                 && _byConnection.Remove(current, out var replaced))
             {
+                _kickPending.Remove(current);
                 displaced.Add(new ReplacedConnection(current, replaced));
             }
 
@@ -62,6 +67,7 @@ public sealed class InstallationConnectionRegistry
                 {
                     _byConnection.Remove(otherConnection);
                     _byInstallation.Remove(otherInstallation);
+                    _kickPending.Remove(otherConnection);
                     displaced.Add(new ReplacedConnection(otherConnection, other));
                 }
             }
@@ -78,6 +84,7 @@ public sealed class InstallationConnectionRegistry
     {
         lock (_gate)
         {
+            _kickPending.Remove(connectionId);
             if (!_byConnection.Remove(connectionId, out var connection))
             {
                 return;
@@ -167,6 +174,106 @@ public sealed class InstallationConnectionRegistry
 
             connection = null!;
             return false;
+        }
+    }
+
+    /// <summary>应用当前活跃连接数（应用组广播的在线门禁）。</summary>
+    public int CountAppConnections(string appKey)
+    {
+        lock (_gate)
+        {
+            int count = 0;
+            foreach (var connectionId in _byInstallation.Values)
+            {
+                if (_byConnection.TryGetValue(connectionId, out var connection)
+                    && string.Equals(connection.AppKey, appKey, StringComparison.Ordinal))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+    }
+
+    /// <summary>目标机器上该应用的全部活跃安装实例（授权变更定向路由）。</summary>
+    public IReadOnlyList<Guid> GetMachineInstallationIds(string appKey, Guid nodeId)
+    {
+        lock (_gate)
+        {
+            var ids = new List<Guid>();
+            foreach (var (installationId, connectionId) in _byInstallation)
+            {
+                if (_byConnection.TryGetValue(connectionId, out var connection)
+                    && connection.NodeId == nodeId
+                    && string.Equals(connection.AppKey, appKey, StringComparison.Ordinal))
+                {
+                    ids.Add(installationId);
+                }
+            }
+
+            return ids;
+        }
+    }
+
+    /// <summary>按客户端安装标识取安装实例（扫码审批定向）；同应用同安装只有一条活跃连接。</summary>
+    public bool TryGetInstallationByGuid(string appKey, Guid installGuid, out Guid installationId)
+    {
+        lock (_gate)
+        {
+            foreach (var (candidateId, connectionId) in _byInstallation)
+            {
+                if (_byConnection.TryGetValue(connectionId, out var connection)
+                    && connection.InstallGuid == installGuid
+                    && string.Equals(connection.AppKey, appKey, StringComparison.Ordinal))
+                {
+                    installationId = candidateId;
+                    return true;
+                }
+            }
+
+            installationId = default;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 停用安装实例：快照其当前连接进"待踢"集合。之后的每次上行调用会被
+    /// <c>DeviceHubGuardFilter</c> 强制断线；不在此集合建立后新到的连接（重连由注册路径 807 拒绝）。
+    /// </summary>
+    public void MarkInstallationDisabled(Guid installationId)
+    {
+        lock (_gate)
+        {
+            if (_byInstallation.TryGetValue(installationId, out var connectionId))
+            {
+                _kickPending.Add(connectionId);
+            }
+        }
+    }
+
+    /// <summary>停用物理节点：快照该节点全部应用的活跃连接进"待踢"集合（重连由注册路径 806 拒绝）。</summary>
+    public void MarkNodeDisabled(Guid nodeId)
+    {
+        lock (_gate)
+        {
+            foreach (var connectionId in _byInstallation.Values)
+            {
+                if (_byConnection.TryGetValue(connectionId, out var connection)
+                    && connection.NodeId == nodeId)
+                {
+                    _kickPending.Add(connectionId);
+                }
+            }
+        }
+    }
+
+    /// <summary>连接是否属于停用快照（待踢）。</summary>
+    public bool IsKickPending(string connectionId)
+    {
+        lock (_gate)
+        {
+            return _kickPending.Contains(connectionId);
         }
     }
 }

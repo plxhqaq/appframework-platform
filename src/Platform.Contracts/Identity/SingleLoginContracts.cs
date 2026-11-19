@@ -68,10 +68,14 @@ public static class QrLoginStatuses
 /// <param name="DurationMinutes">密钥有效期（分钟）；空取默认值，超上限按上限钳制。</param>
 /// <param name="DeviceFingerprint">绑定设备指纹；非空时只有同一指纹能兑换。</param>
 /// <param name="AppKey">目标应用键；应用上下文令牌可省略（默认取令牌应用），平台上下文必须显式指定。</param>
+/// <param name="MachineCode">绑定节点机器码（16 位 Crockford Base32）：管理台选择设备时回填，兑换请求的机器码必须一致；空则不绑定节点。</param>
+/// <param name="InstallGuid">绑定安装实例：兑换请求的 <c>installGuid</c> 必须一致；空则不绑定实例。</param>
 public sealed record IssueSingleLoginKeyRequest(
     int? DurationMinutes = null,
     string? DeviceFingerprint = null,
-    string? AppKey = null);
+    string? AppKey = null,
+    string? MachineCode = null,
+    Guid? InstallGuid = null);
 
 /// <summary>签发结果。密钥明文只在此响应出现一次，服务端不提供回查。</summary>
 public sealed record SingleLoginKeyDto(string Key, DateTimeOffset ExpiresAt, int DurationMinutes);
@@ -138,3 +142,8 @@ public sealed record QrSessionSummaryDto(
 /// <summary>批准扫码会话。</summary>
 /// <param name="DurationMinutes">临时令牌有效期；空取默认值，超上限按上限钳制。</param>
 public sealed record ApproveQrSessionRequest(int? DurationMinutes = null);
+
+/// <summary>扫码登录审批结果通知（设备 Hub 定向到会话归属安装实例；只是提示，客户端仍以回拉为准）。</summary>
+/// <param name="RequestId">扫码会话 id（客户端从二维码载荷中解析）。</param>
+/// <param name="Approved">是否批准；拒绝时为 <c>false</c>。</param>
+public sealed record QrLoginApprovedNotification(Guid RequestId, bool Approved);

@@ -266,8 +266,9 @@ curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sess
 
 错误码：`109` 会话不存在、`110` 已过期、`111` 已处理（重复审批/拒绝）。
 
-审批通过时服务端经 SignalR `/hubs/platform` 广播 `QrLoginApproved`（事件名是 PascalCase 常量，
-见 `PlatformHubEvents`），但这只是**提示**：
+审批（或拒绝）时服务端经 SignalR `/hubs/devices` 向发起会话的安装实例定向发送 `QrLoginApproved`
+（事件名是 PascalCase 常量，见 `DeviceHubEvents`），同时向管理台 `/hubs/admin` 的 identity 域组
+通知会话状态变化，但这只是**提示**：
 客户端必须以轮询结果为准，Hub 断线或推送丢失都不会影响领取令牌。会话落 `qr_login_sessions` 表，
 服务重启后待审批会话仍在。
 

@@ -45,6 +45,8 @@ public class PlatformApiFactory : WebApplicationFactory<Program>
                 ["Jwt:AllowDevTokenEndpoint"] = "true",
                 // 停用应用要立即反映到请求路径，缓存窗口压到 0 让用例不依赖时间
                 ["AppContextGuard:CacheSeconds"] = "0",
+                // 用户 epoch 守卫同理：每请求查库，吊销后旧访问令牌立即 401，用例不依赖缓存窗口
+                ["UserEpochGuard:CacheSeconds"] = "0",
                 // 种子提供确定性的 admin 与内置角色；口令只用于测试库
                 ["Seed:Enabled"] = "true",
                 ["Seed:AdminPassword"] = "Admin@12345",

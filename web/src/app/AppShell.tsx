@@ -23,6 +23,7 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { AdminHubStatusBadge } from '../shared/realtime/AdminHubConnection';
 import { PERMISSIONS } from '../shared/permissions';
 import { resolveNavLayout, SIDER_COLLAPSED_WIDTH, SIDER_WIDTH } from '../shared/responsive';
 import { useResponsive } from '../shared/useResponsive';
@@ -229,6 +230,7 @@ export function AppShell() {
           </Space>
 
           <Space size="small" align="center">
+            <AdminHubStatusBadge />
             <LocaleSwitch />
             {themeButton}
             {session?.mustChangePassword ? <Tag color="warning">{t('nav:pendingPassword')}</Tag> : null}

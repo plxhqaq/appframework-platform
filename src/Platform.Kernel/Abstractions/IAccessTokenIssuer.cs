@@ -45,6 +45,9 @@ public sealed record AccessTokenSpec
     /// <summary>绑定的安装实例标识。</summary>
     public Guid? InstallGuid { get; init; }
 
+    /// <summary>用户令牌代号（D7 epoch 守卫）：签发时从 <c>users.token_epoch</c> 取值；仅用户主体写入声明。</summary>
+    public int? TokenEpoch { get; init; }
+
     /// <summary>有效期；为空取宿主配置。</summary>
     public TimeSpan? Lifetime { get; init; }
 }

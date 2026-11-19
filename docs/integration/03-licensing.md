@@ -251,13 +251,15 @@ appKey | productKey | licenseNo | keyId | deviceCode | 签名(64)`，字符串�
 **例外是「仅在线注销」**：服务端返回 `unlicensed` + `snapshot=null`，客户端应清除已缓存的在线快照并
 回退本地离线码，而不是当成永久吊销锁定。
 
-**SignalR `LicenseChanged` 只是提示，不是事实来源**：吊销/续期/签发时服务端向 `Clients.All` 广播
-`LicenseChanged`（负载 `LicenseChangedNotification{ appKey, machineCode, reason }`，
-`reason` 为 `issued`/`renewed`/`revoked`）。广播失败只记日志，不影响已落库结果。客户端收到提示后**必须回拉
+**SignalR `LicenseChanged` 只是提示，不是事实来源**：吊销/续期/签发时服务端经 `/hubs/devices`
+向目标机器上该应用的活跃安装实例定向发送 `LicenseChanged`
+（负载 `LicenseChangedNotification{ appKey, machineCode, reason }`，
+`reason` 为 `issued`/`renewed`/`revoked`），同时向管理台 `/hubs/admin` 的 licensing 域组广播。
+推送失败只记日志，不影响已落库结果。客户端收到提示后**必须回拉
 `/status`**：完全吊销拿到 `revoked` 快照并验签后锁定；仅在线注销拿到 `unlicensed`（无快照），
 清除在线快照并回退离线码。断线或推送丢失都不会改变最终判定。
 
-> 注：SignalR 事件名一律用源码常量（`PlatformHubs.cs` 里的 `"LicenseChanged"`，PascalCase），
+> 注：SignalR 事件名一律用源码常量（`DeviceHubEvents.LicenseChanged`，PascalCase），
 > 00-quickstart 与客户端 README 已统一按常量书写，Webhook 事件名才是 `snake.dot` 形式（`license.revoked`）——
 > 两套命名不要混用。
 > 代码中**没有**「吊销后 ≤30 秒强制生效」的定时器：在线生效即时性取决于客户端收到提示后多久回拉，

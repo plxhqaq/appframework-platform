@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Platform.Contracts;
 using Platform.Contracts.Devices;
 using Platform.Infrastructure.Persistence;
+using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
 using Platform.Modules.Devices.Domain;
 
@@ -38,12 +40,27 @@ public interface INodeAdmin
 /// <summary>平台级节点服务实现。</summary>
 public sealed class NodeAdmin : INodeAdmin
 {
+    private static readonly Action<ILogger, Guid, Exception?> DisabledPushFailedLog = LoggerMessage.Define<Guid>(
+        LogLevel.Warning,
+        new EventId(1, "NodeDisabledPushFailed"),
+        "节点 {NodeId} 停用事件推送失败（踢线标记仍生效）。");
+
     private readonly PlatformDbContext _db;
+    private readonly InstallationConnectionRegistry _connections;
+    private readonly IInstallationEventRouter _events;
+    private readonly ILogger<NodeAdmin> _logger;
 
     /// <summary>构造。</summary>
-    public NodeAdmin(PlatformDbContext db)
+    public NodeAdmin(
+        PlatformDbContext db,
+        InstallationConnectionRegistry connections,
+        IInstallationEventRouter events,
+        ILogger<NodeAdmin> logger)
     {
         _db = db;
+        _connections = connections;
+        _events = events;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -136,12 +153,36 @@ public sealed class NodeAdmin : INodeAdmin
                 node.AutoName, node.CustomName, node.MachineCode);
         }
 
+        var disabledNow = false;
         if (request.IsEnabled is { } enabled)
         {
+            // 只认真实翻转：true→false 才触发踢线，重复停用不重复推事件。
+            disabledNow = node.IsEnabled && !enabled;
             node.IsEnabled = enabled;
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        // 停用：节点组广播 NodeDisabled（同机全部应用受影响），再快照该节点全部连接待踢；
+        // 客户端下次上行即断线，重连由注册路径 806 拒绝。
+        if (disabledNow)
+        {
+            try
+            {
+                await _events.ToNodeAsync(
+                    nodeId,
+                    DeviceHubEvents.NodeDisabled,
+                    new NodeDisabledNotification(nodeId, "disabled_by_admin", DateTimeOffset.UtcNow),
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                DisabledPushFailedLog(_logger, nodeId, ex);
+            }
+
+            _connections.MarkNodeDisabled(nodeId);
+        }
+
         return InventoryMapper.ToDetail(node, [.. node.Installations]);
     }
 

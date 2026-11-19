@@ -58,6 +58,8 @@ public sealed class IdentityModule : IPlatformModule
         services.AddScoped<IPasswordHasher, Argon2PasswordHasher>();
         services.AddScoped<ILoginThrottleService, LoginThrottleService>();
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+        services.AddScoped<IUserTokenEpochDirectory, UserTokenEpochDirectory>();
+        services.AddScoped<ISessionRevocationNotifier, SessionRevocationNotifier>();
         services.AddScoped<IUserSessionFactory, UserSessionFactory>();
         services.AddScoped<IIdentityAuthService, IdentityAuthService>();
         services.AddScoped<IUserAdminService, UserAdminService>();

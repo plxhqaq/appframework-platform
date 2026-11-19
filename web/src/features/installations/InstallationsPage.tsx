@@ -114,6 +114,8 @@ export function InstallationsPage() {
         signal,
       ),
     enabled: appKey !== null,
+    // 跃迁事件失效为主，60s 兜底。
+    refetchInterval: 60_000,
   });
 
   const detail = useQuery({

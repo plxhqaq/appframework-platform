@@ -76,6 +76,7 @@ public sealed class IdentityAuthService : IIdentityAuthService
     private readonly ILoginThrottleService _throttle;
     private readonly IUserSessionFactory _sessions;
     private readonly IAccessTokenIssuer _issuer;
+    private readonly ISessionRevocationNotifier _push;
     private readonly IClock _clock;
 
     /// <summary>构造。</summary>
@@ -86,6 +87,7 @@ public sealed class IdentityAuthService : IIdentityAuthService
         ILoginThrottleService throttle,
         IUserSessionFactory sessions,
         IAccessTokenIssuer issuer,
+        ISessionRevocationNotifier push,
         IClock clock)
     {
         _db = db;
@@ -94,6 +96,7 @@ public sealed class IdentityAuthService : IIdentityAuthService
         _throttle = throttle;
         _sessions = sessions;
         _issuer = issuer;
+        _push = push;
         _clock = clock;
     }
 
@@ -213,10 +216,16 @@ public sealed class IdentityAuthService : IIdentityAuthService
         user.MustChangePassword = false;
         await _db.SaveChangesAsync(cancellationToken);
 
+        // 吊销会清掉活跃行，先抓设备归属再推 UserSessionRevoked。
+        var targets = await _push.CaptureUserTargetsAsync(user.Id, cancellationToken);
         var revoked = await _refreshTokens.RevokeAllAsync(
             user.Id,
             RefreshTokenRevokeReasons.PasswordChanged,
             cancellationToken);
+        if (revoked > 0)
+        {
+            await _push.NotifyAsync(user.Id, RefreshTokenRevokeReasons.PasswordChanged, targets, userWide: true, cancellationToken);
+        }
 
         return new PasswordChangedResponse(_clock.UtcNow, revoked);
     }
@@ -306,5 +315,6 @@ public sealed class IdentityAuthService : IIdentityAuthService
             PrincipalKind = PlatformPrincipalKinds.User,
             MachineCode = machineCode,
             InstallGuid = installGuid,
+            TokenEpoch = context.TokenEpoch,
         });
 }

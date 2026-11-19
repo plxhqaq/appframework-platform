@@ -23,6 +23,7 @@ public sealed class IdentityModelContributor : IPlatformModelContributor
             builder.Property(static x => x.PasswordHash).HasColumnName("password_hash").HasMaxLength(512).IsRequired();
             builder.Property(static x => x.IsEnabled).HasColumnName("is_enabled");
             builder.Property(static x => x.MustChangePassword).HasColumnName("must_change_password");
+            builder.Property(static x => x.TokenEpoch).HasColumnName("token_epoch");
             builder.Property(static x => x.LastLoginAt).HasColumnName("last_login_at");
             builder.Property(static x => x.LoginCount).HasColumnName("login_count");
             builder.Property(static x => x.CreatedAt).HasColumnName("created_at");
@@ -129,6 +130,8 @@ public sealed class IdentityModelContributor : IPlatformModelContributor
             builder.Property(static x => x.Key).HasColumnName("key").HasMaxLength(16).IsRequired();
             builder.Property(static x => x.AppKey).HasColumnName("app_key").HasMaxLength(64).IsRequired();
             builder.Property(static x => x.DeviceFingerprint).HasColumnName("device_fingerprint").HasMaxLength(256);
+            builder.Property(static x => x.BoundMachineCode).HasColumnName("bound_machine_code").HasMaxLength(16);
+            builder.Property(static x => x.BoundInstallGuid).HasColumnName("bound_install_guid");
             builder.Property(static x => x.CreatedBy).HasColumnName("created_by");
             builder.Property(static x => x.ExpiresAt).HasColumnName("expires_at");
             builder.Property(static x => x.UsedAt).HasColumnName("used_at");

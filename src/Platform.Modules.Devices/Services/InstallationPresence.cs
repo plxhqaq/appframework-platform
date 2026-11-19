@@ -57,6 +57,7 @@ public sealed class InstallationPresence : IInstallationPresence
     private readonly PlatformDbContext _db;
     private readonly IClock _clock;
     private readonly DevicesOptions _options;
+    private readonly IInstallationStateNotifier _states;
     private readonly ILogger<InstallationPresence> _logger;
 
     /// <summary>构造。</summary>
@@ -64,13 +65,18 @@ public sealed class InstallationPresence : IInstallationPresence
         PlatformDbContext db,
         IClock clock,
         IOptions<DevicesOptions> options,
+        IInstallationStateNotifier states,
         ILogger<InstallationPresence> logger)
     {
         _db = db;
         _clock = clock;
         _options = options.Value;
+        _states = states;
         _logger = logger;
     }
+
+    private static InstallationStateSnapshot SnapshotOf(DeviceInstallation installation) =>
+        new(installation.OnlineStatus, installation.StationStatus, installation.AlarmLevel);
 
     /// <inheritdoc />
     public async Task<InstallationSummaryDto> HeartbeatAsync(
@@ -96,6 +102,7 @@ public sealed class InstallationPresence : IInstallationPresence
             request.AlarmMessage, DeviceConventions.MaxAlarmMessageLength, "报警摘要");
 
         var installation = await FindAsync(appKey, installationId, cancellationToken);
+        InstallationStateSnapshot previous = SnapshotOf(installation);
 
         switch (request.Status)
         {
@@ -124,6 +131,8 @@ public sealed class InstallationPresence : IInstallationPresence
         installation.Node.LastSeenAt = installation.LastHeartbeatAt;
 
         await _db.SaveChangesAsync(cancellationToken);
+        await _states.NotifyAsync(
+            appKey, installation.Id, installation.NodeId, previous, SnapshotOf(installation), cancellationToken);
         return InventoryMapper.ToSummary(installation, installation.Node);
     }
 
@@ -142,12 +151,15 @@ public sealed class InstallationPresence : IInstallationPresence
         }
 
         var installation = await FindAsync(appKey, installationId, cancellationToken);
+        InstallationStateSnapshot previous = SnapshotOf(installation);
         installation.OnlineStatus = DeviceOnlineStatuses.Online;
         installation.StationStatus = request.State;
         installation.LastHeartbeatAt = _clock.UtcNow;
         installation.Node.LastSeenAt = installation.LastHeartbeatAt;
 
         await _db.SaveChangesAsync(cancellationToken);
+        await _states.NotifyAsync(
+            appKey, installation.Id, installation.NodeId, previous, SnapshotOf(installation), cancellationToken);
         return InventoryMapper.ToSummary(installation, installation.Node);
     }
 
@@ -160,6 +172,7 @@ public sealed class InstallationPresence : IInstallationPresence
 
         var now = _clock.UtcNow;
         int marked = 0;
+        List<InstallationStateChange> changes = [];
         foreach (var installation in candidates)
         {
             int heartbeat = installation.HeartbeatSeconds > 0
@@ -170,7 +183,11 @@ public sealed class InstallationPresence : IInstallationPresence
 
             if (installation.LastHeartbeatAt is null || installation.LastHeartbeatAt < now - threshold)
             {
+                InstallationStateSnapshot previous = SnapshotOf(installation);
                 installation.OnlineStatus = DeviceOnlineStatuses.Offline;
+                changes.Add(new InstallationStateChange(
+                    installation.AppKey, installation.Id, installation.NodeId,
+                    previous, SnapshotOf(installation)));
                 marked++;
             }
         }
@@ -178,6 +195,7 @@ public sealed class InstallationPresence : IInstallationPresence
         if (marked > 0)
         {
             await _db.SaveChangesAsync(cancellationToken);
+            await _states.NotifyBatchAsync(changes, cancellationToken);
             OfflineMarkedLog(_logger, marked, null);
         }
 
@@ -195,7 +213,17 @@ public sealed class InstallationPresence : IInstallationPresence
         if (_db.Database.IsRelational())
         {
             var now = _clock.UtcNow;
-            await _db.Set<DeviceInstallation>()
+            // 条件更新拿不到前值，先单行读只为跃迁事件（低频路径）。错发/漏发事件不影响事实
+            // （管理台始终回拉），但实例/节点 id 必须准确。
+            var probe = await _db.Set<DeviceInstallation>()
+                .AsNoTracking()
+                .Where(x => x.AppKey == appKey
+                            && x.Id == installationId
+                            && x.OnlineStatus == DeviceOnlineStatuses.Online
+                            && (x.LastConnectedAt == null || x.LastConnectedAt <= disconnectedAt))
+                .Select(static x => new { x.NodeId, x.StationStatus, x.AlarmLevel })
+                .FirstOrDefaultAsync(cancellationToken);
+            int rows = await _db.Set<DeviceInstallation>()
                 .Where(x => x.AppKey == appKey
                             && x.Id == installationId
                             && x.OnlineStatus == DeviceOnlineStatuses.Online
@@ -205,6 +233,17 @@ public sealed class InstallationPresence : IInstallationPresence
                         .SetProperty(static x => x.OnlineStatus, DeviceOnlineStatuses.Offline)
                         .SetProperty(static x => x.UpdatedAt, now),
                     cancellationToken);
+            if (rows > 0 && probe is not null)
+            {
+                await _states.NotifyAsync(
+                    appKey,
+                    installationId,
+                    probe.NodeId,
+                    new InstallationStateSnapshot(DeviceOnlineStatuses.Online, probe.StationStatus, probe.AlarmLevel),
+                    new InstallationStateSnapshot(DeviceOnlineStatuses.Offline, probe.StationStatus, probe.AlarmLevel),
+                    cancellationToken);
+            }
+
             return;
         }
 
@@ -219,8 +258,11 @@ public sealed class InstallationPresence : IInstallationPresence
             return;
         }
 
+        InstallationStateSnapshot previous = SnapshotOf(installation);
         installation.OnlineStatus = DeviceOnlineStatuses.Offline;
         await _db.SaveChangesAsync(cancellationToken);
+        await _states.NotifyAsync(
+            appKey, installation.Id, installation.NodeId, previous, SnapshotOf(installation), cancellationToken);
     }
 
     private async Task<DeviceInstallation> FindAsync(

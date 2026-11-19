@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -41,6 +42,7 @@ public sealed class JwtTokenIssuer : IAccessTokenIssuer
     /// <param name="principalKind">主体类型，默认 <c>user</c>。</param>
     /// <param name="machineCode">绑定的机器码。</param>
     /// <param name="installGuid">绑定的安装实例标识。</param>
+    /// <param name="tokenEpoch">用户令牌代号（D7 epoch 守卫）；仅用户主体写入，缺省按 0。</param>
     /// <param name="lifetime">有效期；默认取配置。</param>
     public IssuedToken Issue(
         string subject,
@@ -53,6 +55,7 @@ public sealed class JwtTokenIssuer : IAccessTokenIssuer
         string principalKind = PlatformPrincipalKinds.User,
         string? machineCode = null,
         Guid? installGuid = null,
+        int? tokenEpoch = null,
         TimeSpan? lifetime = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
@@ -68,6 +71,14 @@ public sealed class JwtTokenIssuer : IAccessTokenIssuer
             new(PlatformClaimTypes.PrincipalKind, principalKind),
             new(PlatformClaimTypes.Temporary, temporary ? "true" : "false"),
         };
+
+        // epoch 声明只随用户主体写入（服务令牌的吊销轴由应用级守卫 + 设备 Hub 踢线覆盖，不参与 epoch 守卫）。
+        if (principalKind == PlatformPrincipalKinds.User)
+        {
+            claims.Add(new Claim(
+                PlatformClaimTypes.TokenEpoch,
+                (tokenEpoch ?? 0).ToString(CultureInfo.InvariantCulture)));
+        }
 
         foreach (var role in roles ?? [])
         {
@@ -138,6 +149,7 @@ public sealed class JwtTokenIssuer : IAccessTokenIssuer
             principalKind: spec.PrincipalKind,
             machineCode: spec.MachineCode,
             installGuid: spec.InstallGuid,
+            tokenEpoch: spec.TokenEpoch,
             lifetime: spec.Lifetime);
     }
 }

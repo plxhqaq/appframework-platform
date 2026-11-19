@@ -54,6 +54,7 @@ public sealed class VersionsModule : IPlatformModule
 
         services.AddScoped<IReleaseChannelService, ReleaseChannelService>();
         services.AddScoped<IReleaseService, ReleaseService>();
+        services.AddScoped<IVersionEventsPublisher, VersionEventsPublisher>();
         services.AddScoped<IReleasePackageService, ReleasePackageService>();
         services.AddScoped<IReleasePackageIngestionService, ReleasePackageIngestionService>();
         services.AddScoped<IUpdaterReleaseService, UpdaterReleaseService>();

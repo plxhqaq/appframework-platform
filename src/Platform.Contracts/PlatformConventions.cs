@@ -121,6 +121,9 @@ public static class PlatformClaimTypes
 
     /// <summary>绑定的安装实例标识（可空）。</summary>
     public const string InstallGuid = "install";
+
+    /// <summary>用户令牌代号（仅用户主体；落后于库值即被 epoch 守卫吊销，缺失按 0 处理）。</summary>
+    public const string TokenEpoch = "epoch";
 }
 
 /// <summary><see cref="PlatformClaimTypes.PrincipalKind"/> 取值。</summary>

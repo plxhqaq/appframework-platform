@@ -23,6 +23,7 @@
 - 进入应用的三条路：登录/换发时带 `appKey`、管理台 `POST /api/v1/admin/auth/context` 切换、M2M 令牌由 API Key 所属应用自动绑定。
 - 平台管理员（`platform-admin`，权限 `*`）不指定应用登录时得到**平台上下文**令牌：`user.appKey` 为空，`app` 覆盖全部启用应用，但没有 `app_ctx`；此时应用级模块返回 `4`（403），签发单次密钥也必须显式给 `appKey`。管理台登录后会自动进入首个可访问应用，也可随时用顶部切换器换应用。
 - **应用停用后**：登录/切换/刷新立即拒绝（`118`/403）；已签发的访问令牌由请求路径上的应用上下文守卫拦截（`602`/403），不必等访问令牌自然过期。守卫按 `AppContextGuard:CacheSeconds`（默认 30 秒）缓存状态，启用/停用在本副本立即失效，多副本最迟一个窗口后收敛。
+- **用户级 epoch 守卫**：`users.token_epoch` 随每次「吊销收口」递增，访问令牌携带签发时的 `epoch` 声明；请求路径上的守卫发现令牌落后即 401（`114`），**所有续期路径同样被封死**——包括 `POST /api/v1/admin/auth/context` 自续期与 QR 审批，不等访问令牌自然过期。守卫按 `UserEpochGuard:CacheSeconds`（默认 30 秒）缓存库值，bump 在本副本经缓存失效立即生效；`pkind=service` 的 M2M/开发令牌豁免（M2M 轴由应用守卫与密钥吊销覆盖）。
 - 平台管理员（通配权限 `*`）不受停用守卫影响——否则停用应用后就没人能从管理端把它重新启用。
 
 ---
@@ -102,7 +103,8 @@ curl -s -X POST http://localhost:5080/api/v1/identity/password/change \
 ```
 
 - 登出吊销该令牌所在的**整个家族**；令牌不存在也返回成功，客户端可安全重复调用。
-- 改密成功返回 `PasswordChangedResponse{changedAt, revokedSessions}`，并吊销本人**全部**活跃刷新令牌（原因 `password_changed`）：其它设备下一次刷新即 `114`，必须重新登录。
+- 登出同样走「吊销收口」并 bump 用户 `token_epoch`：这是**用户级**语义——该用户名下全部访问令牌（含其它设备/浏览器会话）在守卫窗口内一并 401，必须重新登录。多设备共存依赖的是各会话独立的刷新令牌，不是访问令牌豁免。
+- 改密成功返回 `PasswordChangedResponse{changedAt, revokedSessions}`，并吊销本人**全部**活跃刷新令牌（原因 `password_changed`）+ bump epoch：其它设备旧访问令牌很快 401、下一次刷新即 `114`，必须重新登录。
 - 口令策略：长度 8–128 且同时含字母与数字，不强制特殊字符；违规返回 `115`（400），当前口令不正确返回 `101`，新旧口令相同返回 `115`。
 - `mustChangePassword` 只是提示位：服务端**不会**据此拒绝其它端点，客户端与管理台必须自己拦住（种子管理员该位为 `true`，改密后置 `false`）。
 
@@ -122,6 +124,7 @@ curl -s -X POST http://localhost:5080/api/v1/identity/password/change \
 | 临时标记 | `is_temporary` | 否 | 单次密钥与扫码为 `true` |
 | 令牌 id | `jti` | 否 | v7 guid |
 | 机器码 | `machine` | 否 | 仅当登录/兑换时提供 |
+| 令牌代号 | `epoch` | 否 | 用户级 `token_epoch` 快照；缺失按 `0`；吊销收口 bump 后旧令牌落后即 401（仅 `pkind=user` 参与对账） |
 
 ```bash
 curl -s http://localhost:5080/api/v1/platform/whoami -H "Authorization: Bearer $TOKEN"
@@ -144,7 +147,7 @@ curl -s -X POST http://localhost:5080/api/v1/admin/identity/singlekeys \
   -d '{"durationMinutes":30,"deviceFingerprint":"line-1-pc"}'
 ```
 
-响应 `SingleLoginKeyDto{key, expiresAt, durationMinutes}`：密钥是 6 位十进制（含前导 0），随机生成并查重、冲突最多重试 5 次，连续失败返回 `6`（409）。`durationMinutes` 为空取 `SingleLogin:DefaultDurationMinutes`（30），超出 `SingleLogin:MaxDurationMinutes`（120，即 2 小时）按上限钳制，最小 1 分钟；`deviceFingerprint` 为空表示**不限设备**，非空时只有同一指纹（区分大小写、逐字比较）能兑换。明文只在这条响应里出现一次；`single_login_keys` 表以密钥本身为主键，另存指纹、签发人、`expires_at`、`used_at`、`attempt_count`，审计与日志不记密钥。
+响应 `SingleLoginKeyDto{key, expiresAt, durationMinutes}`：密钥是 6 位十进制（含前导 0），随机生成并查重、冲突最多重试 5 次，连续失败返回 `6`（409）。`durationMinutes` 为空取 `SingleLogin:DefaultDurationMinutes`（30），超出 `SingleLogin:MaxDurationMinutes`（120，即 2 小时）按上限钳制，最小 1 分钟；`deviceFingerprint` 为空表示**不限设备**，非空时只有同一指纹（区分大小写、逐字比较）能兑换。节点/安装实例绑定用 `machineCode`（16 位 Crockford Base32，格式非法 400）与 `installGuid`（不得为全零 Guid）：管理台「选择设备」即走这两列，因为服务端不存原始主标识、无法反推指纹，兑换请求本就携带它们。绑定列与指纹**逐列取与**——同时填写时都匹配才可兑换，留空即该列不约束。明文只在这条响应里出现一次；`single_login_keys` 表以密钥本身为主键，另存指纹、绑定机器码、绑定实例、签发人、`expires_at`、`used_at`、`attempt_count`，审计与日志不记密钥。
 
 兑换（匿名）：
 
@@ -154,8 +157,8 @@ curl -s -X POST http://localhost:5080/api/v1/identity/singlekey/redeem \
   -d '{"key":"123456","deviceFingerprint":"line-1-pc","machineCode":"008J4CT4ANK7F24S"}'
 ```
 
-- **原子单次**：消费靠一条带条件的 UPDATE（`used_at IS NULL AND expires_at > now AND attempt_count < maxAttempts AND 指纹匹配`），受影响行数为 1 才算赢，多副本并发只有一个成功（`SingleLoginKeyService.cs:136`）。尝试上限 `SingleLogin:MaxAttempts`（默认 5）；指纹不匹配同样累计一次尝试，累计到上限后密钥作废。
-- `machineCode` 非空时必须是 16 位 Crockford Base32（`O/I/L` 按 `0/1/1` 容错），格式不符直接 400 且**不消耗密钥**；`installGuid` 可选，用于会话的设备绑定。
+- **原子单次**：消费靠一条带条件的 UPDATE（`used_at IS NULL AND expires_at > now AND attempt_count < maxAttempts AND 指纹/绑定机器码/绑定实例逐列匹配`），受影响行数为 1 才算赢，多副本并发只有一个成功（`SingleLoginKeyService.cs:136`）。尝试上限 `SingleLogin:MaxAttempts`（默认 5）；任何绑定不匹配同样累计一次尝试，累计到上限后密钥作废。绑定不要求实例在线——比对的是兑换请求携带的设备身份。
+- `machineCode` 非空时必须是 16 位 Crockford Base32（`O/I/L` 按 `0/1/1` 容错），格式不符直接 400 且**不消耗密钥**；`installGuid` 可选，除用于会话的设备绑定外，也是密钥的实例绑定列（密钥绑定时必须逐字相等）。
 - 临时令牌有效期**独立取默认值**（`SingleLogin:DefaultDurationMinutes` 默认 30 分钟，上限 `MaxDurationMinutes` 120）：签发密钥时选的有效期只约束密钥本身，不再压缩兑换后的会话。响应 `TemporarySessionResponse{accessToken, expiresAt, user}`，**没有刷新令牌**，过期即失去访问。错误码 `105`/`107`/`108` 见第 7 节。
 - 临时主体绑定密钥签发人：`sub`/`name`/`role`/`perms` 全部来自该用户当前会话（与口令登录共用 `UserSessionFactory`），`displayName` 为用户的显示名，`is_temporary` = `true`，`app` = 该用户可进入的首个应用，`machine` = 规范化后的 `machineCode`（只写入声明，不与密钥记录比对）。签发人账号被禁用/删除时兑换返回对应的身份错误。
 - 客户端因此拿到签发人的真实角色与权限（管理员签发就是 `*`）。边界靠身份种类而不是权限集合：四个管理端点都挂了 `RequireNonTemporaryPrincipal()`，临时令牌即便权限齐全也返回 `102`（403），无法自我续期。
@@ -194,7 +197,7 @@ curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sess
 - 客户端取消 `POST /api/v1/identity/qr/sessions/{id}/cancel`（匿名、幂等）：仅当会话仍为 `pending` 且未过期时迁到 `cancelled`，之后管理端待审批列表不再出现、审批返回 `111`；已批准/已拒绝/已过期的会话原样返回、不改状态，也不会吊销已签发令牌。客户端离开扫码页、刷新二维码、关窗时都应调用，否则待审批单会一直留在管理台直到自然超时（10 分钟）。
 - 管理端列表 `status` 只接受 `pending`/`approved`/`rejected`/`expired`/`cancelled`（其它值返回 `2`，400），`expired` 筛的是「仍为 pending 但已超时」的行；响应 `QrSessionSummaryDto` 含 `clientName`/`deviceFingerprint`/`createdByIp`/`approvedAt`/`approvedByName`。
 - 并发审批由带 `status = 'pending' AND expires_at > now` 条件的状态迁移语句裁决（`QrLoginService.cs:200`）：两个审批人同时点击只有一个生效。会话落 `qr_login_sessions` 表，服务重启后待审批会话仍在。
-- 审批/拒绝后服务端经 SignalR `/hubs/platform` 广播事件 `QrLoginApproved`（负载 `QrLoginApprovedNotification{requestId, approved}`，`Clients.All`）：**只是提示**，推送失败只记日志、不影响已落库的审批结果，客户端必须以轮询结果为准。错误码 `109`（404）/`110`（410）/`111`（409）见第 7 节。
+- 审批/拒绝后服务端经 SignalR `/hubs/devices` 向发起会话的安装实例定向发送事件 `QrLoginApproved`（负载 `QrLoginApprovedNotification{requestId, approved}`；`installGuid` 优先，退而机器码，两者皆无则只靠轮询），同时向管理台 `/hubs/admin` 的 identity 域组广播 `QrSessionChanged`（负载 `AdminQrSessionChangedNotification{appKey, sessionId, status, occurredAt}`）：创建 `pending`、取消 `cancelled`、审批 `approved`、拒绝 `rejected` 各推一条；转 `expired` 仍由列表/详情的惰性判定呈现、**不发事件**。广播**只是提示**，推送失败只记日志、不影响已落库结果，管理台以失效回拉为准、客户端以轮询为准。错误码 `109`（404）/`110`（410）/`111`（409）见第 7 节。
 
 ---
 
@@ -229,6 +232,9 @@ curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sess
   登录/切换指定已停用应用返回 `118`（403），且新令牌不再携带其他应用的 app 角色权限。
 - 内置角色（`isSystem`）不可删除（`6`）；仍有用户的角色不可删除（`117`，409）。
 - 通配符 `*` 只允许内置 `platform-admin` 角色持有，其它角色申请返回 `118`。
+- 两个 revoke 端点都会 bump 用户 `token_epoch`（吊销收口统一路径）并定向推送 `UserSessionRevoked`：
+  单会话吊销带 `sessionId`，全量吊销按用户级发；管理台连接靠 `/hubs/admin` 的 `Touch` 上行
+  携带 `exp`+`epoch` 被守卫踢线。重置口令（`password/reset`）同样 bump。
 - 分页响应统一为 `PageResult<T>{items, page, pageSize, total, nextCursor}`。
 
 ---
@@ -245,7 +251,7 @@ curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sess
 | `105` | `IdentitySingleKeyInvalid` | 401 | 密钥格式非法或库中不存在 |
 | `106` | `IdentitySingleKeyExpired` | 401 | 密钥已过期 |
 | `107` | `IdentitySingleKeyExhausted` | 401 | 密钥已使用或尝试数达上限 |
-| `108` | `IdentitySingleKeyDeviceMismatch` | 401 | 设备指纹与密钥绑定不符 |
+| `108` | `IdentitySingleKeyDeviceMismatch` | 401 | 设备指纹 / 机器码 / 安装实例与密钥绑定不符 |
 | `109` | `IdentityQrSessionNotFound` | 404 | 扫码会话 id 不存在 |
 | `110` | `IdentityQrSessionExpired` | 410 | 扫码会话待审批超时 |
 | `111` | `IdentityQrSessionAlreadyUsed` | 409 | 重复审批/拒绝，或审批瞬间状态被改 |
@@ -371,6 +377,7 @@ var session = await client.WaitForQrLoginApprovalAsync(qr.RequestId, TimeSpan.Fr
 | `Jwt:AccessTokenMinutes` / `Jwt:RefreshTokenDays` | 30 / 30 | 刷新令牌有效期最小按 1 天 |
 | `Jwt:AllowDevTokenEndpoint` | `false` | 开发令牌端点开关，仅 Development 生效 |
 | `AppContextGuard:CacheSeconds` | 30 | 应用停用状态的请求路径缓存窗口；`0` 表示每请求查库（集成测试用） |
+| `UserEpochGuard:CacheSeconds` | 30 | 用户 `token_epoch` 的请求路径缓存窗口；`0` 表示每请求查库（集成测试用）。bump 在本副本经缓存失效即时生效 |
 | `LoginThrottle:MaxFailuresBeforeLockout` | 10 | 窗口内失败上限 |
 | `LoginThrottle:LockoutMinutes` / `TrackingWindowMinutes` | 15 / 15 | 锁定时长与失败计数窗口 |
 | `SingleLogin:DefaultDurationMinutes` / `MaxDurationMinutes` / `MaxAttempts` | 30 / 120 / 5 | 单次密钥默认与上限时长（2 小时）、尝试上限 |

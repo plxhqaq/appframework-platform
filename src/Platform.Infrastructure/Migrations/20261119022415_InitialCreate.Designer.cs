@@ -13,7 +13,7 @@ using Platform.Infrastructure.Persistence;
 namespace Platform.Infrastructure.Migrations
 {
     [DbContext(typeof(PlatformDbContext))]
-    [Migration("20261118064758_InitialCreate")]
+    [Migration("20261119022415_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -1297,6 +1297,15 @@ namespace Platform.Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("attempt_count");
 
+                    b.Property<Guid?>("BoundInstallGuid")
+                        .HasColumnType("uuid")
+                        .HasColumnName("bound_install_guid");
+
+                    b.Property<string>("BoundMachineCode")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("bound_machine_code");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -1367,6 +1376,10 @@ namespace Platform.Infrastructure.Migrations
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)")
                         .HasColumnName("password_hash");
+
+                    b.Property<int>("TokenEpoch")
+                        .HasColumnType("integer")
+                        .HasColumnName("token_epoch");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")

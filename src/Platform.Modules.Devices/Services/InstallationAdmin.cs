@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Platform.Contracts;
 using Platform.Contracts.Devices;
 using Platform.Infrastructure.Persistence;
+using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
 using Platform.Modules.Devices.Domain;
 
@@ -35,12 +37,27 @@ public interface IInstallationAdmin
 /// <summary>应用级安装实例服务实现。</summary>
 public sealed class InstallationAdmin : IInstallationAdmin
 {
+    private static readonly Action<ILogger, Guid, Exception?> DisabledPushFailedLog = LoggerMessage.Define<Guid>(
+        LogLevel.Warning,
+        new EventId(1, "InstallationDisabledPushFailed"),
+        "安装实例 {InstallationId} 停用事件推送失败（踢线标记仍生效）。");
+
     private readonly PlatformDbContext _db;
+    private readonly InstallationConnectionRegistry _connections;
+    private readonly IInstallationEventRouter _events;
+    private readonly ILogger<InstallationAdmin> _logger;
 
     /// <summary>构造。</summary>
-    public InstallationAdmin(PlatformDbContext db)
+    public InstallationAdmin(
+        PlatformDbContext db,
+        InstallationConnectionRegistry connections,
+        IInstallationEventRouter events,
+        ILogger<InstallationAdmin> logger)
     {
         _db = db;
+        _connections = connections;
+        _events = events;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -135,12 +152,37 @@ public sealed class InstallationAdmin : IInstallationAdmin
                 installation.ClientName, installation.CustomName);
         }
 
+        var disabledNow = false;
         if (request.IsEnabled is { } enabled)
         {
+            // 只认真实翻转：true→false 才触发踢线，重复停用不重复推事件。
+            disabledNow = installation.IsEnabled && !enabled;
             installation.IsEnabled = enabled;
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        // 停用：先推 InstallationDisabled（提示原因），再快照待踢标记；
+        // 客户端下次上行（心跳 ≤10s）即被守卫断线，重连由注册路径 807 拒绝。
+        if (disabledNow)
+        {
+            try
+            {
+                await _events.ToInstallationAsync(
+                    appKey,
+                    installationId,
+                    DeviceHubEvents.InstallationDisabled,
+                    new InstallationDisabledNotification(installationId, "disabled_by_admin", DateTimeOffset.UtcNow),
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                DisabledPushFailedLog(_logger, installationId, ex);
+            }
+
+            _connections.MarkInstallationDisabled(installationId);
+        }
+
         return InventoryMapper.ToDetail(installation, installation.Node);
     }
 

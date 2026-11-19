@@ -1,14 +1,13 @@
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Platform.Contracts;
+using Platform.Contracts.Devices;
 using Platform.Contracts.Hubs;
 using Platform.Contracts.Licensing;
 using Platform.Contracts.Webhooks;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
-using Platform.Kernel.Hubs;
 using Platform.Modules.Licensing.Domain;
 using Platform.Modules.Licensing.Options;
 using Microsoft.Extensions.Options;
@@ -64,17 +63,19 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
 
     private readonly PlatformDbContext _db;
     private readonly IClock _clock;
-    private readonly IHubContext<PlatformHub> _hub;
+    private readonly IInstallationEventRouter? _router;
+    private readonly IAdminEventPublisher _adminEvents;
     private readonly LicensingOptions _options;
     private readonly ILogger<LicenseEntitlementService> _logger;
     private readonly IPlatformEventPublisher _events;
     private readonly IDeviceNodeDirectory? _nodes;
 
-    /// <summary>构造。</summary>
+    /// <summary>构造。设备事件路由可选：Devices 模块缺席时只发管理台提示。</summary>
     public LicenseEntitlementService(
         PlatformDbContext db,
         IClock clock,
-        IHubContext<PlatformHub> hub,
+        IEnumerable<IInstallationEventRouter> routers,
+        IAdminEventPublisher adminEvents,
         IOptions<LicensingOptions> options,
         ILogger<LicenseEntitlementService> logger,
         IPlatformEventPublisher events,
@@ -82,7 +83,8 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
     {
         _db = db;
         _clock = clock;
-        _hub = hub;
+        _router = routers.FirstOrDefault();
+        _adminEvents = adminEvents;
         _options = options.Value;
         _logger = logger;
         _events = events;
@@ -610,12 +612,22 @@ public sealed class LicenseEntitlementService : ILicenseEntitlementService
     {
         try
         {
-            await _hub.Clients
-                .Group(PlatformHubGroups.App(appKey))
-                .SendAsync(
-                    PlatformHubEvents.LicenseChanged,
+            // 定向到目标机器上该应用的活跃安装实例；离线实例由重连对账覆盖。
+            if (_router is not null)
+            {
+                await _router.ToMachineAsync(
+                    appKey,
+                    machineCode,
+                    DeviceHubEvents.LicenseChanged,
                     new LicenseChangedNotification(appKey, machineCode, reason),
                     CancellationToken.None);
+            }
+
+            await _adminEvents.PublishAsync(
+                AdminHubDomains.Licensing,
+                AdminHubEvents.LicenseChanged,
+                new AdminLicenseChangedNotification(appKey, machineCode, reason, _clock.UtcNow),
+                CancellationToken.None);
         }
         catch (Exception exception)
         {

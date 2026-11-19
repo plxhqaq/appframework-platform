@@ -112,6 +112,15 @@ curl -s -OJ "http://localhost:5080/api/v1/client/documents/$ID/download" \
 - 宽限期取 `Documents:CleanupGraceMinutes`（最小 1 分钟），调度间隔取
   `Workers:Retention:IntervalSeconds`（默认 600 秒，最小 5 秒）。
 
+### 变更实时提示
+
+**SignalR `DocumentChanged` 只是提示，不是事实来源**：客户端可见文档发生变化——上传、加修订、
+更新（改前后任一为 `client` 即触发，含内部转客户端）、删除——落库后服务端经 `/hubs/devices` 向该应用
+全部注册连接（`app:{appKey}` 组）广播 `DocumentChanged`
+（负载 `DocumentChangedNotification{ appKey, collectionKey }`）。纯内部文档（`visibility=internal`）
+的全链路一律静默。推送失败只记日志，不影响已落库结果。客户端收到后在 0–5 秒随机抖动后回拉
+`GET /client/documents/manifest` 做增量比对，`collectionKey` 只用于定位提示，判定一律以清单为准。
+
 ## 7. 错误码
 
 | 码 | 含义 |

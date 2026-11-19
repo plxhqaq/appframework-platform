@@ -5,6 +5,7 @@ import zhCN from 'antd/locale/zh_CN';
 import { useLayoutEffect, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getThemeTokens, isDarkMode } from '../styles/antd-theme';
+import { AdminHubProvider } from '../shared/realtime/AdminHubConnection';
 import { ThemeProvider, useTheme } from './theme-context';
 
 const queryClient = new QueryClient({
@@ -79,13 +80,15 @@ function ThemedShell({ children }: { children: ReactNode }) {
   );
 }
 
-/** 全局 Provider 栈：服务端状态 → 主题状态 → antd 主题与语言。 */
+/** 全局 Provider 栈：服务端状态 → 实时事件通道 → 主题状态 → antd 主题与语言。 */
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <ThemedShell>{children}</ThemedShell>
-      </ThemeProvider>
+      <AdminHubProvider>
+        <ThemeProvider>
+          <ThemedShell>{children}</ThemedShell>
+        </ThemeProvider>
+      </AdminHubProvider>
     </QueryClientProvider>
   );
 }

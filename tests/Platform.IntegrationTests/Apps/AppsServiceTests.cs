@@ -250,7 +250,9 @@ public sealed class AppsServiceTests
         new(db, new AppStateCache(clock, TimeSpan.FromMinutes(1)));
 
     private static ApiKeyService CreateKeys(PlatformDbContext db, IClock clock, params string[] permissions) =>
-        new(db, clock, new TestCurrentPrincipal(permissions), new AppPermissionService(db));
+        new(db, clock, new TestCurrentPrincipal(permissions), new AppPermissionService(
+            db, clock, Array.Empty<Platform.Kernel.Abstractions.IInstallationEventRouter>(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<AppPermissionService>.Instance));
 
     private sealed class TestCurrentPrincipal : ICurrentPrincipal
     {

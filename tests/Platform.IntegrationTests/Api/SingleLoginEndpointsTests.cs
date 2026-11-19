@@ -119,6 +119,67 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
     }
 
     [Fact]
+    public async Task 绑定节点与实例的密钥只允许该实例兑换()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        const string machineCode = "0011223344556677";
+        var installGuid = Guid.NewGuid();
+
+        var issued = await IssueKeyAsync(client, admin, machineCode: machineCode, installGuid: installGuid);
+
+        // 不携带设备身份的兑换视为不匹配，并计入尝试次数。
+        var anonymous = await client.PostAsJsonAsync(
+            RedeemPath,
+            new RedeemSingleLoginKeyRequest(issued.Key));
+        Assert.Equal(
+            (int)ApiErrorCode.IdentitySingleKeyDeviceMismatch,
+            await IdentityTestHelpers.ReadErrorCodeAsync(anonymous, HttpStatusCode.Unauthorized));
+
+        // 机器码对了但实例不对：仍不匹配（绑定按「与」逐列判定）。
+        var wrongInstall = await client.PostAsJsonAsync(
+            RedeemPath,
+            new RedeemSingleLoginKeyRequest(issued.Key, null, machineCode, Guid.NewGuid()));
+        Assert.Equal(
+            (int)ApiErrorCode.IdentitySingleKeyDeviceMismatch,
+            await IdentityTestHelpers.ReadErrorCodeAsync(wrongInstall, HttpStatusCode.Unauthorized));
+
+        // 正确节点 + 实例：兑换成功并写入临时会话（绑定不要求实例在线，只比对兑换请求）。
+        var redeemed = await RedeemAsync(client, issued.Key, machineCode: machineCode, installGuid: installGuid);
+        Assert.Equal(IdentityTestHelpers.AdminUserName, redeemed.User.UserName);
+
+        // 只绑节点：同机器码的任意实例都可兑换。
+        var nodeOnly = await IssueKeyAsync(client, admin, machineCode: machineCode);
+        var anyInstall = await RedeemAsync(client, nodeOnly.Key, machineCode: machineCode, installGuid: Guid.NewGuid());
+        Assert.Equal(IdentityTestHelpers.AdminUserName, anyInstall.User.UserName);
+    }
+
+    [Fact]
+    public async Task 绑定机器码非法或实例为空Guid时签发失败()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+
+        var badMachine = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            "/api/v1/admin/identity/singlekeys",
+            admin,
+            new IssueSingleLoginKeyRequest(null, null, "demo", "!!not-base32!!", null)));
+        Assert.Equal(
+            (int)ApiErrorCode.ValidationFailed,
+            await IdentityTestHelpers.ReadErrorCodeAsync(badMachine, HttpStatusCode.BadRequest));
+
+        var emptyGuid = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post,
+            "/api/v1/admin/identity/singlekeys",
+            admin,
+            new IssueSingleLoginKeyRequest(null, null, "demo", null, Guid.Empty)));
+        Assert.Equal(
+            (int)ApiErrorCode.ValidationFailed,
+            await IdentityTestHelpers.ReadErrorCodeAsync(emptyGuid, HttpStatusCode.BadRequest));
+    }
+
+    [Fact]
     public async Task 十六个并发兑换只有一个成功()
     {
         using var client = _factory.CreateClient();
@@ -637,13 +698,15 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         string token,
         int? durationMinutes = null,
         string? fingerprint = null,
-        string appKey = "demo")
+        string appKey = "demo",
+        string? machineCode = null,
+        Guid? installGuid = null)
     {
         var response = await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Post,
             "/api/v1/admin/identity/singlekeys",
             token,
-            new IssueSingleLoginKeyRequest(durationMinutes, fingerprint, appKey)));
+            new IssueSingleLoginKeyRequest(durationMinutes, fingerprint, appKey, machineCode, installGuid)));
         return await IdentityTestHelpers.ReadDataAsync<SingleLoginKeyDto>(response);
     }
 

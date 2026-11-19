@@ -132,12 +132,12 @@ var offline = LicenseVerifier.VerifyOfflineCode(code, machineCode, "erp-pro", "d
 ## 配置下发
 
 `GetBackupAsync` 读元数据，`ReadBackupContentAsync` 取 JSON 文本（≤64 KB 走内联，超过走流式）。
-回执 Ack 走 SignalR `/hubs/platform`，本包只负责拉取内容，不含 Hub 客户端。
+回执 Ack 走 SignalR `/hubs/devices`（`AcknowledgeConfigPush`），本包只负责拉取内容，不含 Hub 客户端。
 
 ## 不在此包里的东西
 
-- SignalR 实时通知（事件名取自 `PlatformHubEvents`：`QrLoginApproved`、`LicenseChanged`、
-  `ConfigPush`/`ConfigPushAck`、`ReleasePublished`、`DocumentChanged`）—— 这些只是提示，
+- SignalR 实时通知（事件名取自 `DeviceHubEvents`：`QrLoginApproved`、`LicenseChanged`、
+  `ConfigPush`、`ReleasePublished`、`DocumentChanged` 等）—— 这些只是提示，
   客户端必须以轮询或状态接口为准，断线不影响正确性；
 - 幂等键（`Idempotency-Key`）—— 只用于创建类端点，桌面端一般不需要，需要时自行拼 `HttpRequestMessage`；
 - 管理端端点（`/api/v1/admin/*`）—— 那是管理台（Web）的职责。

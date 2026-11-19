@@ -8,6 +8,7 @@ using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Modules;
 using Platform.Modules.Devices.Endpoints;
+using Platform.Modules.Devices.Hubs;
 using Platform.Modules.Devices.Options;
 using Platform.Modules.Devices.Persistence;
 using Platform.Modules.Devices.Services;
@@ -47,14 +48,17 @@ public sealed class DevicesModule : IPlatformModule
 
         services.AddScoped<IInstallationRegistry, InstallationRegistry>();
         services.AddScoped<IInstallationPresence, InstallationPresence>();
+        services.AddScoped<IInstallationStateNotifier, InstallationStateNotifier>();
         services.AddScoped<INodeAdmin, NodeAdmin>();
         services.AddScoped<IInstallationAdmin, InstallationAdmin>();
         services.AddScoped<IInstallationDirectory, InstallationDirectory>();
         services.AddScoped<IDeviceNodeDirectory, DeviceNodeDirectory>();
         services.AddScoped<IInstallationCommandGateway, InstallationCommandGateway>();
+        services.AddScoped<IInstallationEventRouter, InstallationEventRouter>();
         services.AddScoped<IInventoryStatistics, InventoryStatisticsService>();
         services.AddSingleton<InstallationConnectionRegistry>();
         services.AddSingleton<IInstallationCommandAcks, InstallationCommandAcks>();
+        services.AddSingleton<DeviceHubGuardFilter>();
 
         services.TryAddEnumerable(
             ServiceDescriptor.Scoped<IPlatformModelContributor, DevicesModelContributor>());

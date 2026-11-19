@@ -151,7 +151,8 @@ export function PackageUploadModal({
     enabled: result !== null && (result.status === 'pending' || result.status === 'processing'),
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status === 'pending' || status === 'processing' ? 3000 : false;
+      // 摄取进度事件会推；这里只留 60s 兜底。
+      return status === 'pending' || status === 'processing' ? 60_000 : false;
     },
   });
   const current = polling.data ?? result;

@@ -83,7 +83,7 @@ dotnet pack src/Platform.Contracts/Platform.Contracts.csproj -c Release \
 | 错误码分段枚举 | `ApiErrorCode`（0–99 通用 / 100 身份 / 200 版本 / 300 授权 / 400 备份 / 500 文档 / 600 应用 / 700 Webhook / 800 设备） |
 | 统一返回信封 | `ApiResult` / `ApiResult<T>` |
 | 权限码目录 | `PermissionCatalog`（平台权限，含 `Wildcard`）、`PermissionDescriptor`；客户端权限由各应用通过权限清单自行声明 |
-| SignalR 契约 | `PlatformHubPaths.Root = "/hubs/platform"`、`DeviceHubPaths.Root = "/hubs/devices"`、分组 `app:{appKey}` / `installation:{installationId}` / `node:{nodeId}`、方法名 `RegisterInstallation` / `Heartbeat` / `ReportStationState` / `AcknowledgeConfigPush`、事件名 `LicenseChanged` / `ConfigPush` / `ConfigPushAck` / `QrLoginApproved` / `ReleasePublished` / `DocumentChanged` / `Restart` / `SessionReplaced` 及通知记录类型 |
+| SignalR 契约 | `DeviceHubPaths.Root = "/hubs/devices"`、`AdminHubPaths.Root = "/hubs/admin"`、分组 `app:{appKey}` / `installation:{installationId}` / `node:{nodeId}` / `domain:{域}`、方法名 `RegisterInstallation` / `Heartbeat` / `ReportStationState` / `AcknowledgeConfigPush` / `Touch`、事件名 `LicenseChanged` / `ConfigPush` / `QrLoginApproved` / `ReleasePublished` / `DocumentChanged` / `PermissionManifestChanged` / `InstallationDisabled` / `NodeDisabled` / `UserSessionRevoked` / `Restart` / `SessionReplaced` 及通知记录类型 |
 | 设备身份 | `DeviceIdentityHasher`（稳定键/机器码，客户端与服务端必须同结果）、`DeviceNaming` 与状态词表 |
 | 分页 | `PageQuery` / `PageResult<T>` |
 | 约定与常量 | `PlatformConventions`（路由前缀、头名、声明名、认证方案名）、`PlatformModuleKeys`、`PlatformRoutes` |
@@ -162,6 +162,12 @@ curl -s http://localhost:5080/api/v1/webhooks/info        # 单模块自述（�
 手动锁定。锁定/解锁都要求 `apps.permissions.manage`（内置 `platform-admin`、`app-admin`
 与 `engineer` 角色持有）。登录响应 `user.permissionsLocked` 与 M2M 换令牌响应
 `permissionsLocked` 会直接告知客户端当前状态，避免重复调用上传接口。
+
+**SignalR `PermissionManifestChanged` 只是提示，不是事实来源**：上述三类锁态变化——上传成功自动锁定、
+人工解锁、人工锁定——落库后经 `/hubs/devices` 向该应用全部注册连接广播
+`PermissionManifestChanged`（负载 `PermissionManifestChangedNotification{ appKey, locked, occurredAt }`）；
+重复解锁/已锁再锁等**无翻转**的操作不重发。客户端收到后在 0–5 秒随机抖动后强制换一次 M2M 令牌复核
+`permissionsLocked`（不能用缓存令牌短路），解锁则重新上报清单。推送失败只记日志，不影响已落库锁态。
 
 ---
 

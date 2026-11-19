@@ -12,7 +12,8 @@ namespace Platform.Modules.Identity.Services;
 /// <summary>用户会话上下文：令牌签发与登录响应共用同一份角色/权限/应用口径。</summary>
 /// <param name="Session">主体信息。</param>
 /// <param name="AppKey">本次令牌固定的应用上下文。</param>
-public sealed record UserSessionContext(UserSessionDto Session, string? AppKey);
+/// <param name="TokenEpoch">签发时的用户令牌代号（D7 epoch 守卫），写进令牌 <c>epoch</c> 声明。</param>
+public sealed record UserSessionContext(UserSessionDto Session, string? AppKey, int TokenEpoch);
 
 /// <summary>把用户当前的角色与权限解析成会话上下文。</summary>
 public interface IUserSessionFactory
@@ -143,7 +144,7 @@ public sealed class UserSessionFactory : IUserSessionFactory
             appKey,
             permissionsLocked);
 
-        return new UserSessionContext(session, appKey);
+        return new UserSessionContext(session, appKey, user.TokenEpoch);
     }
 
     private static bool IsPlatformScoped(Role role) =>

@@ -88,4 +88,42 @@ public sealed class InstallationConnectionRegistryTests
         Assert.True(registry.HasConnection(installationId));
         Assert.False(registry.TryGet("conn-old", out _));
     }
+
+    [Fact]
+    public void 应用连接数按应用隔离且顶替后旧连接不再计数()
+    {
+        var registry = new InstallationConnectionRegistry();
+        var installationId = Guid.NewGuid();
+
+        registry.Register("app-a", installationId, NodeId, Guid.NewGuid(), "conn-old");
+        registry.Register("app-b", Guid.NewGuid(), NodeId, Guid.NewGuid(), "conn-b");
+        Assert.Equal(1, registry.CountAppConnections("app-a"));
+        Assert.Equal(1, registry.CountAppConnections("app-b"));
+        Assert.Equal(0, registry.CountAppConnections("app-c"));
+
+        registry.Register("app-a", installationId, NodeId, Guid.NewGuid(), "conn-new");
+        registry.Unregister("conn-old");
+        Assert.Equal(1, registry.CountAppConnections("app-a"));
+    }
+
+    [Fact]
+    public void 按机器与安装Guid定位安装实例且跨应用不误配()
+    {
+        var registry = new InstallationConnectionRegistry();
+        var installationId = Guid.NewGuid();
+        var installGuid = Guid.NewGuid();
+        var otherAppInstallation = Guid.NewGuid();
+
+        registry.Register("app-a", installationId, NodeId, installGuid, "conn-a");
+        registry.Register("app-b", otherAppInstallation, NodeId, installGuid, "conn-b");
+
+        var machineIds = registry.GetMachineInstallationIds("app-a", NodeId);
+        Assert.Equal([installationId], machineIds);
+        Assert.Empty(registry.GetMachineInstallationIds("app-a", Guid.NewGuid()));
+
+        Assert.True(registry.TryGetInstallationByGuid("app-a", installGuid, out var resolved));
+        Assert.Equal(installationId, resolved);
+        Assert.False(registry.TryGetInstallationByGuid("app-c", installGuid, out _));
+        Assert.False(registry.TryGetInstallationByGuid("app-a", Guid.NewGuid(), out _));
+    }
 }

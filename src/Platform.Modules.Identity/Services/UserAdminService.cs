@@ -49,6 +49,7 @@ public sealed partial class UserAdminService : IUserAdminService
     private readonly PlatformDbContext _db;
     private readonly IPasswordHasher _hasher;
     private readonly IRefreshTokenService _refreshTokens;
+    private readonly ISessionRevocationNotifier _push;
     private readonly IClock _clock;
 
     /// <summary>构造。</summary>
@@ -56,11 +57,13 @@ public sealed partial class UserAdminService : IUserAdminService
         PlatformDbContext db,
         IPasswordHasher hasher,
         IRefreshTokenService refreshTokens,
+        ISessionRevocationNotifier push,
         IClock clock)
     {
         _db = db;
         _hasher = hasher;
         _refreshTokens = refreshTokens;
+        _push = push;
         _clock = clock;
     }
 
@@ -228,10 +231,18 @@ public sealed partial class UserAdminService : IUserAdminService
         user.MustChangePassword = request.RequireChange;
         await _db.SaveChangesAsync(cancellationToken);
 
-        return await _refreshTokens.RevokeAllAsync(
+        // 吊销会清掉活跃行，先抓设备归属再推 UserSessionRevoked。
+        var targets = await _push.CaptureUserTargetsAsync(user.Id, cancellationToken);
+        var revoked = await _refreshTokens.RevokeAllAsync(
             user.Id,
             RefreshTokenRevokeReasons.PasswordChanged,
             cancellationToken);
+        if (revoked > 0)
+        {
+            await _push.NotifyAsync(user.Id, RefreshTokenRevokeReasons.PasswordChanged, targets, userWide: true, cancellationToken);
+        }
+
+        return revoked;
     }
 
     private async Task<User> LoadAsync(Guid id, CancellationToken cancellationToken) =>

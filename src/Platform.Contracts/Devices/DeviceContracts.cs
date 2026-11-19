@@ -380,6 +380,9 @@ public static class DeviceHubPaths
 
     /// <summary>节点分组：节点级重启等命令发给该节点全部安装实例。</summary>
     public static string NodeGroup(Guid nodeId) => $"node:{nodeId:D}";
+
+    /// <summary>应用分组：应用级广播（版本发布/文档/权限清单/配置广播）发给该应用全部注册连接。</summary>
+    public static string AppGroup(string appKey) => $"app:{appKey}";
 }
 
 /// <summary>设备 Hub 客户端 → 服务端方法名。</summary>
@@ -410,6 +413,27 @@ public static class DeviceHubEvents
     /// <summary>连接被顶替。</summary>
     public const string SessionReplaced = "SessionReplaced";
 
-    /// <summary>安装实例状态变更提示（可选订阅）。</summary>
-    public const string StateChanged = "StateChanged";
+    /// <summary>授权状态变化（吊销/续期/签发）。负载 <see cref="LicenseChangedNotification"/>，定向 installation 组。</summary>
+    public const string LicenseChanged = "LicenseChanged";
+
+    /// <summary>版本已发布。负载 <see cref="ReleasePublishedNotification"/>，应用组广播。</summary>
+    public const string ReleasePublished = "ReleasePublished";
+
+    /// <summary>文档集合有变更。负载 <see cref="DocumentChangedNotification"/>，应用组广播。</summary>
+    public const string DocumentChanged = "DocumentChanged";
+
+    /// <summary>应用权限清单变更。负载 <see cref="PermissionManifestChangedNotification"/>，应用组广播。</summary>
+    public const string PermissionManifestChanged = "PermissionManifestChanged";
+
+    /// <summary>安装实例被停用。负载 <see cref="InstallationDisabledNotification"/>，随后服务端强制断线。</summary>
+    public const string InstallationDisabled = "InstallationDisabled";
+
+    /// <summary>物理节点被停用。负载 <see cref="NodeDisabledNotification"/>，节点组广播。</summary>
+    public const string NodeDisabled = "NodeDisabled";
+
+    /// <summary>用户会话被吊销。负载 <see cref="UserSessionRevokedNotification"/>。</summary>
+    public const string UserSessionRevoked = "UserSessionRevoked";
+
+    /// <summary>扫码登录审批结果。负载见 Identity 契约 <c>QrLoginApprovedNotification</c>，定向 installation 组。</summary>
+    public const string QrLoginApproved = "QrLoginApproved";
 }

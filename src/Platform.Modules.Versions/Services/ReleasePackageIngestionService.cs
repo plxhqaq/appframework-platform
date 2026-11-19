@@ -69,6 +69,7 @@ public sealed partial class ReleasePackageIngestionService : IReleasePackageInge
     private readonly IStorageCapacity _capacity;
     private readonly IClock _clock;
     private readonly IPlatformEventPublisher _events;
+    private readonly IVersionEventsPublisher _versionEvents;
     private readonly VersionsOptions _options;
     private readonly ILogger<ReleasePackageIngestionService> _logger;
     private readonly PlatformMetrics _metrics;
@@ -81,6 +82,7 @@ public sealed partial class ReleasePackageIngestionService : IReleasePackageInge
         IStorageCapacity capacity,
         IClock clock,
         IPlatformEventPublisher events,
+        IVersionEventsPublisher versionEvents,
         IOptions<VersionsOptions> options,
         ILogger<ReleasePackageIngestionService> logger,
         PlatformMetrics metrics)
@@ -90,6 +92,7 @@ public sealed partial class ReleasePackageIngestionService : IReleasePackageInge
         _capacity = capacity;
         _clock = clock;
         _events = events;
+        _versionEvents = versionEvents;
         _options = options.Value;
         _logger = logger;
         _metrics = metrics;
@@ -202,6 +205,9 @@ public sealed partial class ReleasePackageIngestionService : IReleasePackageInge
             .ThenInclude(static x => x.Files)
             .FirstAsync(x => x.Id == claimedId.Value, cancellationToken);
 
+        await _versionEvents.IngestionProgressAsync(
+            package.AppKey, package.Id, VersionConventions.PackageStatusProcessing, 0.0, cancellationToken);
+
         var started = Stopwatch.GetTimestamp();
         try
         {
@@ -213,6 +219,8 @@ public sealed partial class ReleasePackageIngestionService : IReleasePackageInge
             }
 
             LogIngested(_logger, package.Id, package.Release.AppKey, package.Release.Version, package.FileCount ?? 0);
+            await _versionEvents.IngestionProgressAsync(
+                package.AppKey, package.Id, VersionConventions.PackageStatusReady, 1.0, cancellationToken);
             return ReleasePackageService.ToDto(
                 package, package.Release.Channel.Key, package.Release.Version, reused: false);
         }
@@ -223,7 +231,10 @@ public sealed partial class ReleasePackageIngestionService : IReleasePackageInge
                 Stopwatch.GetElapsedTime(started).TotalSeconds,
                 null);
             await MarkFailureAsync(package.Id, failure, cancellationToken);
-            return await ReloadDtoAsync(package.Id, cancellationToken);
+            var retryDto = await ReloadDtoAsync(package.Id, cancellationToken);
+            await _versionEvents.IngestionProgressAsync(
+                package.AppKey, package.Id, retryDto.Status, 0.0, cancellationToken);
+            return retryDto;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -242,7 +253,10 @@ public sealed partial class ReleasePackageIngestionService : IReleasePackageInge
                     $"摄取异常：{exception.Message}",
                     retryable: true),
                 CancellationToken.None);
-            return await ReloadDtoAsync(package.Id, CancellationToken.None);
+            var failedDto = await ReloadDtoAsync(package.Id, CancellationToken.None);
+            await _versionEvents.IngestionProgressAsync(
+                package.AppKey, package.Id, failedDto.Status, 0.0, CancellationToken.None);
+            return failedDto;
         }
     }
 
@@ -787,20 +801,26 @@ public sealed partial class ReleasePackageIngestionService : IReleasePackageInge
             package, package.Release.Channel.Key, package.Release.Version, reused: false);
     }
 
-    private Task PublishReleasedAsync(ReleasePackage package, CancellationToken cancellationToken) =>
-        _events.PublishAsync(
+    private async Task PublishReleasedAsync(ReleasePackage package, CancellationToken cancellationToken)
+    {
+        var channelKey = package.Release.Channel.Key;
+        var version = package.Release.Version;
+        await _events.PublishAsync(
             new PlatformEvent(
                 WebhookConventions.EventVersionReleased,
                 package.AppKey,
                 new
                 {
                     releaseId = package.Release.Id,
-                    channelKey = package.Release.Channel.Key,
-                    version = package.Release.Version,
+                    channelKey,
+                    version,
                     publishedAt = package.Release.PublishedAt,
                 },
                 _clock.UtcNow),
             cancellationToken);
+
+        await _versionEvents.ReleasePublishedAsync(package.AppKey, channelKey, version, cancellationToken);
+    }
 
     private void RecordIngest(string result, double seconds, int? fileCount)
     {

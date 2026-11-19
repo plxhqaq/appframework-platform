@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -9,7 +8,6 @@ using Platform.Contracts.Identity;
 using Platform.Infrastructure.Persistence;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
-using Platform.Kernel.Hubs;
 using Platform.Modules.Identity.Domain;
 using Platform.Modules.Identity.Options;
 
@@ -78,17 +76,19 @@ public sealed class QrLoginService : IQrLoginService
 
     private readonly PlatformDbContext _db;
     private readonly ITemporarySessionFactory _temporary;
-    private readonly IHubContext<PlatformHub> _hub;
+    private readonly IInstallationEventRouter? _router;
+    private readonly IAdminEventPublisher _adminEvents;
     private readonly IAppDirectory _apps;
     private readonly IClock _clock;
     private readonly QrLoginOptions _options;
     private readonly ILogger<QrLoginService> _logger;
 
-    /// <summary>构造。</summary>
+    /// <summary>构造。事件路由可选：Devices 模块缺席时客户端只能靠轮询领取审批结果。</summary>
     public QrLoginService(
         PlatformDbContext db,
         ITemporarySessionFactory temporary,
-        IHubContext<PlatformHub> hub,
+        IEnumerable<IInstallationEventRouter> routers,
+        IAdminEventPublisher adminEvents,
         IAppDirectory apps,
         IClock clock,
         IOptions<QrLoginOptions> options,
@@ -96,7 +96,8 @@ public sealed class QrLoginService : IQrLoginService
     {
         _db = db;
         _temporary = temporary;
-        _hub = hub;
+        _router = routers.FirstOrDefault();
+        _adminEvents = adminEvents;
         _apps = apps;
         _clock = clock;
         _options = options.Value;
@@ -144,6 +145,7 @@ public sealed class QrLoginService : IQrLoginService
 
         _db.Set<QrLoginSession>().Add(session);
         await _db.SaveChangesAsync(cancellationToken);
+        await NotifyAdminAsync(appKey, session.Id, QrLoginStatuses.Pending);
 
         return new QrSessionCreatedDto(
             session.Id,
@@ -277,7 +279,7 @@ public sealed class QrLoginService : IQrLoginService
             await ApproveInMemoryAsync(requestId, now, approvedBy, approvedName, temporary, cancellationToken);
         }
 
-        await NotifyAsync(requestId, approved: true);
+        await NotifyAsync(session, approved: true);
 
         return new QrSessionSummaryDto(
             session.Id,
@@ -329,7 +331,7 @@ public sealed class QrLoginService : IQrLoginService
             await RejectInMemoryAsync(requestId, now, approvedBy, approvedName, cancellationToken);
         }
 
-        await NotifyAsync(requestId, approved: false);
+        await NotifyAsync(session, approved: false);
 
         return new QrSessionSummaryDto(
             session.Id,
@@ -375,6 +377,9 @@ public sealed class QrLoginService : IQrLoginService
                           .AsNoTracking()
                           .FirstOrDefaultAsync(x => x.Id == requestId, cancellationToken)
                       ?? throw SessionNotFound(requestId);
+
+        // 取消并发时以已落库状态为准；提示事件按读回状态发，管理台回拉自然收敛。
+        await NotifyAdminAsync(session.AppKey, session.Id, ResolveStatus(session, now));
 
         return new QrSessionStatusDto(
             session.Id,
@@ -524,19 +529,53 @@ public sealed class QrLoginService : IQrLoginService
         }
     }
 
-    private async Task NotifyAsync(Guid requestId, bool approved)
+    /// <summary>审批结果通知：定向到发起会话的安装实例（优先 installGuid，退而机器码），并向管理台广播会话状态。</summary>
+    private async Task NotifyAsync(QrLoginSession session, bool approved)
     {
         try
         {
-            await _hub.Clients.All.SendAsync(
-                PlatformHubEvents.QrLoginApproved,
-                new QrLoginApprovedNotification(requestId, approved),
-                CancellationToken.None);
+            if (_router is not null)
+            {
+                var payload = new QrLoginApprovedNotification(session.Id, approved);
+                if (session.InstallGuid is { } installGuid)
+                {
+                    await _router.ToInstallGuidAsync(
+                        session.AppKey, installGuid, DeviceHubEvents.QrLoginApproved, payload, CancellationToken.None);
+                }
+                else if (!string.IsNullOrWhiteSpace(session.MachineCode))
+                {
+                    await _router.ToMachineAsync(
+                        session.AppKey, session.MachineCode, DeviceHubEvents.QrLoginApproved, payload, CancellationToken.None);
+                }
+            }
+
+            await NotifyAdminAsync(
+                session.AppKey,
+                session.Id,
+                approved ? QrLoginStatuses.Approved : QrLoginStatuses.Rejected);
         }
         catch (Exception exception)
         {
             // 推送只是提示；失败不能影响已经落库的审批结果。
-            NotifyFailedLog(_logger, requestId, exception);
+            NotifyFailedLog(_logger, session.Id, exception);
+        }
+    }
+
+    /// <summary>管理台会话状态提示：identity 域 QrSessionChanged（创建/审批/拒绝/取消都走这里）。</summary>
+    private async Task NotifyAdminAsync(string appKey, Guid sessionId, string status)
+    {
+        try
+        {
+            await _adminEvents.PublishAsync(
+                AdminHubDomains.Identity,
+                AdminHubEvents.QrSessionChanged,
+                new AdminQrSessionChangedNotification(appKey, sessionId, status, _clock.UtcNow),
+                CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            // 推送只是提示；失败不能影响已经落库的会话状态。
+            NotifyFailedLog(_logger, sessionId, exception);
         }
     }
 

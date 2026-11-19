@@ -33,6 +33,7 @@ public sealed class InstallationRegistry : IInstallationRegistry
     private readonly PlatformDbContext _db;
     private readonly IClock _clock;
     private readonly DevicesOptions _options;
+    private readonly IInstallationStateNotifier _states;
     private readonly ILogger<InstallationRegistry> _logger;
 
     /// <summary>构造。</summary>
@@ -40,11 +41,13 @@ public sealed class InstallationRegistry : IInstallationRegistry
         PlatformDbContext db,
         IClock clock,
         IOptions<DevicesOptions> options,
+        IInstallationStateNotifier states,
         ILogger<InstallationRegistry> logger)
     {
         _db = db;
         _clock = clock;
         _options = options.Value;
+        _states = states;
         _logger = logger;
     }
 
@@ -94,18 +97,29 @@ public sealed class InstallationRegistry : IInstallationRegistry
         var now = _clock.UtcNow;
         DeviceNode node;
         DeviceInstallation installation;
+        InstallationStateSnapshot? reconnectPrevious = null;
         for (int attempt = 0; ; attempt++)
         {
+            reconnectPrevious = null;
             node = await _db.Set<DeviceNode>()
                 .FirstOrDefaultAsync(x => x.MachineCode == machineCode, cancellationToken)
                 ?? CreateNode(machineCode, machineName, ipAddress, now);
             EnsureNodeEnabled(node);
             ApplyNodeConnection(node, machineName, ipAddress, now);
 
-            installation = await _db.Set<DeviceInstallation>()
+            var existing = await _db.Set<DeviceInstallation>()
                 .FirstOrDefaultAsync(
                     x => x.AppKey == appKey && x.InstallGuid == identity.InstallGuid,
-                    cancellationToken)
+                    cancellationToken);
+            if (existing is not null)
+            {
+                // 注册即上线是唯一不经过 InstallationPresence 的状态跃迁（重连 ≤5s 可见的唯一触发点）；
+                // 新建行不发事件——管理台列表回拉自然出现。
+                reconnectPrevious = new InstallationStateSnapshot(
+                    existing.OnlineStatus, existing.StationStatus, existing.AlarmLevel);
+            }
+
+            installation = existing
                 ?? CreateInstallation(appKey, identity.InstallGuid, node, clientName, now);
             EnsureInstallationEnabled(installation);
             ApplyInstallationConnection(
@@ -121,6 +135,18 @@ public sealed class InstallationRegistry : IInstallationRegistry
                 // 并发首次注册：唯一索引兜底，清掉跟踪后按两条唯一键重新走 upsert（最多重试两次）。
                 _db.ChangeTracker.Clear();
             }
+        }
+
+        if (reconnectPrevious is not null)
+        {
+            await _states.NotifyAsync(
+                appKey,
+                installation.Id,
+                installation.NodeId,
+                reconnectPrevious,
+                new InstallationStateSnapshot(
+                    installation.OnlineStatus, installation.StationStatus, installation.AlarmLevel),
+                cancellationToken);
         }
 
         RegisteredLog(_logger, DeviceIdentityHasher.ShortId(installation.Id), appKey, false, null);

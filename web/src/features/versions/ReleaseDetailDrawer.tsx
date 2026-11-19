@@ -57,7 +57,7 @@ export function ReleaseDetailDrawer({
     refetchInterval: (query) => {
       const packages = query.state.data?.packages ?? [];
       return packages.some((pkg) => pkg.status === 'pending' || pkg.status === 'processing')
-        ? 3000
+        ? 60_000
         : false;
     },
   });

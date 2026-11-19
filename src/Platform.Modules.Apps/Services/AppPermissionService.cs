@@ -1,7 +1,9 @@
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Platform.Contracts;
 using Platform.Contracts.Apps;
+using Platform.Contracts.Devices;
 using Platform.Contracts.Permissions;
 using Platform.Kernel.Abstractions;
 using Platform.Kernel.Errors;
@@ -39,11 +41,28 @@ public sealed partial class AppPermissionService : IAppPermissionService
     private const string DefaultGroup = "app";
 
     private readonly PlatformDbContext _db;
+    private readonly IClock _clock;
+    private readonly IInstallationEventRouter? _router;
+    private readonly ILogger<AppPermissionService> _logger;
+
+    private static readonly Action<ILogger, string, Exception?> ManifestPushFailedLog =
+        LoggerMessage.Define<string>(
+            LogLevel.Warning,
+            new EventId(1, "PermissionManifestPushFailed"),
+            "权限清单变更提示推送失败（清单结果不受影响）：应用 {AppKey}。");
 
     /// <summary>构造。</summary>
-    public AppPermissionService(PlatformDbContext db)
+    public AppPermissionService(
+        PlatformDbContext db,
+        IClock clock,
+        IEnumerable<IInstallationEventRouter> routers,
+        ILogger<AppPermissionService> logger)
     {
+        ArgumentNullException.ThrowIfNull(routers);
         _db = db;
+        _clock = clock;
+        _router = routers.FirstOrDefault();
+        _logger = logger;
     }
 
     [GeneratedRegex(AppConventions.AppPermissionCodePattern, RegexOptions.CultureInvariant)]
@@ -143,6 +162,7 @@ public sealed partial class AppPermissionService : IAppPermissionService
         SyncPresets(app, presets);
         app.PermissionsLocked = true;
         await _db.SaveChangesAsync(cancellationToken);
+        await NotifyManifestChangedAsync(normalizedKey, locked: true, cancellationToken);
 
         return ToManifest(app);
     }
@@ -163,6 +183,7 @@ public sealed partial class AppPermissionService : IAppPermissionService
         {
             app.PermissionsLocked = false;
             await _db.SaveChangesAsync(cancellationToken);
+            await NotifyManifestChangedAsync(normalizedKey, locked: false, cancellationToken);
         }
 
         return ToManifest(app);
@@ -184,9 +205,32 @@ public sealed partial class AppPermissionService : IAppPermissionService
         {
             app.PermissionsLocked = true;
             await _db.SaveChangesAsync(cancellationToken);
+            await NotifyManifestChangedAsync(normalizedKey, locked: true, cancellationToken);
         }
 
         return ToManifest(app);
+    }
+
+    /// <summary>清单变更提示：app 组广播，客户端回拉权限清单核对；推送失败不影响已落库清单。</summary>
+    private async Task NotifyManifestChangedAsync(string appKey, bool locked, CancellationToken cancellationToken)
+    {
+        if (_router is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _router.ToAppAsync(
+                appKey,
+                DeviceHubEvents.PermissionManifestChanged,
+                new PermissionManifestChangedNotification(appKey, locked, _clock.UtcNow),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            ManifestPushFailedLog(_logger, appKey, exception);
+        }
     }
 
     private async Task<App> LoadAppAsync(string appKey, CancellationToken cancellationToken)

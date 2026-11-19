@@ -26,6 +26,12 @@ public sealed class User : IAuditableEntity
     /// <summary>是否强制下次登录修改口令。</summary>
     public bool MustChangePassword { get; set; }
 
+    /// <summary>
+    /// 令牌代号（D7 epoch 守卫）：会话吊销/重置口令/改密时递增；
+    /// 访问令牌 <c>epoch</c> 声明落后于此值即被守卫吊销（≤30s 缓存窗口内全路径失效）。
+    /// </summary>
+    public int TokenEpoch { get; set; }
+
     /// <summary>最后登录时间。</summary>
     public DateTimeOffset? LastLoginAt { get; set; }
 
@@ -192,6 +198,12 @@ public sealed class SingleLoginKey : IAuditableEntity
 
     /// <summary>绑定设备指纹；为空表示不限制设备。</summary>
     public string? DeviceFingerprint { get; set; }
+
+    /// <summary>绑定节点机器码（管理台按节点/实例选择回填）；为空表示不绑定节点。</summary>
+    public string? BoundMachineCode { get; set; }
+
+    /// <summary>绑定安装实例标识；为空表示不绑定实例。</summary>
+    public Guid? BoundInstallGuid { get; set; }
 
     /// <summary>签发人。</summary>
     public Guid CreatedBy { get; set; }
