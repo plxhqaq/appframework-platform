@@ -3,6 +3,7 @@ import {
   buildRegisterRequest,
   guessPackageFormat,
   manifestSourceLabel,
+  mediaVersionLabel,
   packageKindMeta,
   packageStatusMeta,
 } from './packageUi';
@@ -34,6 +35,12 @@ describe('发布包展示口径', () => {
     expect(guessPackageFormat('update.zip')).toBe('zip');
     expect(guessPackageFormat('archive.tar.gz')).toBeNull();
     expect(guessPackageFormat('noext')).toBeNull();
+  });
+
+  it('af-media 无版本时展示「未版本化」，有版本原样展示', () => {
+    expect(mediaVersionLabel('')).toBe('未版本化');
+    expect(mediaVersionLabel(null)).toBe('未版本化');
+    expect(mediaVersionLabel('1.2.3')).toBe('1.2.3');
   });
 
   it('登记请求只声明字节与旁挂清单，且永远不进发布态', () => {

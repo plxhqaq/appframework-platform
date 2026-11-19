@@ -15,6 +15,7 @@ import { formatBytes, formatDateTime } from '../../shared/format';
 import { responsivePagination, responsiveWidth } from '../../shared/responsive';
 import { useResponsive } from '../../shared/useResponsive';
 import { manifestSourceLabel, packageKindMeta, packageStatusMeta } from './packageUi';
+import { BundleDownloadModal } from './BundleDownloadModal';
 import { ReleasePublishModal } from './ReleasePublishModal';
 
 interface ReleaseDetailDrawerProps {
@@ -48,6 +49,7 @@ export function ReleaseDetailDrawer({
   const queryClient = useQueryClient();
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [reviewMode, setReviewMode] = useState<'publish' | 'edit' | null>(null);
+  const [bundlePkg, setBundlePkg] = useState<ReleasePackage | null>(null);
 
   const detail = useQuery({
     queryKey: ['versions', 'release', releaseId],
@@ -148,6 +150,7 @@ export function ReleaseDetailDrawer({
       title={release ? tr("版本 {{arg0}}", { arg0: release.version }) : tr("版本详情")}
       onClose={() => {
         setReviewMode(null);
+        setBundlePkg(null);
         onClose();
       }}
       styles={{ body: { padding: isMobile ? 12 : 24 } }}
@@ -340,7 +343,7 @@ export function ReleaseDetailDrawer({
               {
                 title: tr("操作"),
                 key: 'actions',
-                width: 240,
+                width: 300,
                 fixed: 'right',
                 render: (_: unknown, row) => (
                   <Space size="small">
@@ -365,6 +368,10 @@ export function ReleaseDetailDrawer({
                         onClick={() => void downloadPackage(row)}
                       >
                         {tr("下载")}</Button>
+                    ) : null}
+                    {canDownload && row.kind === 'full' && row.status === 'ready' ? (
+                      <Button type="link" size="small" onClick={() => setBundlePkg(row)}>
+                        {tr("下载完整包")}</Button>
                     ) : null}
                     {canUpload && row.kind === 'incremental' && row.status === 'failed' ? (
                       <Button
@@ -462,6 +469,8 @@ export function ReleaseDetailDrawer({
           onChanged={onChanged}
         />
       ) : null}
+
+      <BundleDownloadModal releasePackage={bundlePkg} onClose={() => setBundlePkg(null)} />
     </Drawer>
   );
 }

@@ -41,6 +41,11 @@ export function manifestSourceLabel(source: string): string {
   return MANIFEST_SOURCE_LABEL[source as PackageManifestSource] ?? source;
 }
 
+/** af-media/1 不带版本时服务端存空串；展示口径统一给「未版本化」，避免消息里出现「key/」尾巴。 */
+export function mediaVersionLabel(version: string | null | undefined): string {
+  return version && version.length > 0 ? version : tr("未版本化");
+}
+
 const KNOWN_FORMATS = ['exe', 'msi', 'msp', 'zip', '7z', 'bin'] as const;
 
 /** 按扩展名推断包格式；服务端仍会独立校验，这里只用于表单预览。 */

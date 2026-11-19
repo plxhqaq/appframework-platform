@@ -569,6 +569,21 @@ export interface ReleasePackage {
   completedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  /** 全量包清单声明的驱动媒体需求；无声明为 null（组合下载按此默认勾选）。 */
+  mediaRequirements?: PackageMediaRequirement[] | null;
+}
+
+/** 全量包声明的一项驱动媒体需求：组件 id + 安装器引用的 media 相对路径。 */
+export interface PackageMediaRequirement {
+  componentId: string;
+  paths: string[];
+}
+
+/** 申请「完整包」组合下载票据：全量包 + 选中媒体合成确定性 zip。 */
+export interface CreatePackageBundleRequest {
+  mediaIds: string[];
+  /** 缺包声明项时强行放行（服务端记审计 warning）。 */
+  allowMissing?: boolean;
 }
 
 /** 登记发布包；字节须先经上传票据直传。 */
@@ -584,6 +599,36 @@ export interface RegisterReleasePackageRequest {
   manifestSha256?: string | null;
   publish: boolean;
   notes?: string | null;
+}
+
+/** 驱动媒体包（一份组件媒体 = 一条登记；同 mediaKey 多版本共存，启用版本唯一）。 */
+export interface DriverMedia {
+  id: string;
+  mediaKey: string;
+  name: string;
+  version: string;
+  isActive: boolean;
+  fileName: string;
+  sha256: string;
+  sizeBytes: number;
+  fileCount: number;
+  manifestHash?: string | null;
+  installOrder: string[];
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** 登记时命中同内容复用标记（仅登记响应携带）。 */
+  reused?: boolean;
+}
+
+/** 登记驱动媒体包；内容须先经上传票据落盘。key/版本留空取包内 af-media.json。 */
+export interface RegisterDriverMediaRequest {
+  mediaKey?: string | null;
+  sha256: string;
+  sizeBytes: number;
+  fileName: string;
+  version?: string | null;
+  name?: string | null;
 }
 
 /** 更新器版本状态：published（客户端可见）/ archived（回退到上一版）。 */

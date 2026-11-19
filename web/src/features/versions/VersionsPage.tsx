@@ -23,6 +23,7 @@ import { responsivePagination } from '../../shared/responsive';
 import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
 import { ChannelFormModal } from './ChannelFormModal';
+import { DriverMediaPanel } from './DriverMediaPanel';
 import { PackageUploadModal } from './PackageUploadModal';
 import { ReleaseCreateModal } from './ReleaseCreateModal';
 import { ReleaseDetailDrawer } from './ReleaseDetailDrawer';
@@ -418,6 +419,13 @@ export function VersionsPage() {
           locale={{ emptyText: <Empty description={tr("尚无版本；上传文件后按清单创建版本")} /> }}
         />
       </Card>
+
+      <DriverMediaPanel
+        appKey={appKey}
+        canUpload={canUpload}
+        canDownload={canDownload}
+        canArchive={canArchive}
+      />
 
       <ChannelFormModal
         open={channelFormOpen}

@@ -1,11 +1,14 @@
 import { request, uploadWithProgress } from './client';
 import { idempotencyKey } from './idempotency';
 import type {
+  CreatePackageBundleRequest,
   CreateReleaseChannelRequest,
   CreateReleaseRequest,
   CreateUploadTicketRequest,
   DownloadTicket,
+  DriverMedia,
   PageResult,
+  RegisterDriverMediaRequest,
   RegisterReleasePackageRequest,
   RegisterUpdaterRequest,
   ReleaseChannel,
@@ -45,6 +48,13 @@ export interface UpdaterListQuery {
   pageSize?: number;
   target?: string;
   status?: string;
+}
+
+export interface DriverMediaListQuery {
+  page?: number;
+  pageSize?: number;
+  mediaKey?: string;
+  activeOnly?: boolean;
 }
 
 function toQueryString(params: Record<string, string | number | undefined>): string {
@@ -187,5 +197,47 @@ export const versionsApi = {
   createUpdaterDownloadTicket: (id: string) =>
     request<DownloadTicket>(`/api/v1/client/versions/updaters/${id}/download-ticket`, {
       method: 'POST',
+    }),
+
+  listMedia: (query: DriverMediaListQuery, signal?: AbortSignal) =>
+    request<PageResult<DriverMedia>>(
+      `/api/v1/admin/versions/media${toQueryString({
+        page: query.page,
+        pageSize: query.pageSize,
+        mediaKey: query.mediaKey,
+        activeOnly: query.activeOnly === undefined ? undefined : String(query.activeOnly),
+      })}`,
+      { signal },
+    ),
+
+  getMedia: (id: string, signal?: AbortSignal) =>
+    request<DriverMedia>(`/api/v1/admin/versions/media/${id}`, { signal }),
+
+  /** 登记驱动媒体包；内容须先经上传票据落盘。key/版本留空由服务端从包内 af-media.json 取。 */
+  registerMedia: (body: RegisterDriverMediaRequest) =>
+    request<DriverMedia>('/api/v1/admin/versions/media', {
+      method: 'POST',
+      body,
+      headers: { 'Idempotency-Key': idempotencyKey() },
+    }),
+
+  /** 启用该媒体版本（同 mediaKey 其余版本自动停用）。 */
+  activateMedia: (id: string) =>
+    request<DriverMedia>(`/api/v1/admin/versions/media/${id}/activate`, { method: 'POST' }),
+
+  deleteMedia: (id: string) =>
+    request<DriverMedia>(`/api/v1/admin/versions/media/${id}`, { method: 'DELETE' }),
+
+  /** 管理台下载单个媒体包：限时票据，浏览器原生下载。 */
+  createMediaDownloadTicket: (id: string) =>
+    request<DownloadTicket>(`/api/v1/client/versions/media/${id}/download-ticket`, {
+      method: 'POST',
+    }),
+
+  /** 完整包组合下载票据：全量包 + 所选媒体合成确定性 zip；首次组合服务端同步打包。 */
+  createBundleTicket: (packageId: string, body: CreatePackageBundleRequest) =>
+    request<DownloadTicket>(`/api/v1/client/versions/packages/${packageId}/bundle-ticket`, {
+      method: 'POST',
+      body,
     }),
 };
