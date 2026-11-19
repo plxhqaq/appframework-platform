@@ -44,6 +44,7 @@ public sealed class InstallationAdmin : IInstallationAdmin
 
     private readonly PlatformDbContext _db;
     private readonly InstallationConnectionRegistry _connections;
+    private readonly InstallationHeartbeatTracker _heartbeats;
     private readonly IInstallationEventRouter _events;
     private readonly ILogger<InstallationAdmin> _logger;
 
@@ -51,11 +52,13 @@ public sealed class InstallationAdmin : IInstallationAdmin
     public InstallationAdmin(
         PlatformDbContext db,
         InstallationConnectionRegistry connections,
+        InstallationHeartbeatTracker heartbeats,
         IInstallationEventRouter events,
         ILogger<InstallationAdmin> logger)
     {
         _db = db;
         _connections = connections;
+        _heartbeats = heartbeats;
         _events = events;
         _logger = logger;
     }
@@ -161,6 +164,8 @@ public sealed class InstallationAdmin : IInstallationAdmin
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        // 改名/停用都会使心跳缓存概要过期：失效后下一拍回源重播。
+        _heartbeats.Remove(installationId);
 
         // 停用：先推 InstallationDisabled（提示原因），再快照待踢标记；
         // 客户端下次上行（心跳 ≤10s）即被守卫断线，重连由注册路径 807 拒绝。

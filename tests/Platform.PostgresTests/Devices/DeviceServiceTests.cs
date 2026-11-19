@@ -37,11 +37,18 @@ public sealed class DeviceServiceTests
     private static InstallationRegistry Registry(PlatformDbContext db, IClock clock) =>
         new(db, clock, Options.Create(new DevicesOptions()), States(db, clock), NullLogger<InstallationRegistry>.Instance);
 
+    private static InstallationHeartbeatTracker Heartbeats(IClock clock) =>
+        new(clock, Options.Create(new DevicesOptions()));
+
     private static InstallationPresence Presence(PlatformDbContext db, IClock clock) =>
-        new(db, clock, Options.Create(new DevicesOptions()), States(db, clock), NullLogger<InstallationPresence>.Instance);
+        Presence(db, clock, Heartbeats(clock));
+
+    private static InstallationPresence Presence(
+        PlatformDbContext db, IClock clock, InstallationHeartbeatTracker tracker) =>
+        new(db, clock, Options.Create(new DevicesOptions()), States(db, clock), tracker, NullLogger<InstallationPresence>.Instance);
 
     private static InstallationAdmin Installations(PlatformDbContext db) =>
-        new(db, new InstallationConnectionRegistry(), new NoopEventRouter(), NullLogger<InstallationAdmin>.Instance);
+        new(db, new InstallationConnectionRegistry(), Heartbeats(new SystemClock()), new NoopEventRouter(), NullLogger<InstallationAdmin>.Instance);
 
     private static NodeAdmin Nodes(PlatformDbContext db) =>
         new(db, new InstallationConnectionRegistry(), new NoopEventRouter(), NullLogger<NodeAdmin>.Instance);
@@ -538,5 +545,109 @@ public sealed class DeviceServiceTests
         var primaryException = await Assert.ThrowsAsync<BusinessException>(() =>
             Registry(db, clock).RegisterAsync(NewAppKey(), noPrimary));
         Assert.Equal(ApiErrorCode.DevicesPrimaryIdentifierMissing, primaryException.Code);
+    }
+
+    [PostgresFact]
+    public async Task 心跳缓存命中零写库跃迁写穿与批量回写()
+    {
+        var connectionString = await PostgresTestEnvironment.GetConnectionStringAsync();
+        var clock = new MutableClock();
+        var tracker = Heartbeats(clock);
+        var appKey = NewAppKey();
+
+        Guid installationId;
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            installationId = (await Registry(db, clock).RegisterAsync(
+                appKey, Request("PRIMARY-CACHE", heartbeatSeconds: 10))).InstallationId;
+        }
+
+        // 第一拍：未命中回源，心跳时间落库。
+        var firstTs = clock.UtcNow;
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            var snapshot = await Presence(db, clock, tracker).HeartbeatAsync(
+                appKey, installationId, new DeviceHeartbeatRequest(DeviceHeartbeatStatuses.Online, DeviceAlarmLevels.None));
+            Assert.Equal(firstTs, snapshot.LastHeartbeatAt);
+        }
+
+        // 同值第二拍：命中缓存，返回时间前进但库里时间不更新（零写库）。
+        clock.UtcNow = firstTs.AddSeconds(10);
+        var secondTs = clock.UtcNow;
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            var snapshot = await Presence(db, clock, tracker).HeartbeatAsync(
+                appKey, installationId, new DeviceHeartbeatRequest(DeviceHeartbeatStatuses.Online, DeviceAlarmLevels.None));
+            Assert.Equal(secondTs, snapshot.LastHeartbeatAt);
+            var rowTs = await db.Set<DeviceInstallation>()
+                .AsNoTracking()
+                .Where(x => x.Id == installationId)
+                .Select(static x => x.LastHeartbeatAt)
+                .SingleAsync();
+            Assert.Equal(firstTs, rowTs);
+        }
+
+        // 批量回写：待写条目一次落库，再刷无内容。
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            Assert.Equal(1, await Presence(db, clock, tracker).FlushPendingHeartbeatsAsync());
+            Assert.Equal(0, await Presence(db, clock, tracker).FlushPendingHeartbeatsAsync());
+            var rowTs = await db.Set<DeviceInstallation>()
+                .AsNoTracking()
+                .Where(x => x.Id == installationId)
+                .Select(static x => x.LastHeartbeatAt)
+                .SingleAsync();
+            Assert.Equal(secondTs, rowTs);
+        }
+
+        // 跃迁第三拍：写穿即时落库（含时间），不再有待回写条目。
+        clock.UtcNow = secondTs.AddSeconds(10);
+        var thirdTs = clock.UtcNow;
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            var snapshot = await Presence(db, clock, tracker).HeartbeatAsync(
+                appKey,
+                installationId,
+                new DeviceHeartbeatRequest(DeviceHeartbeatStatuses.Idle, DeviceAlarmLevels.Warning, "液压欠压", clock.UtcNow));
+            Assert.Equal(DeviceStationStatuses.Idle, snapshot.StationStatus);
+            var row = await db.Set<DeviceInstallation>()
+                .AsNoTracking()
+                .SingleAsync(x => x.Id == installationId);
+            Assert.Equal(DeviceStationStatuses.Idle, row.StationStatus);
+            Assert.Equal(DeviceAlarmLevels.Warning, row.AlarmLevel);
+            Assert.Equal("液压欠压", row.AlarmMessage);
+            Assert.Equal(thirdTs, row.LastHeartbeatAt);
+            Assert.Equal(0, await Presence(db, clock, tracker).FlushPendingHeartbeatsAsync());
+        }
+
+        // 离线扫描按库内时间判定并使条目失效；下一拍回源重新上线，与改造前收敛语义一致。
+        // 共享测试库：扫描是全表的，只断言"本行被标离线"，不断言绝对计数。
+        clock.UtcNow = thirdTs.AddSeconds(61);
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            Assert.True(await Presence(db, clock, tracker).MarkOfflineAsync() >= 1);
+            var offline = await db.Set<DeviceInstallation>()
+                .AsNoTracking()
+                .SingleAsync(x => x.Id == installationId);
+            Assert.Equal(DeviceOnlineStatuses.Offline, offline.OnlineStatus);
+        }
+
+        await using (var db = PostgresTestEnvironment.CreateDbContext(connectionString, clock))
+        {
+            var onlineAgain = await Presence(db, clock, tracker).HeartbeatAsync(
+                appKey, installationId, new DeviceHeartbeatRequest(DeviceHeartbeatStatuses.Online, DeviceAlarmLevels.None));
+            Assert.Equal(DeviceOnlineStatuses.Online, onlineAgain.OnlineStatus);
+            var row = await db.Set<DeviceInstallation>()
+                .AsNoTracking()
+                .SingleAsync(x => x.Id == installationId);
+            Assert.Equal(DeviceOnlineStatuses.Online, row.OnlineStatus);
+            Assert.Equal(clock.UtcNow, row.LastHeartbeatAt);
+        }
+    }
+
+    /// <summary>可推进时钟：批量回写与离线阈值判定需要跨阈值的时间演进。</summary>
+    private sealed class MutableClock : IClock
+    {
+        public DateTimeOffset UtcNow { get; set; } = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
     }
 }

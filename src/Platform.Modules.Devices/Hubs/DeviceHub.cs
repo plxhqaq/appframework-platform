@@ -45,6 +45,7 @@ public sealed class DeviceHub : Hub
     private readonly IInstallationRegistry _registry;
     private readonly IInstallationPresence _presence;
     private readonly InstallationConnectionRegistry _connections;
+    private readonly InstallationHeartbeatTracker _heartbeats;
     private readonly IInstallationCommandAcks _acks;
     private readonly IPlatformPushCoordinator _broadcastAcks;
     private readonly IClock _clock;
@@ -55,6 +56,7 @@ public sealed class DeviceHub : Hub
         IInstallationRegistry registry,
         IInstallationPresence presence,
         InstallationConnectionRegistry connections,
+        InstallationHeartbeatTracker heartbeats,
         IInstallationCommandAcks acks,
         IPlatformPushCoordinator broadcastAcks,
         IClock clock,
@@ -63,6 +65,7 @@ public sealed class DeviceHub : Hub
         _registry = registry;
         _presence = presence;
         _connections = connections;
+        _heartbeats = heartbeats;
         _acks = acks;
         _broadcastAcks = broadcastAcks;
         _clock = clock;
@@ -103,6 +106,8 @@ public sealed class DeviceHub : Hub
         var appKey = RequireAppKey();
 
         var response = await _registry.RegisterAsync(appKey, request, Context.ConnectionAborted);
+        // 注册写库刷新了上线状态/名称等字段：失效心跳缓存条目，下一拍回源重播。
+        _heartbeats.Remove(response.InstallationId);
         var registration = _connections.Register(
             appKey,
             response.InstallationId,

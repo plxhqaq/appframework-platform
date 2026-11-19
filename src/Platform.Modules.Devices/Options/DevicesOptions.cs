@@ -22,4 +22,13 @@ public sealed class DevicesOptions
 
     /// <summary>是否启用后台离线扫描；集成测试可关闭以获得确定性。</summary>
     public bool OfflineScanEnabled { get; set; } = true;
+
+    /// <summary>心跳内存态批量回库周期（秒）：心跳时间只写内存，由回写循环按此周期单条 SQL 落库。</summary>
+    public int HeartbeatFlushSeconds { get; set; } = 30;
+
+    /// <summary>是否启用心跳批量回写；关闭时每次心跳逐条落库（回退旧行为，集成测试用）。</summary>
+    public bool HeartbeatFlushEnabled { get; set; } = true;
+
+    /// <summary>心跳缓存条目 TTL（秒）：超时后下次心跳回源查库重播（含启用位与显示名）；0 表示不过期。</summary>
+    public int HeartbeatCacheTtlSeconds { get; set; } = 600;
 }

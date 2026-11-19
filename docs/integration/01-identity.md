@@ -48,7 +48,7 @@
 | POST | `/api/v1/admin/auth/context` | Bearer（服务主体被拒） | — | 否 |
 | POST | `/api/v1/admin/auth/logout` | Cookie `af_refresh_v2` | — | 天然幂等 |
 
-> 限流注册见 `src/Platform.Api/Program.cs:78` 起的 `AddRateLimiter`；全局还有 600 次/分/IP 的兜底窗口，被限流统一返回码 `7`（HTTP 429）。
+> 限流注册见 `src/Platform.Api/Program.cs` 的 `AddRateLimiter`；全局还有兜底窗口（默认 600 次/分/IP，`RateLimits:GlobalPerMinute` 可调），被限流统一返回码 `7`（HTTP 429）。
 > 账号维度的口令爆破由登录节流表负责，与 IP 限流互补。
 
 ### 2.2 M2M 服务令牌
@@ -384,6 +384,9 @@ var session = await client.WaitForQrLoginApprovalAsync(qr.RequestId, TimeSpan.Fr
 | `QrLogin:ExpireMinutes` / `DefaultDurationMinutes` / `MaxDurationMinutes` | 10 / 30 / 120 | 待审批存活与审批后时长（上限 2 小时） |
 | `QrLogin:ApprovalUrlBase` | 空（退回按请求推导） | 二维码里的管理台基址，必须是手机能打开的地址；部署键 `QR_APPROVAL_URL_BASE` |
 | `RateLimits:SingleLoginRedeemPerMinute` / `QrSessionPerMinute` | 10 / 60 | 兑换限流（IP）；创建与轮询共用额度 |
+| `RateLimits:GlobalPerMinute` | 600 | 全局兜底窗口（IP）；设备集中走同一 NAT 出口时按需放大 |
+| `RateLimits:M2MTokenPerMinute` | 30 | M2M 令牌续期限流（应用键分区，无键时退回 IP）；令牌 30min 无刷新，可支撑的设备数≈额度×30 |
+| `RateLimits:IdentityLoginPerMinute` | 30 | 管理台登录/刷新限流（IP）；账号爆破由登录节流表兜住 |
 | `Identity:Cleanup:BatchSize` | 500 | 每批删除行数（四类过期数据共用） |
 | `Identity:Cleanup:RefreshTokenRetentionDays` | 7 | 过期刷新令牌保留天数（按 `expires_at` 计） |
 | `Identity:Cleanup:SingleKeyRetentionHours` / `QrSessionRetentionHours` | 24 / 24 | 过期单次密钥、过期扫码会话保留小时数 |

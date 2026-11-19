@@ -11,8 +11,9 @@ namespace Platform.Modules.Devices.Services;
 /// </summary>
 /// <remarks>
 /// 周期比最长阈值短得多，客户端断线后最多一个扫描周期就会在管理端显示离线。
-/// 扫描走批量更新而不是逐条 <c>ExecuteUpdate</c>：设备量级是工控现场的百台级，
-/// 单次事务足够；真正大的部署应改为 SQL 侧条件更新。
+/// 扫描为窄投影 + 一条条件批量更新（见 <see cref="IInstallationPresence.MarkOfflineAsync"/>），
+/// 不再把全部在线行物化为实体逐条 SaveChanges；心跳时间另有批量回写周期，
+/// 离线阈值已按其窗口钳制，不会误判活跃设备。
 /// </remarks>
 public sealed class InstallationOfflineWorker : BackgroundService
 {

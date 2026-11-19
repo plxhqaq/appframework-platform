@@ -57,6 +57,7 @@ public sealed class DevicesModule : IPlatformModule
         services.AddScoped<IInstallationEventRouter, InstallationEventRouter>();
         services.AddScoped<IInventoryStatistics, InventoryStatisticsService>();
         services.AddSingleton<InstallationConnectionRegistry>();
+        services.AddSingleton<InstallationHeartbeatTracker>();
         services.AddSingleton<IInstallationCommandAcks, InstallationCommandAcks>();
         services.AddSingleton<DeviceHubGuardFilter>();
 
@@ -64,6 +65,7 @@ public sealed class DevicesModule : IPlatformModule
             ServiceDescriptor.Scoped<IPlatformModelContributor, DevicesModelContributor>());
 
         services.AddHostedService<InstallationOfflineWorker>();
+        services.AddHostedService<HeartbeatFlushWorker>();
     }
 
     /// <inheritdoc />

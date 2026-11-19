@@ -126,4 +126,44 @@ public sealed class InstallationConnectionRegistryTests
         Assert.False(registry.TryGetInstallationByGuid("app-c", installGuid, out _));
         Assert.False(registry.TryGetInstallationByGuid("app-a", Guid.NewGuid(), out _));
     }
+
+    [Fact]
+    public void 顶替重装与注销后二级索引与主表一致()
+    {
+        var registry = new InstallationConnectionRegistry();
+        var nodeB = Guid.NewGuid();
+        var inst1 = Guid.NewGuid();
+        var inst2 = Guid.NewGuid();
+        var inst3 = Guid.NewGuid();
+        var inst4 = Guid.NewGuid();
+        var guid1 = Guid.NewGuid();
+
+        registry.Register("app-a", inst1, NodeId, guid1, "conn-1");
+        registry.Register("app-b", inst2, NodeId, Guid.NewGuid(), "conn-2");
+        registry.Register("app-a", inst3, nodeB, Guid.NewGuid(), "conn-3");
+
+        registry.MarkNodeDisabled(NodeId);
+        Assert.True(registry.IsKickPending("conn-1"));
+        Assert.True(registry.IsKickPending("conn-2"));
+        Assert.False(registry.IsKickPending("conn-3"));
+
+        // 同节点同应用重装：inst1 的连接作废并从索引移除，inst2 不受影响。
+        var registration = registry.Register("app-a", inst4, NodeId, Guid.NewGuid(), "conn-4");
+        var displaced = Assert.Single(registration.Displaced);
+        Assert.Equal("conn-1", displaced.ConnectionId);
+        Assert.False(registry.IsKickPending("conn-1")); // 顶替即从待踢快照摘除
+        Assert.Equal([inst4], registry.GetMachineInstallationIds("app-a", NodeId));
+        Assert.Equal([inst2], registry.GetMachineInstallationIds("app-b", NodeId));
+        Assert.Equal([inst3], registry.GetMachineInstallationIds("app-a", nodeB));
+        Assert.Equal(2, registry.CountAppConnections("app-a"));
+        Assert.Equal(2, registry.CountNodeConnections(NodeId));
+        Assert.False(registry.TryGetInstallationByGuid("app-a", guid1, out _));
+
+        registry.Unregister("conn-4");
+        Assert.Empty(registry.GetMachineInstallationIds("app-a", NodeId));
+        Assert.Equal(1, registry.CountNodeConnections(NodeId));
+        Assert.True(registry.HasNodeConnection(NodeId));
+        Assert.True(registry.HasNodeConnection(nodeB));
+        Assert.Equal(1, registry.CountAppConnections("app-a")); // 只剩 nodeB 上的 inst3
+    }
 }

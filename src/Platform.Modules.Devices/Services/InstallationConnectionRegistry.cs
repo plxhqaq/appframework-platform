@@ -4,6 +4,8 @@ namespace Platform.Modules.Devices.Services;
 /// <remarks>
 /// 同一安装实例的新连接会顶替旧连接；同一节点同一应用的旧安装（重装产生的新安装实例）也会被顶替；
 /// 同机不同应用（不同安装实例）互不顶号。
+/// 节点/应用/安装 Guid 维度的查询走与主表同步维护的二级索引（同一把锁内更新），
+/// 热点操作代价只与在线规模中相关按键的部分成正比，与全量在线数无关。
 /// </remarks>
 public sealed class InstallationConnectionRegistry
 {
@@ -11,6 +13,9 @@ public sealed class InstallationConnectionRegistry
     private readonly Dictionary<string, InstallationConnection> _byConnection = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, string> _byInstallation = new();
     private readonly HashSet<string> _kickPending = new(StringComparer.Ordinal);
+    private readonly Dictionary<Guid, HashSet<Guid>> _byNode = [];
+    private readonly Dictionary<string, HashSet<Guid>> _byApp = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<Guid, Guid>> _byInstallGuid = new(StringComparer.Ordinal);
 
     /// <summary>登记连接；返回需要移出组并通知被顶替的旧连接。</summary>
     public InstallationRegistration Register(
@@ -30,6 +35,7 @@ public sealed class InstallationConnectionRegistry
 
             if (_byConnection.Remove(connectionId, out var existing))
             {
+                RemoveIndexes(existing);
                 if (_byInstallation.TryGetValue(existing.InstallationId, out var mapped)
                     && string.Equals(mapped, connectionId, StringComparison.Ordinal))
                 {
@@ -49,32 +55,39 @@ public sealed class InstallationConnectionRegistry
                 && _byConnection.Remove(current, out var replaced))
             {
                 _kickPending.Remove(current);
+                RemoveIndexes(replaced);
                 displaced.Add(new ReplacedConnection(current, replaced));
             }
 
             // 同一节点同一应用的其它安装实例（应用重装）：旧安装的连接随新安装作废。
-            foreach (var (otherInstallation, otherConnection) in _byInstallation.ToArray())
+            // 只扫该节点的登记项（工控机通常个位数），不再遍历全量在线。
+            if (_byNode.TryGetValue(nodeId, out var onNode))
             {
-                if (otherInstallation == installationId
-                    || string.Equals(otherConnection, connectionId, StringComparison.Ordinal))
+                foreach (var otherInstallation in onNode.ToArray())
                 {
-                    continue;
-                }
+                    if (otherInstallation == installationId
+                        || !_byInstallation.TryGetValue(otherInstallation, out var otherConnection)
+                        || string.Equals(otherConnection, connectionId, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
 
-                if (_byConnection.TryGetValue(otherConnection, out var other)
-                    && other.NodeId == nodeId
-                    && string.Equals(other.AppKey, appKey, StringComparison.Ordinal))
-                {
-                    _byConnection.Remove(otherConnection);
-                    _byInstallation.Remove(otherInstallation);
-                    _kickPending.Remove(otherConnection);
-                    displaced.Add(new ReplacedConnection(otherConnection, other));
+                    if (_byConnection.TryGetValue(otherConnection, out var other)
+                        && string.Equals(other.AppKey, appKey, StringComparison.Ordinal))
+                    {
+                        _byConnection.Remove(otherConnection);
+                        _byInstallation.Remove(otherInstallation);
+                        _kickPending.Remove(otherConnection);
+                        RemoveIndexes(other);
+                        displaced.Add(new ReplacedConnection(otherConnection, other));
+                    }
                 }
             }
 
-            _byConnection[connectionId] = new InstallationConnection(
-                appKey, installationId, nodeId, installGuid);
+            var connection = new InstallationConnection(appKey, installationId, nodeId, installGuid);
+            _byConnection[connectionId] = connection;
             _byInstallation[installationId] = connectionId;
+            AddIndexes(connection);
             return new InstallationRegistration(previous, displaced);
         }
     }
@@ -90,6 +103,7 @@ public sealed class InstallationConnectionRegistry
                 return;
             }
 
+            RemoveIndexes(connection);
             if (_byInstallation.TryGetValue(connection.InstallationId, out var current)
                 && string.Equals(current, connectionId, StringComparison.Ordinal))
             {
@@ -133,7 +147,7 @@ public sealed class InstallationConnectionRegistry
     {
         lock (_gate)
         {
-            return CountNodeConnectionsCore(nodeId) > 0;
+            return _byNode.TryGetValue(nodeId, out var installations) && installations.Count > 0;
         }
     }
 
@@ -142,23 +156,8 @@ public sealed class InstallationConnectionRegistry
     {
         lock (_gate)
         {
-            return CountNodeConnectionsCore(nodeId);
+            return _byNode.TryGetValue(nodeId, out var installations) ? installations.Count : 0;
         }
-    }
-
-    private int CountNodeConnectionsCore(Guid nodeId)
-    {
-        int count = 0;
-        foreach (var connectionId in _byInstallation.Values)
-        {
-            if (_byConnection.TryGetValue(connectionId, out var connection)
-                && connection.NodeId == nodeId)
-            {
-                count++;
-            }
-        }
-
-        return count;
     }
 
     /// <summary>按安装实例取连接归属；离线返回 <c>false</c>。</summary>
@@ -182,17 +181,7 @@ public sealed class InstallationConnectionRegistry
     {
         lock (_gate)
         {
-            int count = 0;
-            foreach (var connectionId in _byInstallation.Values)
-            {
-                if (_byConnection.TryGetValue(connectionId, out var connection)
-                    && string.Equals(connection.AppKey, appKey, StringComparison.Ordinal))
-                {
-                    count++;
-                }
-            }
-
-            return count;
+            return _byApp.TryGetValue(appKey, out var installations) ? installations.Count : 0;
         }
     }
 
@@ -201,12 +190,16 @@ public sealed class InstallationConnectionRegistry
     {
         lock (_gate)
         {
-            var ids = new List<Guid>();
-            foreach (var (installationId, connectionId) in _byInstallation)
+            if (!_byNode.TryGetValue(nodeId, out var onNode)
+                || !_byApp.TryGetValue(appKey, out var onApp))
             {
-                if (_byConnection.TryGetValue(connectionId, out var connection)
-                    && connection.NodeId == nodeId
-                    && string.Equals(connection.AppKey, appKey, StringComparison.Ordinal))
+                return [];
+            }
+
+            var ids = new List<Guid>();
+            foreach (var installationId in onNode)
+            {
+                if (onApp.Contains(installationId))
                 {
                     ids.Add(installationId);
                 }
@@ -221,15 +214,12 @@ public sealed class InstallationConnectionRegistry
     {
         lock (_gate)
         {
-            foreach (var (candidateId, connectionId) in _byInstallation)
+            if (_byInstallGuid.TryGetValue(appKey, out var byGuid)
+                && byGuid.TryGetValue(installGuid, out var candidate)
+                && _byInstallation.ContainsKey(candidate))
             {
-                if (_byConnection.TryGetValue(connectionId, out var connection)
-                    && connection.InstallGuid == installGuid
-                    && string.Equals(connection.AppKey, appKey, StringComparison.Ordinal))
-                {
-                    installationId = candidateId;
-                    return true;
-                }
+                installationId = candidate;
+                return true;
             }
 
             installationId = default;
@@ -257,10 +247,14 @@ public sealed class InstallationConnectionRegistry
     {
         lock (_gate)
         {
-            foreach (var connectionId in _byInstallation.Values)
+            if (!_byNode.TryGetValue(nodeId, out var onNode))
             {
-                if (_byConnection.TryGetValue(connectionId, out var connection)
-                    && connection.NodeId == nodeId)
+                return;
+            }
+
+            foreach (var installationId in onNode)
+            {
+                if (_byInstallation.TryGetValue(installationId, out var connectionId))
                 {
                     _kickPending.Add(connectionId);
                 }
@@ -274,6 +268,63 @@ public sealed class InstallationConnectionRegistry
         lock (_gate)
         {
             return _kickPending.Contains(connectionId);
+        }
+    }
+
+    // 索引不变式：_byNode/_byApp/_byInstallGuid 只包含 _byInstallation 中有活跃连接的安装实例，
+    // 调用方必须持有 _gate，并与 _byConnection/_byInstallation 的增删成对出现。
+    private void AddIndexes(InstallationConnection connection)
+    {
+        if (!_byNode.TryGetValue(connection.NodeId, out var nodeSet))
+        {
+            nodeSet = [];
+            _byNode[connection.NodeId] = nodeSet;
+        }
+
+        nodeSet.Add(connection.InstallationId);
+
+        if (!_byApp.TryGetValue(connection.AppKey, out var appSet))
+        {
+            appSet = [];
+            _byApp[connection.AppKey] = appSet;
+        }
+
+        appSet.Add(connection.InstallationId);
+
+        if (!_byInstallGuid.TryGetValue(connection.AppKey, out var byGuid))
+        {
+            byGuid = [];
+            _byInstallGuid[connection.AppKey] = byGuid;
+        }
+
+        byGuid[connection.InstallGuid] = connection.InstallationId;
+    }
+
+    private void RemoveIndexes(InstallationConnection connection)
+    {
+        if (_byNode.TryGetValue(connection.NodeId, out var nodeSet)
+            && nodeSet.Remove(connection.InstallationId)
+            && nodeSet.Count == 0)
+        {
+            _byNode.Remove(connection.NodeId);
+        }
+
+        if (_byApp.TryGetValue(connection.AppKey, out var appSet)
+            && appSet.Remove(connection.InstallationId)
+            && appSet.Count == 0)
+        {
+            _byApp.Remove(connection.AppKey);
+        }
+
+        if (_byInstallGuid.TryGetValue(connection.AppKey, out var byGuid)
+            && byGuid.TryGetValue(connection.InstallGuid, out var mapped)
+            && mapped == connection.InstallationId)
+        {
+            byGuid.Remove(connection.InstallGuid);
+            if (byGuid.Count == 0)
+            {
+                _byInstallGuid.Remove(connection.AppKey);
+            }
         }
     }
 }

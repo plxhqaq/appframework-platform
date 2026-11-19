@@ -110,10 +110,12 @@ try
     {
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
         {
+            var permitLimit = httpContext.RequestServices.GetRequiredService<IConfiguration>()
+                .GetValue("RateLimits:GlobalPerMinute", 600);
             var partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
             return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 600,
+                PermitLimit = permitLimit,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 AutoReplenishment = true,
@@ -123,13 +125,16 @@ try
         options.AddPolicy(PlatformRateLimitPolicies.M2MToken, httpContext =>
         {
             // 匿名入口：按应用键分区（同一应用的多个副本共享额度），无应用键时退回按 IP。
+            // 令牌 30min 无刷新：额度约等于 每分钟额度×60/2 台设备/应用，设备规模大时须调此配置。
+            var permitLimit = httpContext.RequestServices.GetRequiredService<IConfiguration>()
+                .GetValue("RateLimits:M2MTokenPerMinute", 30);
             var appKey = httpContext.Request.Headers[PlatformHeaders.AppKey].ToString();
             var partitionKey = string.IsNullOrWhiteSpace(appKey)
                 ? $"ip:{httpContext.Connection.RemoteIpAddress}"
                 : $"app:{appKey}";
             return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 30,
+                PermitLimit = permitLimit,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 AutoReplenishment = true,
@@ -138,10 +143,12 @@ try
         options.AddPolicy(PlatformRateLimitPolicies.IdentityLogin, httpContext =>
         {
             // IP 级粗粒度限流；账号/分布式撞库由 login_throttles 双维度节流负责。
+            var permitLimit = httpContext.RequestServices.GetRequiredService<IConfiguration>()
+                .GetValue("RateLimits:IdentityLoginPerMinute", 30);
             var partitionKey = $"ip:{httpContext.Connection.RemoteIpAddress}";
             return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 30,
+                PermitLimit = permitLimit,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 AutoReplenishment = true,
