@@ -614,8 +614,22 @@ public sealed partial class ReleasePackageService : IReleasePackageService
         ReleasePackage package,
         string channelKey,
         string version,
-        bool reused) =>
-        new(
+        bool reused)
+    {
+        // 全量包把清单里的媒体声明带出去，管理台完整包下载弹窗据此默认勾选。
+        IReadOnlyList<PackageMediaRequirementDto>? mediaRequirements = null;
+        if (package.Kind == VersionConventions.PackageKindFull
+            && PackageManifest.TryParseJson(package.ManifestJson, package.ManifestSource, out var manifest, out _)
+            && manifest is { MediaRequirements.Count: > 0 })
+        {
+            mediaRequirements =
+            [
+                .. manifest.MediaRequirements.Select(
+                    static x => new PackageMediaRequirementDto(x.ComponentId, x.Paths))
+            ];
+        }
+
+        return new ReleasePackageDto(
             package.Id,
             package.ReleaseId,
             channelKey,
@@ -636,7 +650,9 @@ public sealed partial class ReleasePackageService : IReleasePackageService
             package.CreatedAt,
             package.UpdatedAt,
             package.FileCount,
-            package.IsActive);
+            package.IsActive,
+            mediaRequirements);
+    }
 
     private static void ActivatePackage(Release release, ReleasePackage package)
     {

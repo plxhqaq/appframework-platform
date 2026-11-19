@@ -209,5 +209,34 @@ public sealed class VersionsModelContributor : IPlatformModelContributor
             builder.HasIndex(static x => new { x.AppKey, x.ExpiresAt })
                 .HasDatabaseName("ix_version_upload_tickets_app_expires");
         });
+
+        modelBuilder.Entity<DriverMedia>(builder =>
+        {
+            builder.ToTable("driver_media");
+            builder.HasKey(static x => x.Id);
+
+            builder.Property(static x => x.Id).HasColumnName("id");
+            builder.Property(static x => x.AppKey).HasColumnName("app_key").HasMaxLength(64).IsRequired();
+            builder.Property(static x => x.MediaKey).HasColumnName("media_key").HasMaxLength(64).IsRequired();
+            builder.Property(static x => x.Name).HasColumnName("name").HasMaxLength(256).IsRequired();
+            builder.Property(static x => x.Version).HasColumnName("version").HasMaxLength(64).IsRequired();
+            builder.Property(static x => x.IsActive).HasColumnName("is_active");
+            builder.Property(static x => x.FileName).HasColumnName("file_name").HasMaxLength(256).IsRequired();
+            builder.Property(static x => x.Sha256).HasColumnName("sha256").HasMaxLength(64).IsRequired();
+            builder.Property(static x => x.SizeBytes).HasColumnName("size_bytes").HasColumnType("bigint");
+            builder.Property(static x => x.FileCount).HasColumnName("file_count");
+            builder.Property(static x => x.ManifestHash).HasColumnName("manifest_hash").HasMaxLength(64);
+            builder.Property(static x => x.ManifestJson).HasColumnName("manifest_json").HasColumnType("jsonb");
+            builder.Property(static x => x.InstallOrderJson).HasColumnName("install_order_json").HasColumnType("jsonb");
+            builder.Property(static x => x.CreatedBy).HasColumnName("created_by").HasMaxLength(256);
+            builder.Property(static x => x.CreatedAt).HasColumnName("created_at");
+            builder.Property(static x => x.UpdatedAt).HasColumnName("updated_at");
+
+            builder.HasIndex(static x => new { x.AppKey, x.MediaKey, x.Version })
+                .IsUnique()
+                .HasDatabaseName("ux_driver_media_app_key_media_key_version");
+            builder.HasIndex(static x => x.Sha256)
+                .HasDatabaseName("ix_driver_media_sha256");
+        });
     }
 }

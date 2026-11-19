@@ -20,6 +20,9 @@ public class PlatformApiFactory : WebApplicationFactory<Program>
     private readonly string _blobRoot = Path.Combine(
         Path.GetTempPath(), "platform-blob-tests", Guid.NewGuid().ToString("N"));
 
+    /// <summary>Blob 根目录：用例需要直接操作存储文件时用（例如删派生缓存验证重建一致性）。</summary>
+    public string BlobRoot => _blobRoot;
+
     /// <summary>子类按用例族追加/覆盖配置（键与 appsettings 同名）。</summary>
     protected virtual void ConfigureTestSettings(IDictionary<string, string?> settings)
     {

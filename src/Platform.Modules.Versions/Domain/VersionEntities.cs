@@ -319,3 +319,58 @@ public sealed class VersionUploadTicket : IAuditableEntity
     /// <inheritdoc />
     public DateTimeOffset UpdatedAt { get; set; }
 }
+
+/// <summary>
+/// 驱动媒体包：一个组件的媒体 zip（<c>af-media/1</c> 清单）一条登记行。
+/// 同 (appKey, mediaKey) 多版本共存，激活版本至多一条（服务层维护互斥）。
+/// </summary>
+public sealed class DriverMedia : IAuditableEntity
+{
+    /// <summary>主键。</summary>
+    public Guid Id { get; set; } = Guid.CreateVersion7();
+
+    /// <summary>所属应用键。</summary>
+    public string AppKey { get; set; } = string.Empty;
+
+    /// <summary>媒体键（对齐 components.manifest.json 的 componentId）。</summary>
+    public string MediaKey { get; set; } = string.Empty;
+
+    /// <summary>显示名（来自清单 label）。</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>媒体版本；空串表示未提供。</summary>
+    public string Version { get; set; } = string.Empty;
+
+    /// <summary>是否为当前启用版本。</summary>
+    public bool IsActive { get; set; }
+
+    /// <summary>上传文件名（zip）。</summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>zip 内容 SHA-256（小写 hex）。</summary>
+    public string Sha256 { get; set; } = string.Empty;
+
+    /// <summary>zip 字节数。</summary>
+    public long SizeBytes { get; set; }
+
+    /// <summary>清单声明的文件数。</summary>
+    public int FileCount { get; set; }
+
+    /// <summary>规范化清单摘要。</summary>
+    public string? ManifestHash { get; set; }
+
+    /// <summary>规范化清单原文。</summary>
+    public string? ManifestJson { get; set; }
+
+    /// <summary>安装顺序（JSON 字符串数组，取自清单 installOrder；媒体文件集合变化才更新）。</summary>
+    public string? InstallOrderJson { get; set; }
+
+    /// <summary>登记主体。</summary>
+    public string? CreatedBy { get; set; }
+
+    /// <inheritdoc />
+    public DateTimeOffset CreatedAt { get; set; }
+
+    /// <inheritdoc />
+    public DateTimeOffset UpdatedAt { get; set; }
+}

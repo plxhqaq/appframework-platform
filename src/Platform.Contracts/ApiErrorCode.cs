@@ -91,6 +91,11 @@ public enum ApiErrorCode
     VersionsPackageStatusInvalid = 226,
     VersionsStorageInsufficient = 227,
     VersionsPackageManifestInvalid = 228,
+    VersionsMediaNotFound = 229,
+    VersionsMediaKeyExists = 230,
+    VersionsMediaManifestInvalid = 231,
+    VersionsBundleMediaMissing = 232,
+    VersionsBundlePathConflict = 233,
 
     // ━━━ 300–399 授权 ━━━
     LicensingProductNotFound = 300,

@@ -31,6 +31,7 @@ internal static class VersionsEndpoints
         MapReleaseEndpoints(admin);
         MapPackageEndpoints(admin);
         MapUpdaterEndpoints(admin);
+        MapMediaEndpoints(admin);
         MapUploadEndpoints(admin);
 
         var client = api
@@ -38,6 +39,178 @@ internal static class VersionsEndpoints
             .WithTags(PlatformModuleKeys.Versions);
 
         MapClientEndpoints(client);
+    }
+
+    /// <summary>
+    /// 驱动媒体包管理端：登记（af-media/1 清单逐文件复核）、列表、详情、激活互斥、删除。
+    /// 下载与浏览器票据在客户端组（<c>/media/{id}/download*</c>）。
+    /// </summary>
+    private static void MapMediaEndpoints(RouteGroupBuilder admin)
+    {
+        admin.MapGet(
+                "/media",
+                async (
+                    HttpContext context,
+                    ICurrentPrincipal principal,
+                    IDriverMediaService media,
+                    int page = 1,
+                    int pageSize = PageQuery.DefaultPageSize,
+                    string? mediaKey = null,
+                    bool? activeOnly = null,
+                    CancellationToken cancellationToken = default) =>
+                {
+                    var query = new PageQuery { Page = page, PageSize = pageSize };
+                    return ApiResults.Ok(
+                        context,
+                        await media.ListAsync(
+                            RequireAppKey(principal), query, mediaKey, activeOnly, cancellationToken));
+                })
+            .WithName("versions.media.list")
+            .WithSummary("驱动媒体包列表（可按 mediaKey 过滤；activeOnly=true 只看启用版本）")
+            .RequirePermission(PermissionCatalog.VersionsReleaseRead);
+
+        admin.MapGet(
+                "/media/{id:guid}",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IDriverMediaService media,
+                    CancellationToken cancellationToken) =>
+                    ApiResults.Ok(
+                        context,
+                        await media.GetAsync(RequireAppKey(principal), id, cancellationToken)))
+            .WithName("versions.media.get")
+            .WithSummary("驱动媒体包详情（含安装顺序）")
+            .RequirePermission(PermissionCatalog.VersionsReleaseRead);
+
+        admin.MapPost(
+                "/media",
+                async (
+                    HttpContext context,
+                    RegisterDriverMediaRequest request,
+                    ICurrentPrincipal principal,
+                    IDriverMediaService media,
+                    IIdempotencyStore idempotency,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    return await IdempotentExecution.ExecuteAsync(
+                        context,
+                        idempotency,
+                        "versions.media.register",
+                        async ct =>
+                        {
+                            try
+                            {
+                                var registered = await media.RegisterAsync(
+                                    appKey, request, principal.UserName, ct);
+                                await WriteAuditAsync(
+                                    context, audit, principal,
+                                    action: "versions.media.register",
+                                    targetType: "driver_media",
+                                    targetId: registered.Id.ToString(),
+                                    result: AuditResults.Success,
+                                    message: $"{registered.MediaKey}/{registered.Version} {registered.Sha256}");
+                                return ApiResult.Ok(registered);
+                            }
+                            catch (BusinessException exception)
+                            {
+                                await WriteAuditAsync(
+                                    context, audit, principal,
+                                    action: "versions.media.register",
+                                    targetType: "driver_media",
+                                    targetId: null,
+                                    result: AuditResults.Failure,
+                                    message: exception.Message);
+                                throw;
+                            }
+                        },
+                        IdempotencyTtl);
+                })
+            .WithName("versions.media.register")
+            .WithSummary("登记驱动媒体包（内容须先经上传票据落盘；清单与 zip 逐文件复核；支持 Idempotency-Key）")
+            .RequirePermission(PermissionCatalog.VersionsArtifactUpload)
+            .RequireRateLimiting(PlatformRateLimitPolicies.VersionsPackageFinalize);
+
+        admin.MapPost(
+                "/media/{id:guid}/activate",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IDriverMediaService media,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var activated = await media.ActivateAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.media.activate",
+                            targetType: "driver_media",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: $"{activated.MediaKey}/{activated.Version}");
+                        return ApiResults.Ok(context, activated);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.media.activate",
+                            targetType: "driver_media",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("versions.media.activate")
+            .WithSummary("启用该媒体版本（同 mediaKey 其余版本自动停用）")
+            .RequirePermission(PermissionCatalog.VersionsArtifactUpload);
+
+        admin.MapDelete(
+                "/media/{id:guid}",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IDriverMediaService media,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        await media.DeleteAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.media.delete",
+                            targetType: "driver_media",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: null);
+                        return ApiResults.Ok(context, true);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.media.delete",
+                            targetType: "driver_media",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("versions.media.delete")
+            .WithSummary("删除媒体包登记（blob 内容由孤儿扫描回收）")
+            .RequirePermission(PermissionCatalog.VersionsReleaseArchive);
     }
 
     private static void MapChannelEndpoints(RouteGroupBuilder admin)
@@ -936,6 +1109,62 @@ internal static class VersionsEndpoints
             .WithSummary("下载更新器分发包（Range / ETag / 304，保留原文件名）")
             .RequirePermission(PermissionCatalog.VersionsArtifactDownload);
 
+        client.MapGet(
+                "/media/{id:guid}/download",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IDriverMediaService media,
+                    IBlobStorage blobs,
+                    PlatformMetrics metrics,
+                    CancellationToken cancellationToken) =>
+                {
+                    var download = await media.GetDownloadAsync(RequireAppKey(principal), id, cancellationToken);
+                    RecordDownload(metrics, "media", download.SizeBytes);
+                    var stream = await blobs.OpenReadAsync(download.BlobPath, cancellationToken);
+                    context.Response.Headers["X-Content-Sha256"] = download.Sha256;
+                    return Results.Stream(
+                        stream,
+                        contentType: "application/zip",
+                        fileDownloadName: download.FileName,
+                        lastModified: null,
+                        entityTag: new EntityTagHeaderValue($"\"{download.Sha256}\""),
+                        enableRangeProcessing: true);
+                })
+            .WithName("versions.client.media.download")
+            .WithSummary("下载单个驱动媒体包（Range / ETag / 304，保留原文件名）")
+            .RequirePermission(PermissionCatalog.VersionsArtifactDownload);
+
+        client.MapPost(
+                "/media/{id:guid}/download-ticket",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IDriverMediaService media,
+                    IDownloadArchiveService archives,
+                    IDownloadTicketService tickets,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    var download = await media.GetDownloadAsync(appKey, id, cancellationToken);
+                    var representation = await RepresentAsync(
+                        appKey, download.Sha256, download.FileName, download.SizeBytes,
+                        archives, cancellationToken);
+                    var issued = tickets.Issue(appKey, DownloadTicketKinds.Media, id);
+                    return ApiResults.Ok(
+                        context,
+                        new DownloadTicketDto(
+                            $"{PlatformRoutes.ClientModule(PlatformModuleKeys.Versions)}/downloads/{issued.Ticket}",
+                            representation.FileName,
+                            representation.SizeBytes,
+                            issued.ExpiresAt));
+                })
+            .WithName("versions.media.download.ticket")
+            .WithSummary("签发驱动媒体包下载票据（媒体包本就是 zip，原样下发）")
+            .RequirePermission(PermissionCatalog.VersionsArtifactDownload);
+
         // 管理台浏览器下载：Bearer 无法随 <a> 发出，改发限时票据；非 zip 源先打成 zip，
         // 因为浏览器对 exe 会弹安全拦截。SDK/客户端仍走上面的原始下载端点。
         client.MapPost(
@@ -965,6 +1194,52 @@ internal static class VersionsEndpoints
                 })
             .WithName("versions.packages.download.ticket")
             .WithSummary("签发安装包下载票据（非 zip 自动打包，浏览器原生流式下载）")
+            .RequirePermission(PermissionCatalog.VersionsArtifactDownload);
+
+        // 完整全量包：exe + 所选驱动媒体 + media/media-order.json 合成确定性 zip，按组合哈希缓存。
+        // 校验（就绪全量包、同应用、声明覆盖、路径冲突）都在签发时做，兑现只重组缓存。
+        client.MapPost(
+                "/packages/{id:guid}/bundle-ticket",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    CreatePackageBundleRequest request,
+                    ICurrentPrincipal principal,
+                    IPackageBundleService bundles,
+                    IDownloadTicketService tickets,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    IReadOnlyList<Guid> mediaIds = request.MediaIds ?? [];
+                    var prepared = await bundles.PrepareAsync(
+                        appKey, id, mediaIds, request.AllowMissing, cancellationToken);
+                    var issued = tickets.Issue(
+                        appKey,
+                        DownloadTicketKinds.Bundle,
+                        id,
+                        string.Join(',', mediaIds.Select(static x => x.ToString("N"))));
+                    await WriteAuditAsync(
+                        context,
+                        audit,
+                        principal,
+                        "versions.package.bundle",
+                        "release_package",
+                        id.ToString("D"),
+                        "success",
+                        prepared.MissingComponents.Count > 0
+                            ? $"组合 {prepared.CompositionHash}；allowMissing 放行缺项：{string.Join("、", prepared.MissingComponents)}"
+                            : $"组合 {prepared.CompositionHash}；媒体 {mediaIds.Count} 份");
+                    return ApiResults.Ok(
+                        context,
+                        new DownloadTicketDto(
+                            $"{PlatformRoutes.ClientModule(PlatformModuleKeys.Versions)}/downloads/{issued.Ticket}",
+                            prepared.FileName,
+                            prepared.EstimatedSizeBytes,
+                            issued.ExpiresAt));
+                })
+            .WithName("versions.packages.bundle.ticket")
+            .WithSummary("签发完整全量包下载票据（包 + 所选媒体合成确定性 zip，按组合缓存）")
             .RequirePermission(PermissionCatalog.VersionsArtifactDownload);
 
         client.MapPost(
@@ -1004,6 +1279,8 @@ internal static class VersionsEndpoints
                     IDownloadTicketService tickets,
                     IReleasePackageService packages,
                     IUpdaterReleaseService updaters,
+                    IDriverMediaService media,
+                    IPackageBundleService bundles,
                     IDownloadArchiveService archives,
                     IBlobStorage blobs,
                     PlatformMetrics metrics,
@@ -1011,7 +1288,7 @@ internal static class VersionsEndpoints
                 {
                     var parsed = tickets.Read(ticket);
                     var representation = await ResolveTicketDownloadAsync(
-                        parsed, packages, updaters, archives, cancellationToken);
+                        parsed, packages, updaters, media, bundles, archives, cancellationToken);
                     RecordDownload(metrics, parsed.Kind, representation.SizeBytes);
                     var stream = await blobs.OpenReadAsync(representation.BlobPath, cancellationToken);
                     context.Response.Headers["X-Content-Sha256"] = representation.Sha256;
@@ -1049,6 +1326,8 @@ internal static class VersionsEndpoints
         DownloadTicket ticket,
         IReleasePackageService packages,
         IUpdaterReleaseService updaters,
+        IDriverMediaService media,
+        IPackageBundleService bundles,
         IDownloadArchiveService archives,
         CancellationToken cancellationToken)
     {
@@ -1072,9 +1351,51 @@ internal static class VersionsEndpoints
                         archives, cancellationToken);
                 }
 
+            case DownloadTicketKinds.Media:
+                {
+                    var download = await media.GetDownloadAsync(
+                        ticket.AppKey, ticket.Id, cancellationToken);
+                    return await RepresentAsync(
+                        ticket.AppKey, download.Sha256, download.FileName, download.SizeBytes,
+                        archives, cancellationToken);
+                }
+
+            case DownloadTicketKinds.Bundle:
+                {
+                    // 组合是缓存语义：命中直接下发，缺失按签发同款输入重建（内容一致）。
+                    var download = await bundles.EnsureAsync(
+                        ticket.AppKey, ticket.Id, ParseBundleMediaIds(ticket.Data), cancellationToken);
+                    return new DownloadRepresentation(
+                        download.BlobPath, download.FileName, download.SizeBytes,
+                        download.CompositionHash, IsArchive: true);
+                }
+
             default:
                 throw new BusinessException(ApiErrorCode.Unauthorized, "下载票据无效或已过期，请回到管理台重新点击下载。");
         }
+    }
+
+    /// <summary>组合票据的媒体 id 载荷（GUID "N" 串逗号分隔）；畸形载荷按无效票据处理。</summary>
+    private static Guid[] ParseBundleMediaIds(string? data)
+    {
+        if (string.IsNullOrWhiteSpace(data))
+        {
+            return [];
+        }
+
+        var parts = data.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var ids = new Guid[parts.Length];
+        for (var index = 0; index < parts.Length; index++)
+        {
+            if (!Guid.TryParseExact(parts[index], "N", out ids[index]))
+            {
+                throw new BusinessException(
+                    ApiErrorCode.Unauthorized,
+                    "下载票据无效或已过期，请回到管理台重新点击下载。");
+            }
+        }
+
+        return ids;
     }
 
     /// <summary>把源文件映射成实际下发文件：已是 zip 原样，否则取（必要时生成）zip 缓存。</summary>

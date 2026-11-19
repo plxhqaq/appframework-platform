@@ -15,6 +15,13 @@ internal static class VersionBlobPaths
     /// </summary>
     public static string ArchiveZip(string appKey, string sha256) =>
         $"versions/{appKey}/{sha256}.zip";
+
+    /// <summary>
+    /// 完整包组合缓存：独立 <c>bundles/</c> 子目录，按组合哈希（包 sha + 排序媒体 sha）命名。
+    /// 纯派生、可重建：孤儿扫描只按宽限期回收，不看引用（删掉下次下载会原样重建）。
+    /// </summary>
+    public static string Bundle(string appKey, string compositionHash) =>
+        $"versions/{appKey}/bundles/{compositionHash}.zip";
 }
 
 /// <summary>清单哈希：文件条目按路径排序后逐行规范化，路径/哈希/长度任一变化都会改变摘要。</summary>

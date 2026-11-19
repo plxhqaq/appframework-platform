@@ -326,7 +326,12 @@ public sealed class VersionsRetentionTask : IRetentionCleanupTask
         CancellationToken cancellationToken)
     {
         // 删除前再查一次引用：候选是按单个应用目录枚举的，但引用可能来自任何应用。
-        var shas = candidates.Select(static x => x.Sha256).Distinct(StringComparer.Ordinal).ToList();
+        // 组合缓存无引用语义（派生可重建），不参与查询，直接按宽限期回收。
+        var shas = candidates
+            .Where(static x => !x.IsBundle)
+            .Select(static x => x.Sha256)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
         var referenced = new HashSet<string>(StringComparer.Ordinal);
         foreach (var sha in await _db.Set<ReleaseFile>()
                      .Where(x => shas.Contains(x.Sha256))
@@ -355,6 +360,15 @@ public sealed class VersionsRetentionTask : IRetentionCleanupTask
             referenced.Add(sha);
         }
 
+        foreach (var sha in await _db.Set<DriverMedia>()
+                     .Where(x => shas.Contains(x.Sha256))
+                     .Select(static x => x.Sha256)
+                     .Distinct()
+                     .ToListAsync(cancellationToken))
+        {
+            referenced.Add(sha);
+        }
+
         var scanned = 0;
         var deleted = 0;
         long scannedBytes = 0;
@@ -362,7 +376,7 @@ public sealed class VersionsRetentionTask : IRetentionCleanupTask
 
         foreach (var candidate in candidates)
         {
-            if (referenced.Contains(candidate.Sha256))
+            if (!candidate.IsBundle && referenced.Contains(candidate.Sha256))
             {
                 continue;
             }
@@ -384,26 +398,36 @@ public sealed class VersionsRetentionTask : IRetentionCleanupTask
 
     private static BlobCandidate? ParseCandidate(BlobEntry entry)
     {
-        // 只认 versions/{appKey}/{sha256} 与它的下载缓存 versions/{appKey}/{sha256}.zip，
-        // 其他文件不碰。缓存与源内容共用引用判定，源内容不再被引用时一起回收。
+        // 只认 versions/{appKey}/{sha256} 与它的下载缓存 versions/{appKey}/{sha256}.zip、
+        // 组合缓存 versions/{appKey}/bundles/{组合哈希}.zip，其他文件不碰。
+        // 下载缓存与源内容共用引用判定，源内容不再被引用时一起回收；
+        // 组合缓存是纯派生内容，超过宽限期即回收（下次下载会原样重建）。
         var segments = entry.RelativePath.Split('/');
+        if (segments.Length == 4
+            && string.Equals(segments[0], "versions", StringComparison.Ordinal)
+            && string.Equals(segments[2], "bundles", StringComparison.Ordinal))
+        {
+            return TryHash(segments[3], out var bundleHash)
+                ? new BlobCandidate(entry.RelativePath, bundleHash, entry.SizeBytes, IsBundle: true)
+                : null;
+        }
+
         if (segments.Length != 3 || !string.Equals(segments[0], "versions", StringComparison.Ordinal))
         {
             return null;
         }
 
-        var sha = segments[2];
-        if (sha.EndsWith(".zip", StringComparison.Ordinal))
-        {
-            sha = sha[..^".zip".Length];
-        }
+        return TryHash(segments[2], out var sha)
+            ? new BlobCandidate(entry.RelativePath, sha, entry.SizeBytes, IsBundle: false)
+            : null;
+    }
 
-        if (sha.Length != 64 || !sha.All(char.IsAsciiHexDigitLower))
-        {
-            return null;
-        }
-
-        return new BlobCandidate(entry.RelativePath, sha, entry.SizeBytes);
+    private static bool TryHash(string segment, out string sha)
+    {
+        sha = segment.EndsWith(".zip", StringComparison.Ordinal)
+            ? segment[..^".zip".Length]
+            : segment;
+        return sha.Length == 64 && sha.All(char.IsAsciiHexDigitLower);
     }
 
     private static async Task<bool> TryAcquireLockAsync(DbConnection connection, CancellationToken cancellationToken)
@@ -431,7 +455,7 @@ public sealed class VersionsRetentionTask : IRetentionCleanupTask
 
     private const int BatchSize = 500;
 
-    private readonly record struct BlobCandidate(string RelativePath, string Sha256, long SizeBytes);
+    private readonly record struct BlobCandidate(string RelativePath, string Sha256, long SizeBytes, bool IsBundle);
 
     private readonly record struct SweepBatchResult(
         int Scanned,

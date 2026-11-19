@@ -84,6 +84,11 @@ public static class ApiErrorHttpStatus
         ApiErrorCode.VersionsPackageStatusInvalid => StatusCodes.Status409Conflict,
         ApiErrorCode.VersionsStorageInsufficient => StatusCodes.Status507InsufficientStorage,
         ApiErrorCode.VersionsPackageManifestInvalid => StatusCodes.Status422UnprocessableEntity,
+        ApiErrorCode.VersionsMediaNotFound => StatusCodes.Status404NotFound,
+        ApiErrorCode.VersionsMediaKeyExists => StatusCodes.Status409Conflict,
+        ApiErrorCode.VersionsMediaManifestInvalid => StatusCodes.Status422UnprocessableEntity,
+        ApiErrorCode.VersionsBundleMediaMissing => StatusCodes.Status400BadRequest,
+        ApiErrorCode.VersionsBundlePathConflict => StatusCodes.Status409Conflict,
 
         // ━━━ 授权 ━━━
         ApiErrorCode.LicensingProductNotFound => StatusCodes.Status404NotFound,

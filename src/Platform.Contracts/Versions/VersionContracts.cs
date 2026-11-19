@@ -15,6 +15,33 @@ public static class VersionConventions
     /// <summary>自动创建渠道的键前缀（键为前缀 + 规范化标签摘要前 8 位）。</summary>
     public const string AutoChannelKeyPrefix = "auto-";
 
+    /// <summary>驱动媒体键：小写字母开头，2–64 位小写字母/数字/下划线/连字符。</summary>
+    public const string MediaKeyPattern = "^[a-z][a-z0-9_-]{1,63}$";
+
+    /// <summary>媒体包清单条目名（zip 根内，见 <c>docs/平台驱动媒体外置管理_执行计划.md</c>）。</summary>
+    public const string MediaManifestEntryName = "af-media.json";
+
+    /// <summary>媒体清单协议版本。</summary>
+    public const string MediaSchemaV1 = "af-media/1";
+
+    /// <summary>媒体清单条目与 zip 内文件的统一目录前缀。</summary>
+    public const string MediaRootPrefix = "media/";
+
+    /// <summary>单个媒体包大小上限（4 GiB）。</summary>
+    public const long MaxMediaSizeBytes = 4L * 1024 * 1024 * 1024;
+
+    /// <summary>媒体登记缺省版本号（媒体自带版本优先）。</summary>
+    public const string MediaVersionUnspecified = "";
+
+    /// <summary>完整包组合清单（zip 内 <c>media/media-order.json</c>）协议版本，供安装器 M5 消费。</summary>
+    public const string MediaOrderSchemaV1 = "af-media-order/1";
+
+    /// <summary>组合下载里聚合安装顺序清单的固定条目路径。</summary>
+    public const string MediaOrderEntryPath = "media/media-order.json";
+
+    /// <summary>一次完整包组合允许选择的媒体包数上限。</summary>
+    public const int MaxBundleMediaPackages = 64;
+
     /// <summary>
     /// 版本号：三段或四段数字，可选预发布后缀与构建元数据
     /// （如 <c>1.2.3</c>、<c>1.2.3.0</c>、<c>1.2.3-rc.1</c>、<c>1.2.3-rc.1+build.5</c>）。
@@ -311,7 +338,9 @@ public sealed record ReleasePackageDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     int? FileCount = null,
-    bool IsActive = false);
+    bool IsActive = false,
+    // 全量包清单声明的驱动媒体需求（管理台完整包下载默认勾选用）；无声明为 null。
+    IReadOnlyList<PackageMediaRequirementDto>? MediaRequirements = null);
 
 /// <summary>
 /// 登记发布包：内容必须先经上传票据直传。清单优先取请求的 <see cref="ManifestSha256"/>（sidecar），
@@ -346,7 +375,17 @@ public sealed record PackageManifestDto(
     IReadOnlyList<string> Hardware,
     string? ManifestHash,
     IReadOnlyList<ReleaseFileDto> Files,
-    string? Description = null);
+    string? Description = null,
+    IReadOnlyList<PackageMediaRequirementDto>? MediaRequirements = null);
+
+/// <summary>全量包声明的驱动媒体需求：组件 id + 安装器实际引用的 media 相对路径。</summary>
+public sealed record PackageMediaRequirementDto(string ComponentId, IReadOnlyList<string> Paths);
+
+/// <summary>
+/// 申请「完整包」组合下载：全量安装包 + 选中的驱动媒体合成一份确定性 zip。
+/// 包清单声明了 <c>mediaRequirements</c> 时缺项默认拒绝，<see cref="AllowMissing"/>=true 放行并记审计 warning。
+/// </summary>
+public sealed record CreatePackageBundleRequest(IReadOnlyList<Guid>? MediaIds, bool AllowMissing = false);
 
 /// <summary>更新器版本线（独立于应用版本，客户端先更新更新器再应用增量）。</summary>
 public sealed record UpdaterInfoDto(
@@ -372,3 +411,41 @@ public sealed record RegisterUpdaterRequest(
     long SizeBytes,
     string? ManifestSha256 = null,
     string? Notes = null);
+
+/// <summary>
+/// 登记驱动媒体包（zip + <c>af-media.json</c> 清单，内容先经上传票据直传）。
+/// <see cref="MediaKey"/> 缺省取清单 componentId；<see cref="Version"/> 缺省取清单 version。
+/// </summary>
+public sealed record RegisterDriverMediaRequest(
+    string? MediaKey,
+    string? Sha256,
+    long SizeBytes,
+    string? FileName,
+    string? Version = null,
+    string? Name = null);
+
+/// <summary>驱动媒体包（一份组件媒体 = 一条登记行；同 mediaKey 多版本共存，激活版本只允许一个）。</summary>
+public sealed record DriverMediaDto(
+    Guid Id,
+    string MediaKey,
+    string Name,
+    string Version,
+    bool IsActive,
+    string FileName,
+    string Sha256,
+    long SizeBytes,
+    int FileCount,
+    string? ManifestHash,
+    IReadOnlyList<string> InstallOrder,
+    string? CreatedBy,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    bool Reused = false);
+
+/// <summary>驱动媒体下载元数据（内容寻址 blob 直出，zip 原样下发）。</summary>
+public sealed record DriverMediaDownload(
+    Guid Id,
+    string Sha256,
+    long SizeBytes,
+    string FileName,
+    string BlobPath);

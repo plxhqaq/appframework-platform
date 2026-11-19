@@ -129,6 +129,12 @@ public sealed class PackageManifest
     /// <summary>完整目标文件集（增量包必填；full/updater 可为空）。</summary>
     public IReadOnlyList<ReleaseFileDto> Files { get; init; } = [];
 
+    /// <summary>
+    /// 全量包声明的驱动媒体需求（可选；由发布脚本与媒体分包同源聚合生成）。
+    /// 组合下载据此校验「选中的媒体是否覆盖声明项」；exe 管道清单无法携带该字段。
+    /// </summary>
+    public IReadOnlyList<PackageMediaRequirement> MediaRequirements { get; init; } = [];
+
     /// <summary>清单来源：embedded / zip / sidecar / legacy / manual。</summary>
     public string Source { get; init; } = VersionConventions.ManifestSourceEmbedded;
 
@@ -279,6 +285,11 @@ public sealed class PackageManifest
                 return false;
             }
 
+            if (!TryParseMediaRequirements(root, out var mediaRequirements, out error))
+            {
+                return false;
+            }
+
             manifest = new PackageManifest
             {
                 Schema = SchemaId,
@@ -297,6 +308,7 @@ public sealed class PackageManifest
                 Modules = modules,
                 Hardware = hardware,
                 Files = files,
+                MediaRequirements = mediaRequirements,
                 Source = source,
                 Warnings = warnings,
             };
@@ -411,7 +423,8 @@ public sealed class PackageManifest
         Hardware,
         ManifestHash,
         Files,
-        Description);
+        Description,
+        [.. MediaRequirements.Select(static x => new PackageMediaRequirementDto(x.ComponentId, x.Paths))]);
 
     /// <summary>规范化为存储用 JSON（可再次解析，<see cref="ManifestHash"/> 不变）。</summary>
     public string ToJson()
@@ -439,6 +452,20 @@ public sealed class PackageManifest
             WriteStringArray(writer, "modules", Modules);
             WriteStringArray(writer, "hardware", Hardware);
             writer.WriteEndObject();
+            if (MediaRequirements.Count > 0)
+            {
+                writer.WriteStartArray("mediaRequirements");
+                foreach (var requirement in MediaRequirements)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("componentId", requirement.ComponentId);
+                    WriteStringArray(writer, "paths", requirement.Paths);
+                    writer.WriteEndObject();
+                }
+
+                writer.WriteEndArray();
+            }
+
             writer.WriteStartArray("files");
             foreach (var file in Files.OrderBy(static x => x.Path, StringComparer.Ordinal))
             {
@@ -467,6 +494,94 @@ public sealed class PackageManifest
         }
 
         return Encoding.UTF8.GetString(buffer.ToArray());
+    }
+
+    /// <summary>
+    /// 解析可选的 <c>mediaRequirements</c>：componentId 用媒体组件标识口径（同 af-media/1），
+    /// paths 逐条 <see cref="PackagePaths.Normalize"/> 防穿越；组件去重、条目与路径都按序排列。
+    /// </summary>
+    private static bool TryParseMediaRequirements(
+        JsonElement root,
+        out IReadOnlyList<PackageMediaRequirement> requirements,
+        out string? error)
+    {
+        error = null;
+        requirements = [];
+        if (!root.TryGetProperty("mediaRequirements", out var element))
+        {
+            return true;
+        }
+
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            error = "mediaRequirements 必须是数组";
+            return false;
+        }
+
+        var result = new List<PackageMediaRequirement>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in element.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                error = "mediaRequirements 元素必须是对象";
+                return false;
+            }
+
+            var componentId = PackageJson.GetString(item, "componentId");
+            if (!MediaManifest.IsComponentId(componentId))
+            {
+                error = $"mediaRequirements.componentId 非法：{componentId}";
+                return false;
+            }
+
+            if (!seen.Add(componentId))
+            {
+                error = $"mediaRequirements 组件重复：{componentId}";
+                return false;
+            }
+
+            if (!item.TryGetProperty("paths", out var pathsElement)
+                || pathsElement.ValueKind != JsonValueKind.Array)
+            {
+                error = $"mediaRequirements[{componentId}].paths 必须是数组";
+                return false;
+            }
+
+            var paths = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var pathElement in pathsElement.EnumerateArray())
+            {
+                if (pathElement.ValueKind != JsonValueKind.String)
+                {
+                    error = $"mediaRequirements[{componentId}].paths 元素必须是字符串";
+                    return false;
+                }
+
+                var rawPath = pathElement.GetString();
+                var path = PackagePaths.Normalize(rawPath);
+                if (path is null)
+                {
+                    error = $"mediaRequirements[{componentId}] 路径非法：{rawPath}";
+                    return false;
+                }
+
+                paths.Add(path);
+            }
+
+            if (paths.Count == 0)
+            {
+                error = $"mediaRequirements[{componentId}].paths 不能为空";
+                return false;
+            }
+
+            result.Add(new PackageMediaRequirement(
+                componentId,
+                [.. paths.OrderBy(static x => x, StringComparer.Ordinal)]));
+        }
+
+        result.Sort(static (left, right) => string.CompareOrdinal(left.ComponentId, right.ComponentId));
+        requirements = result;
+        return true;
     }
 
     internal static DateTimeOffset? ParsePublishTime(string? raw, List<string> warnings)
@@ -513,6 +628,9 @@ public sealed class PackageManifest
 
     private static string? NullIfEmpty(string value) => value.Length == 0 ? null : value;
 }
+
+/// <summary>全量包清单声明的一项驱动媒体需求（组件 id + 安装器引用的 media 相对路径）。</summary>
+public sealed record PackageMediaRequirement(string ComponentId, IReadOnlyList<string> Paths);
 
 /// <summary>清单 JSON 的字段读取与文件条目解析（新旧格式共用）。</summary>
 internal static class PackageJson

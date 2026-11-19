@@ -15,8 +15,11 @@ namespace Platform.Modules.Versions.Services;
 /// </summary>
 public interface IDownloadTicketService
 {
-    /// <summary>为某个发布包 / 更新器签发下载票据。</summary>
-    DownloadTicketIssued Issue(string appKey, string kind, Guid id);
+    /// <summary>
+    /// 为某个发布包 / 更新器 / 媒体 / 完整包组合签发下载票据。
+    /// <paramref name="data"/> 为种类附加载荷（组合票据携带媒体 id 清单），可为空。
+    /// </summary>
+    DownloadTicketIssued Issue(string appKey, string kind, Guid id, string? data = null);
 
     /// <summary>校验并解析票据；无效或过期抛 401。</summary>
     DownloadTicket Read(string ticket);
@@ -31,20 +34,29 @@ public static class DownloadTicketKinds
     /// <summary>更新器分发包。</summary>
     public const string Updater = "updater";
 
+    /// <summary>驱动媒体包。</summary>
+    public const string Media = "media";
+
+    /// <summary>完整全量包组合（包 + 所选媒体）。</summary>
+    public const string Bundle = "bundle";
+
     /// <summary>是否为合法票据种类。</summary>
-    public static bool IsValid(string? kind) => kind is Package or Updater;
+    public static bool IsValid(string? kind) => kind is Package or Updater or Media or Bundle;
 }
 
 /// <summary>签发结果：URL 里用的票据串与到期时间。</summary>
 public sealed record DownloadTicketIssued(string Ticket, DateTimeOffset ExpiresAt);
 
-/// <summary>票据内容（只含定位信息，文件与权限在 GET 时按票据重新校验）。</summary>
-public sealed record DownloadTicket(string AppKey, string Kind, Guid Id);
+/// <summary>票据内容（只含定位信息与种类附加载荷，文件与权限在 GET 时按票据重新校验）。</summary>
+public sealed record DownloadTicket(string AppKey, string Kind, Guid Id, string? Data = null);
 
 /// <inheritdoc />
 public sealed class DownloadTicketService : IDownloadTicketService
 {
     private static readonly TimeSpan Lifetime = TimeSpan.FromHours(VersionConventions.DownloadTicketHours);
+
+    /// <summary>附加载荷上限（GUID 串）：票据要进 URL，超长直接拒发。</summary>
+    private const int MaxDataLength = 4096;
 
     private readonly ITimeLimitedDataProtector _protector;
     private readonly IClock _clock;
@@ -61,7 +73,7 @@ public sealed class DownloadTicketService : IDownloadTicketService
     }
 
     /// <inheritdoc />
-    public DownloadTicketIssued Issue(string appKey, string kind, Guid id)
+    public DownloadTicketIssued Issue(string appKey, string kind, Guid id, string? data = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appKey);
         if (!DownloadTicketKinds.IsValid(kind) || id == Guid.Empty)
@@ -69,7 +81,12 @@ public sealed class DownloadTicketService : IDownloadTicketService
             throw new ArgumentException("下载票据参数非法。", nameof(kind));
         }
 
-        var payload = JsonSerializer.SerializeToUtf8Bytes(new TicketPayload(appKey, kind, id));
+        if (data?.Length > MaxDataLength)
+        {
+            throw new ArgumentException("下载票据附加载荷过长。", nameof(data));
+        }
+
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new TicketPayload(appKey, kind, id, data));
         var ticket = WebEncoders.Base64UrlEncode(_protector.Protect(payload, Lifetime));
         return new DownloadTicketIssued(ticket, _clock.UtcNow.Add(Lifetime));
     }
@@ -93,16 +110,17 @@ public sealed class DownloadTicketService : IDownloadTicketService
         if (payload is null
             || string.IsNullOrWhiteSpace(payload.AppKey)
             || !DownloadTicketKinds.IsValid(payload.Kind)
-            || payload.Id == Guid.Empty)
+            || payload.Id == Guid.Empty
+            || payload.Data?.Length > MaxDataLength)
         {
             throw InvalidTicket();
         }
 
-        return new DownloadTicket(payload.AppKey, payload.Kind, payload.Id);
+        return new DownloadTicket(payload.AppKey, payload.Kind, payload.Id, payload.Data);
     }
 
     private static BusinessException InvalidTicket() =>
         new(ApiErrorCode.Unauthorized, "下载票据无效或已过期，请回到管理台重新点击下载。");
 
-    private sealed record TicketPayload(string AppKey, string Kind, Guid Id);
+    private sealed record TicketPayload(string AppKey, string Kind, Guid Id, string? Data);
 }

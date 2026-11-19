@@ -144,7 +144,7 @@ public static class ZipPackageManifestProbe
         return LegacyManifestAdapter.TryMapUpdatePackage(buildInfoJson, manifestJson);
     }
 
-    private static bool ReadText(ZipArchiveEntry entry, out string? text, out string? error)
+    internal static bool ReadText(ZipArchiveEntry entry, out string? text, out string? error)
     {
         text = null;
         error = null;
