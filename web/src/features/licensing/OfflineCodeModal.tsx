@@ -1,6 +1,6 @@
 import { formatDate } from '../../shared/format';
 import { tr } from '../../i18n/translate';
-import { UnorderedListOutlined } from '@ant-design/icons';
+import { DesktopOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import {
   App,
@@ -158,33 +158,28 @@ export function OfflineCodeModal({ open, products, onClose, onIssued }: OfflineC
           </Form.Item>
 
           <Form.Item
-            name="machineCode"
             label={tr("机器码")}
             extra={pickedNode ? tr("已绑定节点：{{arg0}}", { arg0: pickedNode.displayName }) : undefined}
-            rules={[
-              { required: true, message: tr("请输入机器码") },
-              {
-                pattern: /^[0-9A-Za-z\-_\s]{16,24}$/,
-                message: tr("机器码应为 16 位 Crockford Base32（可带分隔符）"),
-              },
-            ]}
           >
-            <Input
-              placeholder={tr("客户端「授权」页展示的 16 位机器码")}
-              autoComplete="off"
-              addonAfter={
-                canPickNode ? (
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<UnorderedListOutlined />}
-                    onClick={() => setPickerOpen(true)}
-                  >
-                    {tr("选择节点")}
-                  </Button>
-                ) : undefined
-              }
-            />
+            <Space.Compact style={{ width: '100%' }}>
+              <Form.Item
+                name="machineCode"
+                noStyle
+                rules={[
+                  { required: true, message: tr("请输入机器码") },
+                  {
+                    pattern: /^[0-9A-Za-z\-_\s]{16,24}$/,
+                    message: tr("机器码应为 16 位 Crockford Base32（可带分隔符）"),
+                  },
+                ]}
+              >
+                <Input placeholder={tr("客户端「授权」页展示的 16 位机器码")} autoComplete="off" />
+              </Form.Item>
+              {canPickNode ? (
+                <Button icon={<DesktopOutlined />} onClick={() => setPickerOpen(true)}>
+                  {tr("选择节点")}</Button>
+              ) : null}
+            </Space.Compact>
           </Form.Item>
 
           <Form.Item name="validity" label={tr("有效期")}>

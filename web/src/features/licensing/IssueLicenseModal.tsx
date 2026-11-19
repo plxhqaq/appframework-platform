@@ -1,7 +1,7 @@
 import { tr } from '../../i18n/translate';
-import { UnorderedListOutlined } from '@ant-design/icons';
+import { DesktopOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
-import { App, Button, DatePicker, Form, Input, InputNumber, Modal, Radio, Select } from 'antd';
+import { App, Button, DatePicker, Form, Input, InputNumber, Modal, Radio, Select, Space } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
 import { licensingApi } from '../../shared/api/licensing';
@@ -139,7 +139,6 @@ export function IssueLicenseModal({ open, products, initial, onClose, onSaved }:
         </Form.Item>
 
         <Form.Item
-          name="machineCode"
           label={tr("机器码")}
           tooltip={tr("客户端「关于/授权」页展示的 16 字符机器码；手抄的 O/I/L 会被自动纠正。")}
           extra={
@@ -150,30 +149,26 @@ export function IssueLicenseModal({ open, products, initial, onClose, onSaved }:
                 })
               : undefined
           }
-          rules={[
-            { required: true, message: tr("请输入机器码") },
-            {
-              pattern: /^[0-9A-Za-z\-_\s]{16,24}$/,
-              message: tr("机器码应为 16 位 Crockford Base32（可带分隔符）"),
-            },
-          ]}
         >
-          <Input
-            placeholder={tr("例如 008J-4CT4 ANK7-F24S")}
-            autoComplete="off"
-            addonAfter={
-              canPickNode ? (
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<UnorderedListOutlined />}
-                  onClick={() => setPickerOpen(true)}
-                >
-                  {tr("选择节点")}
-                </Button>
-              ) : undefined
-            }
-          />
+          <Space.Compact style={{ width: '100%' }}>
+            <Form.Item
+              name="machineCode"
+              noStyle
+              rules={[
+                { required: true, message: tr("请输入机器码") },
+                {
+                  pattern: /^[0-9A-Za-z\-_\s]{16,24}$/,
+                  message: tr("机器码应为 16 位 Crockford Base32（可带分隔符）"),
+                },
+              ]}
+            >
+              <Input placeholder={tr("例如 008J-4CT4 ANK7-F24S")} autoComplete="off" />
+            </Form.Item>
+            {canPickNode ? (
+              <Button icon={<DesktopOutlined />} onClick={() => setPickerOpen(true)}>
+                {tr("选择节点")}</Button>
+            ) : null}
+          </Space.Compact>
         </Form.Item>
 
         <Form.Item name="validity" label={tr("有效期")}>
