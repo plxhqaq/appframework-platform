@@ -35,6 +35,9 @@ public sealed class PlatformDbContext : DbContext
     /// <summary>幂等记录。</summary>
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
 
+    /// <summary>模块清理宽限期配置（横切表）。</summary>
+    public DbSet<RetentionSettingsRow> RetentionSettings => Set<RetentionSettingsRow>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -166,6 +166,31 @@ namespace Platform.Infrastructure.Migrations
                     b.ToTable("idempotency_records", (string)null);
                 });
 
+            modelBuilder.Entity("Platform.Infrastructure.Persistence.Entities.RetentionSettingsRow", b =>
+                {
+                    b.Property<string>("ModuleKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("module_key");
+
+                    b.Property<int>("CleanupGraceMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("cleanup_grace_minutes");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("ModuleKey");
+
+                    b.ToTable("retention_settings", (string)null);
+                });
+
             modelBuilder.Entity("Platform.Modules.Apps.Domain.App", b =>
                 {
                     b.Property<Guid>("Id")

@@ -312,6 +312,7 @@ try
     // ── 端点 ──────────────────────────────────────────────────────────
     app.MapPlatformEndpoints();
     app.MapAuditEndpoints();
+    app.MapRetentionEndpoints();
     app.MapPlatformMetrics();
     app.MapPlatformModules();
     app.MapHub<DeviceHub>(DeviceHubPaths.Root);

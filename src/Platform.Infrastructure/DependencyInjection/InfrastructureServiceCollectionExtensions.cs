@@ -51,6 +51,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IAuditWriter, EfAuditWriter>();
         services.AddScoped<IAuditQueryService, AuditQueryService>();
         services.AddScoped<IIdempotencyStore, EfIdempotencyStore>();
+        services.AddScoped<IRetentionSettingsStore, RetentionSettingsStore>();
 
         services.AddHealthChecks()
             .AddDbContextCheck<PlatformDbContext>("postgres", tags: ["ready"]);
