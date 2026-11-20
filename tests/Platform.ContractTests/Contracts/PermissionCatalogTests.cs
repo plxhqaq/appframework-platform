@@ -97,4 +97,21 @@ public sealed partial class PermissionCatalogTests
         Assert.DoesNotContain(PermissionCatalog.All, static p => p.ModuleKey == "client");
         Assert.All(PermissionCatalog.All, static p => Assert.False(p.Code.StartsWith("client.", StringComparison.Ordinal)));
     }
+
+    [Fact]
+    public void 回收站权限码归属与平台专属标记正确()
+    {
+        var backups = PermissionCatalog.ForModule(PlatformModuleKeys.Backups);
+        Assert.Contains(backups, static p => p.Code == "backup.restore" && p.Sort == 560);
+        Assert.Contains(backups, static p => p.Code == "backup.purge" && p.Sort == 570);
+
+        var documents = PermissionCatalog.ForModule(PlatformModuleKeys.Documents);
+        Assert.Contains(documents, static p => p.Code == "document.restore" && p.Sort == 650);
+        Assert.Contains(documents, static p => p.Code == "document.purge" && p.Sort == 660);
+
+        var retention = PermissionCatalog.All.Single(static p => p.Code == "retention.cleanup.manage");
+        Assert.Equal("platform", retention.ModuleKey);
+        Assert.Equal(915, retention.Sort);
+        Assert.True(retention.PlatformAdminOnly);
+    }
 }

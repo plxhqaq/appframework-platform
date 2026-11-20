@@ -102,6 +102,18 @@ public sealed record BackupDto(
     DateTimeOffset CreatedAt,
     string? CreatedBy);
 
+/// <summary>回收站中的备份（软删除，宽限期内可恢复）。</summary>
+public sealed record DeletedBackupDto(
+    Guid Id,
+    string NamespaceKey,
+    string Kind,
+    string Name,
+    long SizeBytes,
+    bool HasFile,
+    bool FileIntact,
+    DateTimeOffset DeletedAt,
+    int RemainingGraceMinutes);
+
 /// <summary>下发备份：目标安装实例/渠道由调用方声明，服务端复核兼容矩阵。</summary>
 /// <param name="TargetInstallationId">单个目标安装实例（与 <paramref name="TargetInstallationIds"/> 合并去重）。</param>
 /// <param name="TargetChannel">目标渠道；为空按默认渠道处理。</param>

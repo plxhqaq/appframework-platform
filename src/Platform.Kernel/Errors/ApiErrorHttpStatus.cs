@@ -113,6 +113,7 @@ public static class ApiErrorHttpStatus
         ApiErrorCode.BackupsVersionQuotaExceeded => StatusCodes.Status409Conflict,
         ApiErrorCode.BackupsPushRejected => StatusCodes.Status409Conflict,
         ApiErrorCode.BackupsAckTimeout => StatusCodes.Status504GatewayTimeout,
+        ApiErrorCode.BackupsBlobReclaimed => StatusCodes.Status409Conflict,
 
         // ━━━ 文档 ━━━
         ApiErrorCode.DocumentsCollectionNotFound => StatusCodes.Status404NotFound,
@@ -121,6 +122,7 @@ public static class ApiErrorHttpStatus
         ApiErrorCode.DocumentsRevisionNotFound => StatusCodes.Status404NotFound,
         ApiErrorCode.DocumentsVisibilityDenied => StatusCodes.Status403Forbidden,
         ApiErrorCode.DocumentsFileMissing => StatusCodes.Status404NotFound,
+        ApiErrorCode.DocumentsFileReclaimed => StatusCodes.Status409Conflict,
 
         // ━━━ 应用接入 ━━━
         ApiErrorCode.AppsNotFound => StatusCodes.Status404NotFound,

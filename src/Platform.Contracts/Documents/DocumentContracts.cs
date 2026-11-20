@@ -72,6 +72,19 @@ public sealed record DocumentSummaryDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
+/// <summary>回收站中的文档（软删除，宽限期内可恢复）。</summary>
+public sealed record DeletedDocumentDto(
+    Guid Id,
+    string CollectionKey,
+    string Title,
+    string Visibility,
+    int Revision,
+    string FileName,
+    long SizeBytes,
+    bool FileIntact,
+    DateTimeOffset DeletedAt,
+    int RemainingGraceMinutes);
+
 /// <summary>文档详情：最新修订 + 全部修订历史。</summary>
 public sealed record DocumentDetailDto(
     Guid Id,

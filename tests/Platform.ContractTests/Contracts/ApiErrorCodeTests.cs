@@ -42,6 +42,8 @@ public sealed class ApiErrorCodeTests
         Assert.Equal(ApiErrorSegments.Webhooks, ApiErrorSegments.Of(ApiErrorCode.WebhooksUrlInvalid));
         Assert.Equal(ApiErrorSegments.Devices, ApiErrorSegments.Of(ApiErrorCode.DevicesNotFound));
         Assert.Equal(ApiErrorSegments.Common, ApiErrorSegments.Of(ApiErrorCode.ValidationFailed));
+        Assert.Equal(ApiErrorSegments.Backups, ApiErrorSegments.Of(ApiErrorCode.BackupsBlobReclaimed));
+        Assert.Equal(ApiErrorSegments.Documents, ApiErrorSegments.Of(ApiErrorCode.DocumentsFileReclaimed));
     }
 
     [Fact]
@@ -83,5 +85,7 @@ public sealed class ApiErrorCodeTests
         Assert.Equal(429, ApiErrorHttpStatus.Map(ApiErrorCode.IdentityAccountThrottled));
         Assert.Equal(503, ApiErrorHttpStatus.Map(ApiErrorCode.LicensingSigningKeyUnavailable));
         Assert.Equal(500, ApiErrorHttpStatus.Map(ApiErrorCode.Unknown));
+        Assert.Equal(409, ApiErrorHttpStatus.Map(ApiErrorCode.BackupsBlobReclaimed));
+        Assert.Equal(409, ApiErrorHttpStatus.Map(ApiErrorCode.DocumentsFileReclaimed));
     }
 }

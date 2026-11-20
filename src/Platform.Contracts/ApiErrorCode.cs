@@ -120,6 +120,7 @@ public enum ApiErrorCode
     BackupsVersionQuotaExceeded = 406,
     BackupsPushRejected = 407,
     BackupsAckTimeout = 408,
+    BackupsBlobReclaimed = 409,
 
     // ━━━ 500–599 文档 ━━━
     DocumentsCollectionNotFound = 500,
@@ -128,6 +129,7 @@ public enum ApiErrorCode
     DocumentsRevisionNotFound = 503,
     DocumentsVisibilityDenied = 504,
     DocumentsFileMissing = 505,
+    DocumentsFileReclaimed = 506,
 
     // ━━━ 600–699 应用接入 ━━━
     AppsNotFound = 600,

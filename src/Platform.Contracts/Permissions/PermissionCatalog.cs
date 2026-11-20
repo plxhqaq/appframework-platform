@@ -61,6 +61,8 @@ public static class PermissionCatalog
     public const string BackupCreate = "backup.create";
     public const string BackupPush = "backup.push";
     public const string BackupDelete = "backup.delete";
+    public const string BackupRestore = "backup.restore";
+    public const string BackupPurge = "backup.purge";
 
     // ━━━ 文档（document）━━━
     public const string DocumentCollectionRead = "document.collection.read";
@@ -68,6 +70,8 @@ public static class PermissionCatalog
     public const string DocumentRead = "document.read";
     public const string DocumentManage = "document.manage";
     public const string DocumentDelete = "document.delete";
+    public const string DocumentRestore = "document.restore";
+    public const string DocumentPurge = "document.purge";
 
     // ━━━ Webhook（webhook）━━━
     public const string WebhookRead = "webhook.read";
@@ -85,6 +89,7 @@ public static class PermissionCatalog
     public const string AuditRead = "audit.read";
     public const string PlatformApiDocsRead = "platform.apidocs.read";
     public const string PlatformAdmin = "platform.admin";
+    public const string RetentionCleanupManage = "retention.cleanup.manage";
 
     /// <summary>平台侧全部权限（管理端可授予的集合；不含客户端权限）。</summary>
     public static IReadOnlyList<PermissionDescriptor> PlatformPermissions { get; } =
@@ -127,12 +132,16 @@ public static class PermissionCatalog
         new(BackupCreate, PlatformModuleKeys.Backups, "perm.backup.create", 530),
         new(BackupPush, PlatformModuleKeys.Backups, "perm.backup.push", 540),
         new(BackupDelete, PlatformModuleKeys.Backups, "perm.backup.delete", 550),
+        new(BackupRestore, PlatformModuleKeys.Backups, "perm.backup.restore", 560),
+        new(BackupPurge, PlatformModuleKeys.Backups, "perm.backup.purge", 570),
 
         new(DocumentCollectionRead, PlatformModuleKeys.Documents, "perm.document.collection.read", 600),
         new(DocumentCollectionManage, PlatformModuleKeys.Documents, "perm.document.collection.manage", 610),
         new(DocumentRead, PlatformModuleKeys.Documents, "perm.document.read", 620),
         new(DocumentManage, PlatformModuleKeys.Documents, "perm.document.manage", 630),
         new(DocumentDelete, PlatformModuleKeys.Documents, "perm.document.delete", 640),
+        new(DocumentRestore, PlatformModuleKeys.Documents, "perm.document.restore", 650),
+        new(DocumentPurge, PlatformModuleKeys.Documents, "perm.document.purge", 660),
 
         new(WebhookRead, PlatformModuleKeys.Webhooks, "perm.webhook.read", 700),
         new(WebhookManage, PlatformModuleKeys.Webhooks, "perm.webhook.manage", 710),
@@ -148,6 +157,7 @@ public static class PermissionCatalog
         new(AuditRead, PlatformOnlyModuleKey, "perm.audit.read", 900, PlatformAdminOnly: true),
         new(PlatformApiDocsRead, PlatformOnlyModuleKey, "perm.platform.apidocs.read", 905, PlatformAdminOnly: true),
         new(PlatformAdmin, PlatformOnlyModuleKey, "perm.platform.admin", 910, PlatformAdminOnly: true),
+        new(RetentionCleanupManage, PlatformOnlyModuleKey, "perm.retention.cleanup.manage", 915, PlatformAdminOnly: true),
     ];
 
     /// <summary>全部已知平台权限（含客户端应用权限的完整目录由运行时按应用清单合并）。</summary>
