@@ -17,7 +17,9 @@
 | 上传 | `/api/v1/admin/versions/uploads` | — |
 | 下载 | — | `/api/v1/client/versions/download/{sha256}` |
 | 发布包 | `/api/v1/admin/versions/packages` | `/api/v1/client/versions/packages/{id}/download` |
-| 浏览器下载 | `POST /api/v1/client/versions/{packages,updaters}/{id}/download-ticket` | `GET /api/v1/client/versions/downloads/{ticket}`（匿名） |
+| 驱动媒体 | `/api/v1/admin/versions/media` | `/api/v1/client/versions/media/{id}/download` |
+| 完整包组合 | — | `POST /api/v1/client/versions/packages/{id}/bundle-ticket` |
+| 浏览器下载 | `POST /api/v1/client/versions/{packages,updaters,media}/{id}/download-ticket` | `GET /api/v1/client/versions/downloads/{ticket}`（匿名） |
 
 ---
 
@@ -334,7 +336,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $CLIENT_TOKEN
 
 ## 6. 错误码与 HTTP 状态
 
-版本段 `200–299`，已定义到 `228`；HTTP 状态由 `ApiErrorHttpStatus.Map` 唯一映射。
+版本段 `200–299`，已定义到 `233`；HTTP 状态由 `ApiErrorHttpStatus.Map` 唯一映射。
 发布包错误码（213–228）的触发细节见 [`10-package-manifest.md`](10-package-manifest.md) §7。
 
 | 码 | 枚举名 | HTTP | 触发点 |
@@ -361,13 +363,18 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $CLIENT_TOKEN
 | `219` | `VersionsPackageManifestConflict` | 409 | 清单与既有产物不一致；并发写入冲突 |
 | `220` | `VersionsPackageUnsafeArchive` | 422 | zip 越界 / 加密 / 符号链接 |
 | `221` | `VersionsPackageTooLarge` | 413 | 超过包大小上限 |
-| `222` | `VersionsReleaseImmutable` | 409 | 已发布/已归档版本仍尝试删除包 |
+| `222` | `VersionsReleaseImmutable` | 409 | 已发布/已归档版本仍尝试删除包；删除启用中的驱动媒体行（先停用） |
 | `223` | `VersionsUpdaterNotFound` | 404 | 更新器不存在（B9） |
 | `224` | `VersionsPackageKindUnsupported` | 400 | 本端点不支持的包类型（如 updater） |
 | `225` | `VersionsPackageIngestionFailed` | 422 | 摄取失败（B9） |
 | `226` | `VersionsPackageStatusInvalid` | 409 | 包状态不允许该操作 |
 | `227` | `VersionsStorageInsufficient` | 507 | 存储空间不足（B9/B10） |
 | `228` | `VersionsPackageManifestInvalid` | 422 | 清单 JSON / 字段非法 |
+| `229` | `VersionsMediaNotFound` | 404 | 媒体登记行不存在，或媒体 blob 缺失（含组合时选中的 id） |
+| `230` | `VersionsMediaKeyExists` | 409 | 同 `(mediaKey, version)` 已登记另一份内容；并发登记冲突 |
+| `231` | `VersionsMediaManifestInvalid` | 422 | `af-media.json` 非法、清单与 zip 内容不一致、未声明文件、路径越界、`componentId` 不满足媒体键口径 |
+| `232` | `VersionsBundleMediaMissing` | 400 | 组合未覆盖包清单 `mediaRequirements` 且未显式 `allowMissing` |
+| `233` | `VersionsBundlePathConflict` | 409 | 组合内同路径异内容，或媒体占用保留路径 `media/media-order.json` |
 
 结构类问题（键/版本规则、路径非法、重复路径、空产物、渠道停用）走通用码 `2` `ValidationFailed`（400）；
 大小与条数超限走 `12` `PayloadTooLarge`（413）；缺应用上下文走 `4` `Forbidden`（403）。
@@ -518,10 +525,11 @@ curl -s -X POST http://localhost:5080/api/v1/client/versions/check \
 ### 9.2 孤儿 Blob 扫描
 
 - 默认 `BlobSweepEnabled=true` 且 **`BlobSweepDryRun=true`**：只统计候选，不删除。
-- 候选条件：`versions/{appKey}/{64位小写sha256}` 形式的文件、修改时间早于
-  `BlobSweepGraceHours`（默认 48 小时）、且一轮内重新核对 `release_files` /
-  `release_packages` / `app_updater_releases` 都没有引用。宽限期必须大于上传票据有效期（30 分钟），
-  否则刚传完未登记的 Blob 会被误判。
+- 候选条件：`versions/{appKey}/{64位小写sha256}` 与组合缓存 `versions/{appKey}/bundles/{组合哈希}.zip`
+  两种形式、修改时间早于 `BlobSweepGraceHours`（默认 48 小时）、且一轮内重新核对 `release_files` /
+  `release_packages` / `app_updater_releases` / `driver_media` 都没有引用。宽限期必须大于上传票据有效期
+  （30 分钟），否则刚传完未登记的 Blob 会被误判。组合缓存是派生内容、无引用语义，不查引用表，
+  只按宽限期回收（删掉后下次组合重新打包）。
 - 每批 `BlobSweepBatchSize`（默认 500）个候选；PostgreSQL 会话级 advisory lock（键 `20261113`）
   保证多副本同时只有一轮在扫。
 - 上线顺序：先跑一周 dry-run，观察 `versions_blob_orphans_scanned_total` 与日志里的候选是否都确实无引用，
@@ -595,6 +603,10 @@ InMemory 集成测试覆盖不到。
 | 删除草稿版本的包 | `versions.release.archive` | `DELETE /packages/{id}` |
 | 增量包摄取状态轮询 / 重试 | `versions.release.read` / `versions.artifact.upload` | `GET /packages/{id}` / `POST /packages/{id}/retry` |
 | 更新器列表 / 上传 / 归档 / 删除 / 下载 | `versions.release.read` / `versions.artifact.upload` / `versions.release.archive` / `versions.release.delete` / `versions.artifact.download` | `GET` / `POST /updaters`、`POST /updaters/{id}/archive`、`DELETE /updaters/{id}`、`POST /updaters/{id}/download-ticket` → `GET /downloads/{ticket}` |
+| 驱动媒体列表 / 「仅启用版本」筛选 | `versions.release.read` | `GET /media?mediaKey=&activeOnly=` |
+| 上传媒体包（哈希 → 直传 → 登记）/ 设为启用 / 设为停用 | `versions.artifact.upload` | `POST /uploads` → `PUT {uploadUrl}` → `POST /media`、`POST /media/{id}/activate`、`POST /media/{id}/deactivate` |
+| 媒体下载 / 删除媒体包 | `versions.artifact.download` / `versions.release.archive` | `POST /media/{id}/download-ticket` → `GET /downloads/{ticket}`、`DELETE /media/{id}` |
+| 「下载完整包」弹窗（默认勾选启用的声明媒体，缺项须显式忽略） | `versions.artifact.download` | `GET /media?activeOnly=true`、`POST /packages/{id}/bundle-ticket` → `GET /downloads/{ticket}` |
 | 顶部「当前应用」选择器 | — | `POST /api/v1/admin/auth/context` |
 
 页面细节：状态标签草稿/已发布/已归档对应三个状态常量；创建类请求由前端生成 `Idempotency-Key`
@@ -610,7 +622,111 @@ InMemory 集成测试覆盖不到。
 已发布版本不提供。更新器页的「最新」标记由服务端
 `/client/versions/updater` 逐 target 解析，不依赖前端版本比较。安装包与更新器的「下载」按钮先
 `POST .../download-ticket`，再用 `<a>` 打开返回的 `url`，由浏览器原生流式下载；非 zip 源会被服务端
-打包为 zip（下发文件名带 `.zip`），页面不再把文件读进内存。
+打包为 zip（下发文件名带 `.zip`），页面不再把文件读进内存。驱动媒体面板的「设为启用 / 设为停用」
+只切换组合下载的默认候选（见第 12 节），不影响客户端按 id 下载；停用后该媒体键可以没有启用版本，
+此时「下载完整包」里该组件落到缺失项，须显式「忽略缺失项继续」。
+
+---
+
+## 12. 驱动媒体包与完整包组合（af-media/1）
+
+全量安装包里的驱动/组件媒体从安装包里外置，按组件独立登记与复用：一份媒体 zip = 一条
+`driver_media` 行，下载完整包时由服务端把安装包与所选媒体合成一个确定性 zip。
+
+### 12.1 媒体键、版本与「启用」
+
+- **媒体键** `mediaKey` 对齐客户端 `components.manifest.json` 的 `componentId`，登记时归一为小写，
+  规则 `^[a-z][a-z0-9_-]{1,63}$`（`VersionConventions.MediaKeyPattern`）。
+- **同键多版本共存**，但同一 `(mediaKey, version)` 只允许一份内容：同 `sha256` 重放幂等复用
+  （`reused=true`），异 `sha256` 拒绝 `230 VersionsMediaKeyExists`（409）。
+- **`isActive` 是每个媒体键的「当前版本指针」**，同键至多一行启用：
+  - 该键首次登记自动启用，之后登记的版本默认停用；
+  - `activate` 把启用位切到指定行，同键其余行自动停用；
+  - `deactivate` 只停用指定行，**不提升同键其它版本**，因此一个媒体键可以没有启用版本；
+    已停用的行重复调用幂等（仍返回停用态）。
+- **启用不是下发门禁**：它决定管理台「下载完整包」的候选与默认勾选（候选只取 `activeOnly=true`）
+  与列表的「仅启用版本」筛选。组合端点与客户端媒体下载都按 id 定位、不校验 `isActive`，
+  停用或未启用的历史版本仍可按 id 下载、也可被显式选进组合。
+- **删除**：启用中的行拒绝（`222 VersionsReleaseImmutable`，409，「请先停用再删除」）；停用后可删。
+  删行后按内容寻址口径就地回收无引用 blob，仍被其它版本/媒体/更新器引用的共享内容保留。
+  媒体行是硬删除，不进回收站、没有宽限期。
+
+### 12.2 媒体包与 af-media/1 清单
+
+zip 根内放 `af-media.json`，所有媒体文件统一落在 `media/` 前缀下（整包解压即对上安装器期望的目录布局）。
+清单由客户端仓的 `pack-media.ps1` 生成，字段口径：
+
+| 字段 | 必填 | 约束 |
+|---|---|---|
+| `schema` | 是 | 恒 `af-media/1` |
+| `componentId` | 是 | `^[A-Za-z0-9_.:-]{1,64}$`；媒体键缺省取它（小写归一后须满足媒体键规则） |
+| `label` | 是 | 1–256 字符；显示名缺省取它 |
+| `version` | 否 | 三段/四段版本号（同 `VersionPattern`）；缺省空串，管理台显示「未版本化」 |
+| `rootPrefix` | 否 | 只接受 `media/` |
+| `files` | 是 | `[{path, sha256, sizeBytes}]`，≤ 20000 条；`path` 必须在 `media/` 下且归一化后不越界 |
+| `installOrder` | 否 | 组件标识序列，≤ 1024 条 |
+| `packageOrder` | 否 | wheel 名前缀序列（PythonPackages 类组件的离线安装顺序），≤ 1024 条 |
+| `description` | 否 | ≤ 4000 字符 |
+
+清单 JSON ≤ 1 MiB，整包 ≤ 4 GiB（`MaxMediaSizeBytes`）。登记时服务端解压逐文件复核：清单声明的每个
+文件都要在 zip 里存在且 `sha256`/`sizeBytes` 对得上；zip 内出现清单未声明的文件、路径越界、加密或
+符号链接条目一律拒绝（`231 VersionsMediaManifestInvalid`，422）。`manifestHash` 是文件集内容指纹
+（`path`/`sha256`/`sizeBytes` 排序后 digest），只有媒体文件集合变化才变。
+
+### 12.3 管理端端点
+
+| 方法与路径 | 权限码 | 幂等 / 限流 |
+|---|---|---|
+| `GET /api/v1/admin/versions/media` | `versions.release.read` | — |
+| `GET /api/v1/admin/versions/media/{id}` | `versions.release.read` | — |
+| `POST /api/v1/admin/versions/media` | `versions.artifact.upload` | `Idempotency-Key`，作用域 `versions.media.register`；限流 `VersionsPackageFinalize` |
+| `POST /api/v1/admin/versions/media/{id}/activate` | `versions.artifact.upload` | — |
+| `POST /api/v1/admin/versions/media/{id}/deactivate` | `versions.artifact.upload` | — |
+| `DELETE /api/v1/admin/versions/media/{id}` | `versions.release.archive` | — |
+
+列表查询串：`page` / `pageSize` / `mediaKey`（模糊包含，过滤词同口径小写归一）/ `activeOnly=true`
+（只看启用行）；排序为 `mediaKey` 升序 + `createdAt` 降序。
+
+登记请求体 `RegisterDriverMediaRequest`：`mediaKey?`、`sha256`、`sizeBytes`、`fileName?`、`version?`、`name?`。
+缺省口径：`mediaKey` ← 清单 `componentId`、`version` ← 清单 `version`、`name` ← 清单 `label`；
+`fileName` 须为 `.zip`（≤ 256 字符、不含路径分隔符），缺省按 `{sha256}.zip` 生成。
+内容必须先经第 3 节的上传票据直传落盘，否则 `210 VersionsPackageHashMismatch`（422）；
+声明长度与在盘长度不符同样 210。显式传入的 `mediaKey` 不合规则走 `2 ValidationFailed`（400），
+清单 `componentId` 不满足媒体键口径则是 231（422）。
+
+响应 `DriverMediaDto`：`id`、`mediaKey`、`name`、`version`、`isActive`、`fileName`、`sha256`、`sizeBytes`、
+`fileCount`、`manifestHash`、`installOrder`、`createdBy`、`createdAt`、`updatedAt`、`reused`。
+`packageOrder` 不在 DTO 上，只随清单参与组合。
+
+审计动作：`versions.media.register` / `versions.media.activate` / `versions.media.deactivate` /
+`versions.media.delete`，`targetType` 恒 `driver_media`，成功与失败都写。
+
+### 12.4 客户端下载与完整包组合
+
+| 方法与路径 | 权限码 | 说明 |
+|---|---|---|
+| `GET /api/v1/client/versions/media/{id}/download` | `versions.artifact.download` | zip 原样下发，Range / ETag / 304，带 `X-Content-Sha256`，保留原文件名 |
+| `POST /api/v1/client/versions/media/{id}/download-ticket` | `versions.artifact.download` | 管理台浏览器下载票据 → `GET /downloads/{ticket}`（匿名） |
+| `POST /api/v1/client/versions/packages/{id}/bundle-ticket` | `versions.artifact.download` | 完整包组合票据，请求体 `CreatePackageBundleRequest { mediaIds?: Guid[], allowMissing?: bool }` |
+
+组合只支持 `kind=full` 且 `status=ready` 的包（否则 `224 VersionsPackageKindUnsupported` 400 /
+`214 VersionsPackageNotReady` 409）。服务端把安装包与所选媒体合成确定性 zip，按组合哈希缓存到
+`versions/{appKey}/bundles/{compositionHash}.zip`：全部校验在签发时做，兑现票据只重组缓存。
+
+组合规则：
+
+- 一次最多 64 份媒体（`MaxBundleMediaPackages`），id 去重；登记行不存在或 blob 缺失 → `229 VersionsMediaNotFound`（404）。
+- 路径归并：同路径同文件 `sha256` 去重只写一份；同路径异内容 → `233 VersionsBundlePathConflict`（409）；
+  媒体条目占用保留路径 `media/media-order.json` 同样 233。
+- 声明覆盖门禁：包清单 `mediaRequirements`（`[{componentId, paths}]`，字段口径见
+  [`10-package-manifest.md`](10-package-manifest.md) 2.1）非空时，所选媒体的 `mediaKey` 必须覆盖每个声明的
+  `componentId`（大小写不敏感），缺项 → `232 VersionsBundleMediaMissing`（400）；
+  显式 `allowMissing=true` 放行，并把缺项写进审计（动作 `versions.package.bundle`）。清单未声明则任选。
+- 选了媒体时，合成包内追加 `media/media-order.json`（协议 `af-media-order/1`）：逐媒体给出
+  `mediaKey` / `manifestHash` / `installOrder` / `packageOrder`，安装器据此定序（缺省回退旧顺序）。
+- 组合缓存是纯派生内容，不参与版本引用计数，由孤儿 Blob 扫描按 `Versions:BlobSweepGraceHours` 回收（见 9.2）。
+
+媒体与组合的错误码触发点见第 6 节（`229`–`233`）。
 
 ---
 

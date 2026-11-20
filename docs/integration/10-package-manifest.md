@@ -63,6 +63,18 @@ zip 根目录（`app/` 前缀与大小写不敏感），或作为 sidecar JSON�
 - `kind=incremental` 必须带非空 `files`；`kind=full` 可省略（安装器自包含）。
 - 文件 `path` 归一后（`\ → /`、去 `./`、去 `app/` 顶层前缀）必须唯一且大小写不敏感不重复；
   拒绝绝对路径、`..`、空段、NUL。条目按 `path` 排序后计算 `manifest_hash`。
+- `mediaRequirements`（可选，只对 `kind=full` 有意义）声明该安装包需要的驱动媒体组件，供「完整包」
+  组合下载做覆盖门禁；由发布脚本与媒体分包同源聚合生成，exe 管道清单无法携带该字段：
+
+  ```json
+  "mediaRequirements": [
+    { "componentId": "drv-servo", "paths": ["media/drv-servo/a.dll", "media/drv-servo/lib.ini"] }
+  ]
+  ```
+
+  `componentId` 须满足 `^[A-Za-z0-9_.:-]{1,64}$`，数组内不得重复（大小写不敏感）；`paths` 必填非空，
+  逐条按同一口径归一化、去重后排序。组合时缺项默认拒绝（`232 VersionsBundleMediaMissing`，400），
+  显式 `allowMissing=true` 放行并记审计。媒体登记与组合端点见 [`02-versions.md`](02-versions.md) 第 12 节。
 
 ### 2.2 exe：PE `VERSIONINFO Comments`
 
@@ -257,6 +269,8 @@ curl -s -o Setup.exe -D headers.txt \
 | `226` | `VersionsPackageStatusInvalid` | 409 | 非法状态迁移（如重试非 `failed` 包、启用非 `ready` 包） |
 | `227` | `VersionsStorageInsufficient` | 507 | 摄取前剩余磁盘不足 |
 | `228` | `VersionsPackageManifestInvalid` | 422 | 清单 JSON/字段不合法；zip 结构损坏（非“缺清单”） |
+
+驱动媒体与完整包组合的错误码（`229`–`233`）见 [`02-versions.md`](02-versions.md) 第 6 节。
 
 ## 8. 管理台
 
