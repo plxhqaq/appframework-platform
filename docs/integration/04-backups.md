@@ -194,10 +194,31 @@ curl -s -X POST http://localhost:5080/api/v1/admin/backups/$ID/push \
 ## 5. 删除与清理
 
 `DELETE /api/v1/admin/backups/{id}` 是软删除：立刻从列表/下载中消失，物理文件与行由
-`RetentionWorker` 在宽限期后清理。宽限期取 `Backups:CleanupGraceMinutes`，最小 1 分钟；
+`RetentionWorker` 在宽限期后清理。宽限期优先取 `retention_settings` 表内的库内配置，
+未配置时回落 `Backups:CleanupGraceMinutes`（默认 30 分钟），最小 1 分钟；
 清理顺序固定为**先删 Blob、再删行**，文件删除失败时保留行，下一轮重试。
 
 调度间隔由 `Workers:Retention:IntervalSeconds` 控制（默认 600 秒，最小 5 秒）。
+
+### 回收站（软删除与恢复）
+
+删除备份只打 `deleted_at`，宽限期（默认 30 分钟，可在管理台「清理宽限期」编辑，平台全部应用生效）内可从回收站恢复：
+
+| 端点 | 权限 | 说明 |
+|---|---|---|
+| `GET /api/v1/admin/backups/deleted` | `backup.restore` | 回收站分页；返回删除时间、剩余宽限（服务端计算）与文件完好标记 |
+| `POST /api/v1/admin/backups/{id}/restore` | `backup.restore` | 先验证 Blob 存在；缺失返回 `409`（`BackupsBlobReclaimed`） |
+| `POST /api/v1/admin/backups/{id}/purge` | `backup.purge` | 立即物理清理单条（先删文件后删行） |
+| `POST /api/v1/admin/backups/purge-all` | `backup.purge` | 立即清理当前应用全部回收站行（cutoff=now，不受筛选影响） |
+
+宽限期到期后仍由后台清理任务自动执行；「立即清理」只是跳过等待。恢复不发布事件；恢复可能超过命名空间 `max_versions`（配额只计未软删行），后续新建备份会被拒绝（`406`）直到删除旧备份。
+
+- 剩余宽限 = `deleted_at + 宽限期 - now`，向上取整到分钟，到期显示「等待下次清理」，≤5 分钟标红提示即将物理删除。
+- 文件完好 = `blob_path` 为空或 Blob 仍在；文件缺失的行只能「立即清理」，恢复按钮置灰。
+- 「全部清理」与单条清理共用同一执行器；命名空间删除仍以「含已删除待清理行」阻止（通用 `6`，HTTP 409）。
+- 恢复/单条清理/全部清理分别写审计 `backups.restore` / `backups.purge`。
+- 宽限期本身通过 `GET|PUT /api/v1/admin/retention/settings`（`retention.cleanup.manage`，仅平台管理员默认持有）读写，
+  备份与文档两域整体提交，最小 1 分钟。
 
 ## 6. 错误码
 
@@ -213,6 +234,7 @@ curl -s -X POST http://localhost:5080/api/v1/admin/backups/$ID/push \
 | `406` | 命名空间保留条数超限 |
 | `407` | 下发被拒（显式广播无连接/跨安装实例未确认） |
 | `408` | 等待回执超时 |
+| `409` | 备份物理文件已被清理，无法恢复（`BackupsBlobReclaimed`，HTTP 409） |
 | `805` | 目标安装实例不存在或不属于当前应用（下发/客户端上传） |
 | `806` | 所在节点已停用 |
 | `807` | 目标安装实例已停用 |
@@ -226,5 +248,5 @@ curl -s -X POST http://localhost:5080/api/v1/admin/backups/$ID/push \
 | `Backups:InlineMaxBytes` | 65536 | 内联阈值 |
 | `Backups:MaxPayloadBytes` | 67108864 | 单次负载上限 |
 | `Backups:PushAckTimeoutSeconds` | 60 | 回执等待秒数 |
-| `Backups:CleanupGraceMinutes` | 30 | 软删宽限期（最小 1 分钟） |
+| `Backups:CleanupGraceMinutes` | 30 | 出厂默认宽限期（管理台配置后以 `retention_settings` 表为准，最小 1 分钟） |
 | `Backups:DefaultMaxVersions` | 50 | 命名空间默认配额 |

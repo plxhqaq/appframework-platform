@@ -113,13 +113,32 @@ curl -s -OJ "http://localhost:5080/api/v1/client/documents/$ID/download" \
 - `DELETE /documents/{id}` 是软删除：立刻从管理端列表、客户端清单与下载中消失。
 - 宽限期后由 `RetentionWorker` 清理：先删修订文件与文档文件，再删 `document_revisions` 与 `documents` 行；
   文件删不掉时保留行，下一轮重试。
-- 宽限期取 `Documents:CleanupGraceMinutes`（最小 1 分钟），调度间隔取
-  `Workers:Retention:IntervalSeconds`（默认 600 秒，最小 5 秒）。
+- 宽限期优先取 `retention_settings` 表内的库内配置，未配置时回落 `Documents:CleanupGraceMinutes`
+  （默认 30 分钟，最小 1 分钟），调度间隔取 `Workers:Retention:IntervalSeconds`（默认 600 秒，最小 5 秒）。
+
+### 回收站（软删除与恢复）
+
+删除文档时文档行与全部修订行盖同一个 `deleted_at`；宽限期内可整体恢复：
+
+| 端点 | 权限 | 说明 |
+|---|---|---|
+| `GET /api/v1/admin/documents/deleted` | `document.restore` | 回收站分页；文件完好 = 文档当前文件与全部修订文件都存在 |
+| `POST /api/v1/admin/documents/{id}/restore` | `document.restore` | 逐修订验文件，任一缺失返回 `506`（`DocumentsFileReclaimed`） |
+| `POST /api/v1/admin/documents/{id}/purge` | `document.purge` | 立即清理文档与全部修订 |
+| `POST /api/v1/admin/documents/purge-all` | `document.purge` | 立即清理当前应用全部回收站行（cutoff=now，不受筛选影响） |
+
+- 恢复成功后文档与全部修订一起回到管理端列表（`visibility=client` 且集合启用时同时回到客户端清单）；文件缺失的行只能「立即清理」。
+- 集合删除仍以「含已删除待清理文档」阻止（通用 `6`，HTTP 409）；「全部清理」与定时清理共用同一执行器。
+- 恢复/单条清理/全部清理分别写审计 `documents.restore` / `documents.purge`。
+- 宽限期本身通过 `GET|PUT /api/v1/admin/retention/settings`（`retention.cleanup.manage`，仅平台管理员默认持有）读写，
+  备份与文档两域整体提交，最小 1 分钟。
+
+恢复后若 `visibility=client`，服务端广播 `DeviceHubEvents.DocumentChanged`（客户端回拉 manifest）；推送失败不影响落库。
 
 ### 变更实时提示
 
 **SignalR `DocumentChanged` 只是提示，不是事实来源**：客户端可见文档发生变化——上传、加修订、
-更新（改前后任一为 `client` 即触发，含内部转客户端）、删除——落库后服务端经 `/hubs/devices` 向该应用
+更新（改前后任一为 `client` 即触发，含内部转客户端）、删除、恢复（仅 `client` 文档）——落库后服务端经 `/hubs/devices` 向该应用
 全部注册连接（`app:{appKey}` 组）广播 `DocumentChanged`
 （负载 `DocumentChangedNotification{ appKey, collectionKey }`）。纯内部文档（`visibility=internal`）
 的全链路一律静默。推送失败只记日志，不影响已落库结果。客户端收到后在 0–5 秒随机抖动后回拉
@@ -135,11 +154,12 @@ curl -s -OJ "http://localhost:5080/api/v1/client/documents/$ID/download" \
 | `503` | 修订不存在 |
 | `504` | 可见性拒绝（内部文档被客户端访问 / 集合停用） |
 | `505` | 文件缺失（行存在但 Blob 不在） |
+| `506` | 文档或修订物理文件已被清理，无法恢复（`DocumentsFileReclaimed`，HTTP 409） |
 
 ## 8. 配置项
 
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `Documents:MaxFileSizeBytes` | 209715200 | 单文件上限（200 MB） |
-| `Documents:CleanupGraceMinutes` | 30 | 软删宽限期（最小 1 分钟） |
+| `Documents:CleanupGraceMinutes` | 30 | 出厂默认宽限期；管理台配置后以 `retention_settings` 表为准（最小 1 分钟） |
 | `Workers:Retention:IntervalSeconds` | 600 | 清理调度间隔（最小 5 秒） |
