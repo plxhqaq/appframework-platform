@@ -3,10 +3,12 @@ import { idempotencyKey } from './idempotency';
 import type {
   ClientDocumentManifest,
   CreateDocumentCollectionRequest,
+  DeletedDocument,
   DocumentCollection,
   DocumentDetail,
   DocumentSummary,
   PageResult,
+  PurgeResult,
   UpdateDocumentCollectionRequest,
   UpdateDocumentRequest,
 } from './types';
@@ -110,4 +112,20 @@ export const documentsApi = {
 
   getClientManifest: (signal?: AbortSignal) =>
     request<ClientDocumentManifest>('/api/v1/client/documents/manifest', { signal }),
+
+  /** 回收站：软删除的文档（宽限期内可恢复）。 */
+  listDeletedDocuments: (query: DocumentListQuery, signal?: AbortSignal) =>
+    request<PageResult<DeletedDocument>>(
+      `/api/v1/admin/documents/deleted${toQueryString({ ...query })}`,
+      { signal },
+    ),
+
+  restoreDocument: (id: string) =>
+    request<DocumentSummary>(`/api/v1/admin/documents/${id}/restore`, { method: 'POST' }),
+
+  purgeDocument: (id: string) =>
+    request<PurgeResult>(`/api/v1/admin/documents/${id}/purge`, { method: 'POST' }),
+
+  purgeAllDocuments: () =>
+    request<PurgeResult>('/api/v1/admin/documents/purge-all', { method: 'POST' }),
 };

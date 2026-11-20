@@ -5,7 +5,9 @@ import type {
   BackupSummary,
   CreateBackupNamespaceRequest,
   CreateBackupRequest,
+  DeletedBackup,
   PageResult,
+  PurgeResult,
   PushBackupRequest,
   PushBackupResult,
   UpdateBackupNamespaceRequest,
@@ -77,4 +79,20 @@ export const backupsApi = {
 
   deleteBackup: (id: string) =>
     request<BackupSummary>(`/api/v1/admin/backups/${id}`, { method: 'DELETE' }),
+
+  /** 回收站：软删除的备份（宽限期内可恢复）。 */
+  listDeletedBackups: (query: BackupListQuery, signal?: AbortSignal) =>
+    request<PageResult<DeletedBackup>>(
+      `/api/v1/admin/backups/deleted${toQueryString({ ...query })}`,
+      { signal },
+    ),
+
+  restoreBackup: (id: string) =>
+    request<BackupSummary>(`/api/v1/admin/backups/${id}/restore`, { method: 'POST' }),
+
+  purgeBackup: (id: string) =>
+    request<PurgeResult>(`/api/v1/admin/backups/${id}/purge`, { method: 'POST' }),
+
+  purgeAllBackups: () =>
+    request<PurgeResult>('/api/v1/admin/backups/purge-all', { method: 'POST' }),
 };

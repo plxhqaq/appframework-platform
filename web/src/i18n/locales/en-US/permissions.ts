@@ -79,6 +79,8 @@ export const permissionsEn = {
       create: 'Create a backup, or let a client upload a config backup',
       push: 'Push a config backup to an online installation and wait for acknowledgement',
       delete: 'Delete a backup (soft delete, reclaimed by retention policy)',
+      restore: 'Restore a backed-up item from the recycle bin (rejected when its file is already reclaimed)',
+      purge: 'Permanently purge a deleted backup now, without waiting for the grace period',
     },
     document: {
       collection: {
@@ -88,6 +90,8 @@ export const permissionsEn = {
       read: 'View and download documents; clients only see documents visible to them',
       manage: 'Upload and edit documents and their versions',
       delete: 'Delete documents',
+      restore: 'Restore a document and all of its revisions from the recycle bin',
+      purge: 'Permanently purge a deleted document and all of its revisions now',
     },
     webhook: {
       read: 'View webhook subscriptions and delivery records',
@@ -104,6 +108,11 @@ export const permissionsEn = {
       restart: 'Send a restart command to an online installation (offline or disabled installations are rejected)',
     },
     audit: { read: 'View audit logs and operation records' },
+    retention: {
+      cleanup: {
+        manage: 'Edit the cleanup grace period for backups and documents (applies to every app)',
+      },
+    },
     platform: {
       admin:
         'Platform administrator marker used by the built-in admin role; actual access relies on the wildcard',

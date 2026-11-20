@@ -38,11 +38,15 @@ export const PERMISSIONS = {
   backupCreate: 'backup.create',
   backupPush: 'backup.push',
   backupDelete: 'backup.delete',
+  backupRestore: 'backup.restore',
+  backupPurge: 'backup.purge',
   documentCollectionRead: 'document.collection.read',
   documentCollectionManage: 'document.collection.manage',
   documentRead: 'document.read',
   documentManage: 'document.manage',
   documentDelete: 'document.delete',
+  documentRestore: 'document.restore',
+  documentPurge: 'document.purge',
   licenseProductRead: 'license.product.read',
   licenseProductManage: 'license.product.manage',
   licenseRead: 'license.read',
@@ -54,6 +58,7 @@ export const PERMISSIONS = {
   webhookManage: 'webhook.manage',
   auditRead: 'audit.read',
   platformApiDocsRead: 'platform.apidocs.read',
+  retentionCleanupManage: 'retention.cleanup.manage',
 } as const;
 
 /** `*` 是平台管理员通配，命中即全放行。 */

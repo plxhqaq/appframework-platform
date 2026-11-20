@@ -59,12 +59,16 @@ export const permissionsZh = {
       create: '新建备份，或由客户端上传配置备份',
       push: '向在线安装实例下发配置备份并等待回执',
       delete: '删除备份（软删，按保留策略回收）',
+      restore: '从回收站恢复备份（物理文件已回收时拒绝）',
+      purge: '立即物理清理已删除备份，跳过宽限期',
     },
     document: {
       collection: { read: '查看文档集合', manage: '新建、编辑、删除文档集合' },
       read: '查看并下载文档；客户端只能看到对客户端可见的文档',
       manage: '上传、编辑文档及其版本',
       delete: '删除文档',
+      restore: '从回收站恢复文档及其全部修订',
+      purge: '立即物理清理已删除文档及其全部修订',
     },
     webhook: { read: '查看 Webhook 订阅与投递记录', manage: '新建、编辑、删除 Webhook 订阅及签名密钥' },
     node: {
@@ -78,6 +82,9 @@ export const permissionsZh = {
       restart: '向在线安装实例下发重启命令（离线或停用会被拒绝）',
     },
     audit: { read: '查看审计日志与操作记录' },
+    retention: {
+      cleanup: { manage: '编辑备份/文档的清理宽限期（作用于平台全部应用）' },
+    },
     platform: {
       admin: '平台管理员标记位，仅内置管理员角色使用；实际放行依靠通配符',
       apidocs: { read: '查看管理台菜单底部的 Scalar API 文档入口' },

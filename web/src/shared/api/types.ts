@@ -868,6 +868,44 @@ export interface BackupSummary {
   createdBy?: string | null;
 }
 
+/** 回收站中的备份（软删除，宽限期内可恢复）。 */
+export interface DeletedBackup {
+  id: string;
+  namespaceKey: string;
+  kind: BackupKind;
+  name: string;
+  sizeBytes: number;
+  hasFile: boolean;
+  fileIntact: boolean;
+  deletedAt: string;
+  remainingGraceMinutes: number;
+}
+
+/** 立即清理结果。 */
+export interface PurgeResult {
+  rowsDeleted: number;
+  filesDeleted: number;
+}
+
+/** 单个域的清理宽限期；isDatabaseValue=false 表示回落出厂默认。 */
+export interface RetentionDomainSettings {
+  moduleKey: string;
+  graceMinutes: number;
+  isDatabaseValue: boolean;
+}
+
+/** 备份/文档两域宽限期（平台全部应用生效）。 */
+export interface RetentionSettings {
+  backups: RetentionDomainSettings;
+  documents: RetentionDomainSettings;
+}
+
+/** 整体提交两域宽限期（分钟，最小 1）。 */
+export interface UpdateRetentionSettingsRequest {
+  backupsGraceMinutes: number;
+  documentsGraceMinutes: number;
+}
+
 /** 创建备份；节点由服务端按 installationId 解析。 */
 export interface CreateBackupRequest {
   namespaceKey: string;
@@ -974,6 +1012,20 @@ export interface DocumentSummary {
   sha256: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** 回收站中的文档（软删除，宽限期内可恢复）。 */
+export interface DeletedDocument {
+  id: string;
+  collectionKey: string;
+  title: string;
+  visibility: DocumentVisibility;
+  revision: number;
+  fileName: string;
+  sizeBytes: number;
+  fileIntact: boolean;
+  deletedAt: string;
+  remainingGraceMinutes: number;
 }
 
 /** 文档详情（含修订历史）。 */
