@@ -206,6 +206,10 @@ export function PackageUploadModal({
       title={tr("上传安装包")}
       okText={settled ? (draftEntry ? tr("查看草稿版本") : tr("关闭")) : tr("上传并登记")}
       cancelText={tr("关闭")}
+      // 摄取中/失败/已并入已发布都没有跳转动作，只留一个关闭，避免出现两个「关闭」。
+      footer={
+        settled && !draftEntry ? <Button onClick={onClose}>{tr("关闭")}</Button> : undefined
+      }
       confirmLoading={mutation.isPending}
       maskClosable={!mutation.isPending}
       closable={!mutation.isPending}
