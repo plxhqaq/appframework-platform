@@ -37,6 +37,15 @@ export function AppContextSelect({ compact = false }: AppContextSelectProps) {
   const current = session?.appKey ?? undefined;
   const disabled = switching || (appKeys.length <= 1 && current !== undefined);
 
+  // rc-tooltip 把下拉面板算作悬浮区域的一部分：指针移到面板上不会触发 mouseleave，
+  // 于是点空白关闭下拉后 hintOpen 残留 true，提示条会自己冒出来且不再消失。关闭时强制清掉。
+  const handleDropdownOpenChange = (next: boolean) => {
+    setDropdownOpen(next);
+    if (!next) {
+      setHintOpen(false);
+    }
+  };
+
   return (
     <Tooltip title={t('common:appContext.hint')} open={hintOpen && !dropdownOpen} onOpenChange={setHintOpen}>
       <Select
@@ -51,7 +60,7 @@ export function AppContextSelect({ compact = false }: AppContextSelectProps) {
         style={{ width: compact ? 132 : 168, maxWidth: '100%', minWidth: 0 }}
         prefix={<AppstoreOutlined />}
         options={appKeys.map((key) => ({ value: key, label: key }))}
-        onOpenChange={setDropdownOpen}
+        onOpenChange={handleDropdownOpenChange}
         onChange={async (next: string) => {
           if (next === current) {
             return;
