@@ -8,13 +8,13 @@ namespace Platform.PostgresTests;
 public sealed class MigrationsTests
 {
     [PostgresFact]
-    public async Task 单基线迁移能在空库落地并建出节点与安装实例表()
+    public async Task 迁移链能在空库落地并建出节点与安装实例表()
     {
         await using var db = await PostgresTestEnvironment.CreateDbContextAsync();
 
-        var applied = await db.Database.GetAppliedMigrationsAsync();
-        var migration = Assert.Single(applied);
-        Assert.EndsWith("InitialCreate", migration, StringComparison.Ordinal);
+        var applied = (await db.Database.GetAppliedMigrationsAsync()).ToList();
+        Assert.Equal(db.Database.GetMigrations().ToList(), applied);
+        Assert.EndsWith("InitialCreate", applied[0], StringComparison.Ordinal);
 
         var exists = await db.Database
             .SqlQueryRaw<bool>("SELECT to_regclass('public.release_packages') IS NOT NULL AS \"Value\"")
@@ -30,6 +30,16 @@ public sealed class MigrationsTests
             .SqlQueryRaw<bool>("SELECT to_regclass('public.device_installations') IS NOT NULL AS \"Value\"")
             .SingleAsync();
         Assert.True(installationsExists);
+
+        foreach (var table in new[] { "driver_media", "retention_settings" })
+        {
+            var laterTableExists = await db.Database
+                .SqlQueryRaw<bool>(
+                    "SELECT to_regclass({0}) IS NOT NULL AS \"Value\"",
+                    $"public.{table}")
+                .SingleAsync();
+            Assert.True(laterTableExists, $"{table} 缺失");
+        }
 
         var legacyDevicesExists = await db.Database
             .SqlQueryRaw<bool>("SELECT to_regclass('public.devices') IS NOT NULL AS \"Value\"")
