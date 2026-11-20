@@ -112,8 +112,18 @@ server {
 
     location = /healthz { proxy_pass http://${API_UPSTREAM}/healthz; }
     location = /ready   { proxy_pass http://${API_UPSTREAM}/ready; }
-    location /scalar/  { proxy_pass http://${API_UPSTREAM}; }
-    location /openapi/ { proxy_pass http://${API_UPSTREAM}; }
+    # 文档与调试页透传浏览器 Host：默认 $proxy_host 是上游地址（容器内端口），
+    # 会把内网端口泄进 OpenAPI 服务器地址与审计来源。
+    location /scalar/ {
+        proxy_pass http://${API_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /openapi/ {
+        proxy_pass http://${API_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
     # /metrics 不代理：抓指标走 API 自己发布的端口
 

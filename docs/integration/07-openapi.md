@@ -13,7 +13,8 @@
 | `GET /openapi/v1.json` | OpenAPI **3.1.1** 文档，`info.title = Platform.Api`，`info.version = v1` |
 | `GET /scalar/v1` | Scalar 在线调试页（直接读上面那份文档） |
 
-装配在 `src/Platform.Api/Program.cs:78`（`AddOpenApi()`）与 `:219-220`（`MapOpenApi()` / `MapScalarApiReference()`），
+装配在 `src/Platform.Api/Program.cs:110-111`（`AddHttpContextAccessor()` + `AddOpenApi()`）与
+`:336-337`（`MapOpenApi()` / `MapScalarApiReference()`），
 **没有环境门**：Development 与 Production 都暴露。公网部署时二选一：
 
 - 在反向代理只放内网/办公网访问这两个路径；
@@ -28,6 +29,15 @@
 > 开发期 Vite 已代理 `/scalar` 与 `/openapi`，`http://localhost:5173` 下该入口同样可用。
 
 `info.version` 是文档版本，**不等于包版本**（包版本见 §2）。
+
+**`servers` 恒为相对值 `/`（带 PathBase 时为 `{PathBase}/`）**，由 `AddOpenApi` 的 document
+transformer 写入。不配置时框架会按「取文档那次请求」的 Host 生成绝对地址，而反向代理默认把
+`$proxy_host`（上游容器内端口，如 8080）当 Host 传进来——浏览器从 `http://host/scalar/v1` 打开文档，
+Scalar「Try it」却照着绝对地址去打 8080，现场换过发布端口就必然连不上。相对地址按 OpenAPI 规则
+相对「文档被取回的来源」解析，恒等于浏览器地址栏的源，与代理拓扑和发布端口无关；
+Vite 开发代理（`changeOrigin: true`）同理免疫。集成测试 `OpenApiServersTests` 锁死这一口径。
+配套地，`deploy/nginx/site.d/web.conf.*` 的 `/scalar/` 与 `/openapi/` 也透传 `Host $host` 与
+`X-Forwarded-Proto`，避免上游端口泄进文档与审计来源。
 
 当前这份文档的规模可以自查：
 
@@ -46,7 +56,7 @@ curl -s http://localhost:5080/openapi/v1.json | jq '{paths: (.paths|length), sch
 | `paths` | 全部业务端点（约 96 条），含 `tags`、`summary`、`operationId`、`requestBody` 的 schema 引用 |
 | `components.schemas` | 请求/响应 DTO 记录（约 55 个） |
 | `tags` | `platform` / `apps` / `identity` / `versions` / `licensing` / `devices` / `backups` / `documents` / `webhooks` |
-| `servers` | 由**当前请求的基址**推导，从反向代理后面拿到的地址可能与外网地址不一致 |
+| `servers` | 恒为相对值 `/`（见 §0），Scalar「Try it」始终打浏览器当前来源，不随代理/发布端口漂移 |
 
 没有（刻意的，也是已知缺口）：
 

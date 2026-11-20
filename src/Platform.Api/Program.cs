@@ -3,9 +3,11 @@ using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.OpenApi;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi;
 using Platform.Api.Auth;
 using Platform.Api.Diagnostics;
 using Platform.Api.Endpoints;
@@ -105,7 +107,19 @@ try
         options.MultipartBodyLengthLimit = maxFileSize + RequestLimits.MultipartOverheadBytes;
     });
 
-    builder.Services.AddOpenApi();
+    builder.Services.AddHttpContextAccessor();
+    builder.Services.AddOpenApi(options =>
+    {
+        // 服务器地址用相对值：绝对地址只能取自「取文档那次请求」的 Host，反向代理默认传
+        // 上游地址（容器内端口），Scalar「Try it」会照着打错端口；相对值恒等于浏览器来源。
+        options.AddDocumentTransformer((document, context, _) =>
+        {
+            var pathBase = context.ApplicationServices
+                .GetRequiredService<IHttpContextAccessor>().HttpContext?.Request.PathBase ?? string.Empty;
+            document.Servers = [new OpenApiServer { Url = $"{pathBase}/" }];
+            return Task.CompletedTask;
+        });
+    });
     builder.Services.AddRateLimiter(options =>
     {
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
