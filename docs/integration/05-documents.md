@@ -20,6 +20,8 @@ curl -s -X POST http://localhost:5080/api/v1/admin/documents/collections \
 
 - 键规则 `^[a-z][a-z0-9-]{1,31}$`，创建后不可修改；应用内唯一，重复返回 `501`（HTTP 409）。
 - `PATCH /collections/{id}` 可改名称、说明与启停。
+- `DELETE /collections/{id}`（`document.collection.manage`）只在集合内**没有任何文档行**时放行；
+  软删除的文档在保留期清理前仍算留痕，此时返回通用冲突 `6`（HTTP 409）。集合不存在返回 `500`（404）。
 - 停用集合后，其文档**不会**出现在客户端清单，客户端下载同样被拒绝。
 
 ## 2. 上传文档

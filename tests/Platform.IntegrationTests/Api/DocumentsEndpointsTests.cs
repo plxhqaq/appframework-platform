@@ -201,6 +201,48 @@ public sealed class DocumentsEndpointsTests : IClassFixture<PlatformApiFactory>
             await IdentityTestHelpers.ReadErrorCodeAsync(denied, HttpStatusCode.Forbidden));
     }
 
+    [Fact]
+    public async Task 集合删除按文档留痕受控()
+    {
+        using var client = _factory.CreateClient();
+        var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
+
+        var busy = await CreateCollectionAsync(client, token, "busy-collection", "忙集合");
+        var document = await UploadAsync(client, token, "busy-collection", "留痕.md", "trace"u8.ToArray());
+
+        var rejected = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/documents/collections/{busy.Id}", token));
+        Assert.Equal(
+            (int)ApiErrorCode.Conflict,
+            await IdentityTestHelpers.ReadErrorCodeAsync(rejected, HttpStatusCode.Conflict));
+
+        // 软删除的文档在保留期清理前仍算留痕
+        await IdentityTestHelpers.ReadDataAsync<DocumentSummaryDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Delete, $"/api/v1/admin/documents/{document.Id}", token)));
+        var stillBusy = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/documents/collections/{busy.Id}", token));
+        Assert.Equal(
+            (int)ApiErrorCode.Conflict,
+            await IdentityTestHelpers.ReadErrorCodeAsync(stillBusy, HttpStatusCode.Conflict));
+
+        // 空集合可直接删除
+        var empty = await CreateCollectionAsync(client, token, "empty-collection", "空集合");
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/documents/collections/{empty.Id}", token))).StatusCode);
+
+        var listed = await IdentityTestHelpers.ReadDataAsync<List<DocumentCollectionDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, "/api/v1/admin/documents/collections", token)));
+        Assert.DoesNotContain(listed, x => x.Id == empty.Id);
+
+        var gone = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/documents/collections/{empty.Id}", token));
+        Assert.Equal(
+            (int)ApiErrorCode.DocumentsCollectionNotFound,
+            await IdentityTestHelpers.ReadErrorCodeAsync(gone, HttpStatusCode.NotFound));
+    }
+
     private static async Task<DocumentCollectionDto> CreateCollectionAsync(
         HttpClient client, string token, string key, string name) =>
         await IdentityTestHelpers.ReadDataAsync<DocumentCollectionDto>(

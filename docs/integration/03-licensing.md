@@ -107,6 +107,11 @@ curl -s http://localhost:5080/api/v1/admin/licensing/signing-keys \
 | GET | `/admin/licensing/products` | `license.product.read` | 返回带授权计数 |
 | POST | `/admin/licensing/products` | `license.product.manage` | 支持 `Idempotency-Key` |
 | PATCH | `/admin/licensing/products/{id}` | `license.product.manage` | 字段缺省表示不修改 |
+| DELETE | `/admin/licensing/products/{id}` | `license.product.manage` | 仍有授权或离线码台账时返回 `6`（409） |
+
+删除产品只在**没有任何签发留痕**时放行：授权行（`LicenseEntitlement`，含已吊销）与离线码台账
+（`OfflineLicenseCode`）都按 `ProductId` 挂在产品行上，任一存在即返回通用冲突 `6`（HTTP 409），
+文案「产品 {key} 仍有 N 条授权、M 条离线码台账，请先处理留痕再删除产品。」产品不存在返回 `300`（404）。
 
 创建请求 `CreateLicenseProductRequest` 字段：`key`、`name`（必填非空）、`description`、`seatLimit`、
 `defaultGraceDays`（默认 **7**）、`trialDays`（默认 **0**）。响应 `LicenseProductDto` 额外带 `isEnabled`、
@@ -273,7 +278,7 @@ appKey | productKey | licenseNo | keyId | deviceCode | 签名(64)`，字符串�
 |---|---|---|---|
 | GET | `/offline-codes` | `license.read` | 台账分页，`keyword` 命中机器码/编号/产品键 |
 | POST | `/offline-codes` | `license.offlinecode.issue` | 支持 `Idempotency-Key`；未托管返回 `305` |
-| DELETE | `/offline-codes/{id}` | `license.offlinecode.issue` | 只删台账行，已发出的码到期前仍可用 |
+| DELETE | `/offline-codes/{id}` | `license.offlinecode.issue` | 仅已过有效期（含宽限）可删；已发出的码到期前仍可用 |
 
 ```bash
 curl -s -X POST http://localhost:5080/api/v1/admin/licensing/offline-codes \
@@ -314,7 +319,8 @@ curl -s -X POST http://localhost:5080/api/v1/client/licensing/offline/verify \
 **离线码绑定「应用键 + 产品键 + 机器码」，复制到另一个应用、另一台机器或另一个产品都会被拒。**
 
 > 码本身无吊销通道：`DELETE /offline-codes/{id}` 只删台账行，**不影响已发出的码**，它在到期前依旧可被本地验签通过。
-> 请保留台账用于对账，签发时尽量带上可追踪的 `licenseNo`。要停用某台机器的离线能力，
+> 台账是唯一的签发留痕，因此**未过期（`notAfter + graceDays >= now`）的记录拒绝删除**，返回通用冲突 `6`（HTTP 409）；
+> 到期后台账行才可清理。请保留台账用于对账，签发时尽量带上可追踪的 `licenseNo`。要停用某台机器的离线能力，
 > 对该授权主体做**完全吊销**（`scope=all`）：客户端在线校验拿到 `revoked` 后锁定，不再使用本地离线码；
 > `scope=online` 不会影响离线码。
 

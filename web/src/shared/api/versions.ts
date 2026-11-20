@@ -85,6 +85,10 @@ export const versionsApi = {
       body,
     }),
 
+  /** 删除渠道；仍登记任何版本（含草稿）时服务端拒绝。 */
+  deleteChannel: (id: string) =>
+    request<boolean>(`/api/v1/admin/versions/channels/${id}`, { method: 'DELETE' }),
+
   listReleases: (query: ReleaseListQuery, signal?: AbortSignal) =>
     request<PageResult<ReleaseSummary>>(
       `/api/v1/admin/versions/releases${toQueryString({ ...query })}`,

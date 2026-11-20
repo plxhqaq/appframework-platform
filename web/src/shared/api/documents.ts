@@ -52,6 +52,10 @@ export const documentsApi = {
       body,
     }),
 
+  /** 删除文档集合；集合内仍有文档（含软删除待清理）时服务端拒绝。 */
+  deleteCollection: (id: string) =>
+    request<boolean>(`/api/v1/admin/documents/collections/${id}`, { method: 'DELETE' }),
+
   listDocuments: (query: DocumentListQuery, signal?: AbortSignal) =>
     request<PageResult<DocumentSummary>>(
       `/api/v1/admin/documents${toQueryString({ ...query })}`,

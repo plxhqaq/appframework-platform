@@ -64,10 +64,29 @@ public sealed class DriverMediaEndpointsTests : IClassFixture<PlatformApiFactory
                 HttpMethod.Post, $"/api/v1/admin/versions/media/{second.Id}/activate", token)));
         Assert.True(activated.IsActive);
 
+        // 启用中的媒体行不可删除，需先激活同键其它版本停用本行
+        var activeDelete = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/versions/media/{second.Id}", token));
+        Assert.Equal(
+            (int)ApiErrorCode.VersionsReleaseImmutable,
+            await IdentityTestHelpers.ReadErrorCodeAsync(activeDelete, HttpStatusCode.Conflict));
+
         var activeOnly = await ReadDataAsync<PageResult<DriverMediaDto>>(
             await client.SendAsync(IdentityTestHelpers.Authorized(
                 HttpMethod.Get, "/api/v1/admin/versions/media?mediaKey=drv-a&activeOnly=true", token)));
         Assert.Equal(second.Id, Assert.Single(activeOnly.Items).Id);
+
+        // 媒体键按关键词模糊包含：片段 dr 也能命中同键两个版本
+        var fuzzy = await ReadDataAsync<PageResult<DriverMediaDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, "/api/v1/admin/versions/media?mediaKey=dr", token)));
+        Assert.Contains(fuzzy.Items, x => x.Id == first.Id);
+        Assert.Contains(fuzzy.Items, x => x.Id == second.Id);
+
+        var noMatch = await ReadDataAsync<PageResult<DriverMediaDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, "/api/v1/admin/versions/media?mediaKey=drv-zzz", token)));
+        Assert.Empty(noMatch.Items);
 
         var download = await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Get, $"/api/v1/client/versions/media/{first.Id}/download", token));

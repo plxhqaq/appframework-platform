@@ -191,6 +191,18 @@ export const uiEn: Record<string, string> = {
   "彻底删除已归档更新器 {{arg0}}/{{arg1}}？": "Permanently delete archived updater {{arg0}}/{{arg1}}?",
   "删除登记行并回收仍无引用的落盘内容；同一内容被其它版本或媒体使用时会保留。": "Removes the registration row and reclaims stored content that nothing else references; content shared with other versions or media is kept.",
   "更新器 {{arg0}}/{{arg1}} 已删除": "Updater {{arg0}}/{{arg1}} deleted",
+  "渠道 {{arg0}} 已删除": "Channel {{arg0}} deleted",
+  "删除渠道 {{arg0}}？": "Delete channel {{arg0}}?",
+  "渠道仍登记任何版本（含草稿）时会被拒绝；请先删除该渠道下的全部版本。此操作不可恢复。":
+    "Deletion is rejected while the channel still registers any version (drafts included); delete every version of this channel first. This cannot be undone.",
+  "集合 {{arg0}} 已删除": "Collection {{arg0}} deleted",
+  "删除文档集合 {{arg0}}？": "Delete document collection {{arg0}}?",
+  "集合内仍有文档（含软删除待清理）时会被拒绝，以保留文档留痕。此操作不可恢复。":
+    "Deletion is rejected while the collection still holds documents (including soft-deleted ones pending cleanup), keeping the document trail. This cannot be undone.",
+  "命名空间 {{arg0}} 已删除": "Namespace {{arg0}} deleted",
+  "删除备份命名空间 {{arg0}}？": "Delete backup namespace {{arg0}}?",
+  "命名空间内仍有备份（含软删除待清理）时会被拒绝，以保留备份留痕。此操作不可恢复。":
+    "Deletion is rejected while the namespace still holds backups (including soft-deleted ones pending cleanup), keeping the backup trail. This cannot be undone.",
   "版本 {{arg0}} 已删除": "Version {{arg0}} deleted",
   "发布说明已保存": "Release notes saved",
   "发布后客户端 check 才会下发该版本": "The update check serves this version only after publication",
@@ -452,7 +464,8 @@ export const uiEn: Record<string, string> = {
   "平台级（platform）": "Platform scope",
   "平台进程 {{arg0}}": "Platform process {{arg0}}",
   "平台信息": "Platform information",
-  "其投递记录一并删除，且不可恢复。": "Its delivery records are deleted too and cannot be restored.",
+  "仅已停用的订阅可删除，且待投递或待重试的记录会拒绝删除；投递记录随订阅一并删除，不可恢复。":
+    "Only disabled subscriptions can be deleted, and pending or retryable deliveries block deletion; delivery records are removed with the subscription and cannot be restored.",
   "启动时间未知": "Start time unknown",
   "启动于 {{arg0}}": "Started {{arg0}}",
   "启用": "Enabled",
@@ -652,7 +665,13 @@ export const uiEn: Record<string, string> = {
   "锁定": "Lock",
   "锁定后应用再次上传会被拒绝，需人工解锁。": "Once locked, further app uploads are rejected until an administrator unlocks it.",
   "台": "devices",
-  "台账已删除（已发出的码到期前仍可用）": "Ledger entry deleted (issued codes remain valid until expiry)",
+  "台账已删除（码本身在到期前仍可用，离线码无法吊销）": "Ledger entry deleted (the code itself stays valid until expiry; offline codes cannot be revoked)",
+  "仅已过有效期（含宽限期）的记录可删；已发出的码本身无法吊销，删除只影响这里的记录。":
+    "Only records past their validity (grace included) can be deleted; issued codes cannot be revoked, so deletion only removes the ledger entry here.",
+  "产品 {{arg0}} 已删除": "Product {{arg0}} deleted",
+  "删除授权产品 {{arg0}}？": "Delete licensed product {{arg0}}?",
+  "产品仍有授权行或离线码台账时会被拒绝，以保留签发留痕。此操作不可恢复。":
+    "Deletion is rejected while the product still has entitlements or offline-code ledger entries, keeping the issuance trail. This cannot be undone.",
   "提示": "Notice",
   "填了就只有这台设备能兑换，指纹在客户端「关于」页可以复制。": "If provided, only this device can redeem it; the fingerprint can be copied from the client About page.",
   "条": "items",
@@ -1061,7 +1080,7 @@ export const uiEn: Record<string, string> = {
   "已选 {{count}} 个媒体 · 媒体合计 {{size}}": "{{count}} media selected · {{size}} total",
   "当前没有已启用的驱动媒体包；可先在「驱动媒体」面板上传。": "No active driver media packages right now; upload some in the Driver Media panel first.",
   "忽略缺失项继续下载（服务端将记录审计）": "Ignore missing items and continue (the server records an audit entry)",
-  "按媒体键精确过滤": "Filter by exact media key",
+  "按媒体键关键词过滤": "Filter by media key keyword",
   "点击或拖拽媒体包到此处": "Click or drag a media package here",
   "生成下载票据失败": "Failed to issue the download ticket",
   "生成并下载": "Compose & Download",

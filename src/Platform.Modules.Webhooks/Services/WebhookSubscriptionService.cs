@@ -29,7 +29,7 @@ public interface IWebhookSubscriptionService
         UpdateWebhookSubscriptionRequest request,
         CancellationToken cancellationToken = default);
 
-    /// <summary>删除订阅及其投递记录。</summary>
+    /// <summary>删除订阅及其投递记录；启用中或存在待投递/待重试记录时拒绝。</summary>
     Task DeleteAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>轮换签名密钥。</summary>
@@ -155,6 +155,27 @@ public sealed class WebhookSubscriptionService : IWebhookSubscriptionService
     public async Task DeleteAsync(string appKey, Guid id, CancellationToken cancellationToken = default)
     {
         var entity = await GetAsync(appKey, id, cancellationToken);
+        if (entity.IsEnabled)
+        {
+            throw new BusinessException(
+                ApiErrorCode.Conflict,
+                "订阅正在启用，请先停用再删除。");
+        }
+
+        // pending/failed 仍会被 dispatcher 重试，删除会让在途投递丢失；先等其终结（成功或 dead）。
+        var hasInFlight = await _db.Set<WebhookDelivery>()
+            .AnyAsync(
+                x => x.SubscriptionId == id
+                     && (x.Status == WebhookConventions.StatusPending
+                         || x.Status == WebhookConventions.StatusFailed),
+                cancellationToken);
+        if (hasInFlight)
+        {
+            throw new BusinessException(
+                ApiErrorCode.Conflict,
+                "该订阅仍有待投递或等待重试的记录，请处理完再删除。");
+        }
+
         var deliveries = await _db.Set<WebhookDelivery>()
             .Where(x => x.SubscriptionId == id)
             .ToListAsync(cancellationToken);

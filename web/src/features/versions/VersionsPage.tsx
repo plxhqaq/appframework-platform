@@ -215,22 +215,52 @@ export function VersionsPage() {
     {
       title: tr("操作"),
       key: 'actions',
-      width: 100,
+      width: 150,
       fixed: 'right',
       render: (_: unknown, channel: ReleaseChannel) =>
         canManageChannels ? (
-          <Button
-            type="link"
-            size="small"
-            onClick={() => {
-              setEditingChannel(channel);
-              setChannelFormOpen(true);
-            }}
-          >
-            {tr("编辑")}</Button>
+          <Space size="small">
+            <Button
+              type="link"
+              size="small"
+              onClick={() => {
+                setEditingChannel(channel);
+                setChannelFormOpen(true);
+              }}
+            >
+              {tr("编辑")}</Button>
+            <Button
+              type="link"
+              size="small"
+              danger
+              onClick={() => confirmDeleteChannel(channel)}
+            >
+              {tr("删除")}</Button>
+          </Space>
         ) : null,
     },
   ];
+
+  const deleteChannelRow = async (channel: ReleaseChannel) => {
+    try {
+      await versionsApi.deleteChannel(channel.id);
+      message.success(tr("渠道 {{arg0}} 已删除", { arg0: channel.key }));
+      await refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : tr("操作失败"));
+    }
+  };
+
+  const confirmDeleteChannel = (channel: ReleaseChannel) => {
+    modal.confirm({
+      title: tr("删除渠道 {{arg0}}？", { arg0: channel.key }),
+      content: tr("渠道仍登记任何版本（含草稿）时会被拒绝；请先删除该渠道下的全部版本。此操作不可恢复。"),
+      okText: tr("删除"),
+      okButtonProps: { danger: true },
+      cancelText: tr("取消"),
+      onOk: () => deleteChannelRow(channel),
+    });
+  };
 
   const releaseColumns: TableColumnsType<ReleaseSummary> = [
     { title: tr("渠道"), dataIndex: 'channelKey', key: 'channelKey', width: 120 },

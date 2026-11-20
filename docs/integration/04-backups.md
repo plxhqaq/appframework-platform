@@ -26,6 +26,8 @@ curl -s -X POST http://localhost:5080/api/v1/admin/backups/namespaces \
 - `channel` 不填或空白按 `default` 处理，统一小写；备份未声明渠道时继承命名空间渠道。
 - `maxVersions` 缺省 50，上限 500；计数只含未软删的备份。
 - `PATCH /namespaces/{id}` 可改名称、说明、渠道、配额与启停；已有备份的渠道不会随之迁移。
+- `DELETE /namespaces/{id}`（`backup.namespace.manage`）只在命名空间内**没有任何备份行**时放行；
+  软删除的备份在保留期清理前仍算留痕，此时返回通用冲突 `6`（HTTP 409）。命名空间不存在返回 `400`（404）。
 
 命名空间键在应用内唯一，重复创建返回 `401`（HTTP 409）。
 

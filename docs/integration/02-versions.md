@@ -47,6 +47,7 @@ compose 里是 `BlobStorage__RootPath=/data/blobs` 挂在 `blobs` 卷上）。
 | `GET /api/v1/admin/versions/channels` | `versions.channel.read` | — |
 | `POST /api/v1/admin/versions/channels` | `versions.channel.manage` | `Idempotency-Key`，作用域 `versions.channel.create` |
 | `PATCH /api/v1/admin/versions/channels/{id}` | `versions.channel.manage` | — |
+| `DELETE /api/v1/admin/versions/channels/{id}` | `versions.channel.manage` | — |
 
 ```bash
 curl -s -X POST http://localhost:5080/api/v1/admin/versions/channels \
@@ -69,6 +70,9 @@ curl -s -X PATCH "http://localhost:5080/api/v1/admin/versions/channels/$CHANNEL_
   即不修改，`description` 传空串表示清空为 `null`。
 - 停用（`isEnabled=false`）后**不能发布新版本**，创建版本时返回校验失败 `2`，文案
   「渠道 {key} 已停用，不能发布新版本。」；已发布版本的 `check` 与 `download` 不受停用影响。
+- **删除渠道**（`DELETE /channels/{id}`）只允许在渠道下没有任何版本登记时进行（草稿与已归档都算）：
+  仍有版本返回 `222`（409），文案「渠道 {key} 仍登记 N 个版本，请先删除全部版本再删除渠道。」
+  版本与渠道是级联关系，放开删除会让版本留痕连带消失，因此必须先逐个删除版本。渠道不存在返回 `200`（404）。
 - `allowDowngrade` 默认 `false`：归档最新版本后，已装更高版本的客户端不会被自动降级。需要强制回退时
   临时打开（或客户端在 `check` 请求里显式传 `allowDowngrade=true`）。
 - 列表项 `ReleaseChannelDto`：`id` / `key` / `name` / `description` / `isEnabled` / `releaseCount`

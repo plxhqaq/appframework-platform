@@ -138,6 +138,45 @@ internal static class LicensingEndpoints
             .WithName("licensing.products.update")
             .WithSummary("更新产品名称/说明/席位/宽限/试用")
             .RequirePermission(PermissionCatalog.LicenseProductManage);
+
+        admin.MapDelete(
+                "/products/{id:guid}",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    ILicenseProductService products,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        await products.DeleteAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "licensing.product.delete",
+                            targetType: "license_product",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: null);
+                        return ApiResults.Ok(context, true);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "licensing.product.delete",
+                            targetType: "license_product",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("licensing.products.delete")
+            .WithSummary("删除授权产品（仍有授权或离线码台账时拒绝）")
+            .RequirePermission(PermissionCatalog.LicenseProductManage);
     }
 
     private static void MapEntitlementEndpoints(RouteGroupBuilder admin)

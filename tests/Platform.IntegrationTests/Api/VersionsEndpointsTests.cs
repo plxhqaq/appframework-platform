@@ -459,6 +459,47 @@ public sealed class VersionsEndpointsTests : IClassFixture<PlatformApiFactory>
     }
 
     [Fact]
+    public async Task 渠道删除按版本留痕受控()
+    {
+        using var client = _factory.CreateClient();
+        var token = await LoginAsync(client);
+
+        var busy = await CreateChannelAsync(client, token, "busy-channel");
+        var sha = await UploadAsync(client, token, AppBytes);
+        var release = await CreateReleaseAsync(
+            client, token, "busy-channel", "1.0.0", publish: false,
+            Artifact("win-x64", ("App.exe", AppBytes, sha)));
+
+        // 仍登记版本（含草稿）时拒绝删除
+        var rejected = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/versions/channels/{busy.Id}", token));
+        Assert.Equal(
+            (int)ApiErrorCode.VersionsReleaseImmutable,
+            await IdentityTestHelpers.ReadErrorCodeAsync(rejected, HttpStatusCode.Conflict));
+
+        // 先删版本，渠道即可删
+        await ReadDataAsync<ReleaseDetailDto>(await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/versions/releases/{release.Id}", token)));
+        Assert.True(await ReadDataAsync<bool>(await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/versions/channels/{busy.Id}", token))));
+
+        var listed = await ReadDataAsync<List<ReleaseChannelDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, "/api/v1/admin/versions/channels", token)));
+        Assert.DoesNotContain(listed, x => x.Id == busy.Id);
+
+        // 空渠道直接可删；重复删除按不存在
+        var empty = await CreateChannelAsync(client, token, "empty-channel");
+        Assert.True(await ReadDataAsync<bool>(await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/versions/channels/{empty.Id}", token))));
+        var gone = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/versions/channels/{empty.Id}", token));
+        Assert.Equal(
+            (int)ApiErrorCode.VersionsChannelNotFound,
+            await IdentityTestHelpers.ReadErrorCodeAsync(gone, HttpStatusCode.NotFound));
+    }
+
+    [Fact]
     public async Task 无权限与匿名请求被拒绝且跨应用看不到他人渠道()
     {
         using var client = _factory.CreateClient();

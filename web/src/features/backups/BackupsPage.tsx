@@ -76,7 +76,7 @@ interface PushFormValues {
  * 渠道是硬门禁：即使勾选 force 也不允许跨渠道下发。
  */
 export function BackupsPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const session = useAuthStore((state) => state.session);
@@ -415,15 +415,42 @@ export function BackupsPage() {
     {
       title: tr("操作"),
       key: 'actions',
-      width: 80,
+      width: 130,
       fixed: 'right',
       render: (_: unknown, row: BackupNamespace) =>
         canManageNamespace ? (
-          <Button type="link" size="small" onClick={() => openNamespaceForm(row)}>
-            {tr("编辑")}</Button>
+          <Space size="small">
+            <Button type="link" size="small" onClick={() => openNamespaceForm(row)}>
+              {tr("编辑")}
+            </Button>
+            <Button type="link" size="small" danger onClick={() => confirmDeleteNamespace(row)}>
+              {tr("删除")}
+            </Button>
+          </Space>
         ) : null,
     },
   ];
+
+  const deleteNamespaceRow = async (namespace: BackupNamespace) => {
+    try {
+      await backupsApi.deleteNamespace(namespace.id);
+      message.success(tr("命名空间 {{arg0}} 已删除", { arg0: namespace.key }));
+      await refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : tr("操作失败"));
+    }
+  };
+
+  const confirmDeleteNamespace = (namespace: BackupNamespace) => {
+    modal.confirm({
+      title: tr("删除备份命名空间 {{arg0}}？", { arg0: namespace.key }),
+      content: tr("命名空间内仍有备份（含软删除待清理）时会被拒绝，以保留备份留痕。此操作不可恢复。"),
+      okText: tr("删除"),
+      okButtonProps: { danger: true },
+      cancelText: tr("取消"),
+      onOk: () => deleteNamespaceRow(namespace),
+    });
+  };
 
   const backupColumns: TableColumnsType<BackupSummary> = [
     { title: tr("命名空间"), dataIndex: 'namespaceKey', key: 'namespaceKey', width: 130 },

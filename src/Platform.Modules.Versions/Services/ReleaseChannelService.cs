@@ -26,6 +26,9 @@ public interface IReleaseChannelService
         Guid id,
         UpdateReleaseChannelRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>删除渠道；仍有任何版本登记时拒绝（FK 级联会连带删除版本，必须清空后再删）。</summary>
+    Task DeleteAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
 }
 
 /// <summary>渠道服务实现。</summary>
@@ -228,6 +231,31 @@ public sealed partial class ReleaseChannelService : IReleaseChannelService
         }
 
         return ToDto(channel, releaseCount, latestVersion);
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteAsync(
+        string appKey,
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var channel = await _db.Set<ReleaseChannel>()
+                          .FirstOrDefaultAsync(x => x.Id == id && x.AppKey == appKey, cancellationToken)
+                      ?? throw BusinessException.NotFound(
+                          ApiErrorCode.VersionsChannelNotFound,
+                          $"渠道 {id} 不存在。");
+
+        var releaseCount = await _db.Set<Release>()
+            .CountAsync(x => x.ChannelId == id, cancellationToken);
+        if (releaseCount > 0)
+        {
+            throw new BusinessException(
+                ApiErrorCode.VersionsReleaseImmutable,
+                $"渠道 {channel.Key} 仍登记 {releaseCount} 个版本，请先删除全部版本再删除渠道。");
+        }
+
+        _db.Set<ReleaseChannel>().Remove(channel);
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     private static ReleaseChannelDto ToDto(ReleaseChannel channel, int releaseCount, string? latestVersion) =>

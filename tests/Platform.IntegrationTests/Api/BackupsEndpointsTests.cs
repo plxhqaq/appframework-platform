@@ -242,6 +242,48 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
         }
     }
 
+    [Fact]
+    public async Task 命名空间删除按备份留痕受控()
+    {
+        using var client = _factory.CreateClient();
+        var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
+
+        var busy = await CreateNamespaceAsync(client, token, "deletable-busy", "待清理命名空间");
+        var backup = await CreateBackupAsync(client, token, "deletable-busy", "配置一", "payload");
+
+        var rejected = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/backups/namespaces/{busy.Id}", token));
+        Assert.Equal(
+            (int)ApiErrorCode.Conflict,
+            await IdentityTestHelpers.ReadErrorCodeAsync(rejected, HttpStatusCode.Conflict));
+
+        // 软删除的备份在保留期清理前仍算留痕
+        await IdentityTestHelpers.ReadDataAsync<BackupDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Delete, $"/api/v1/admin/backups/{backup.Id}", token)));
+        var stillBusy = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/backups/namespaces/{busy.Id}", token));
+        Assert.Equal(
+            (int)ApiErrorCode.Conflict,
+            await IdentityTestHelpers.ReadErrorCodeAsync(stillBusy, HttpStatusCode.Conflict));
+
+        // 空命名空间可直接删除
+        var empty = await CreateNamespaceAsync(client, token, "deletable-empty", "空命名空间");
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/backups/namespaces/{empty.Id}", token))).StatusCode);
+
+        var listed = await IdentityTestHelpers.ReadDataAsync<List<BackupNamespaceDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, "/api/v1/admin/backups/namespaces", token)));
+        Assert.DoesNotContain(listed, x => x.Id == empty.Id);
+
+        var gone = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/backups/namespaces/{empty.Id}", token));
+        Assert.Equal(
+            (int)ApiErrorCode.BackupsNamespaceNotFound,
+            await IdentityTestHelpers.ReadErrorCodeAsync(gone, HttpStatusCode.NotFound));
+    }
+
     private static async Task<BackupNamespaceDto> CreateNamespaceAsync(
         HttpClient client,
         string token,

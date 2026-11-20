@@ -201,10 +201,20 @@ export function LicensingPage() {
   const deleteOfflineCode = async (row: OfflineLicenseCode) => {
     try {
       await licensingApi.deleteOfflineCode(row.id);
-      message.success(tr("台账已删除（已发出的码到期前仍可用）"));
+      message.success(tr("台账已删除（码本身在到期前仍可用，离线码无法吊销）"));
       await refresh();
     } catch (error) {
       message.error(error instanceof Error ? error.message : tr("删除失败"));
+    }
+  };
+
+  const deleteProductRow = async (row: LicenseProduct) => {
+    try {
+      await licensingApi.deleteProduct(row.id);
+      message.success(tr("产品 {{arg0}} 已删除", { arg0: row.key }));
+      await refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : tr("操作失败"));
     }
   };
 
@@ -258,19 +268,31 @@ export function LicensingPage() {
     {
       title: tr("操作"),
       key: 'actions',
-      width: 100,
+      width: 150,
       fixed: 'right',
       render: (_: unknown, row: LicenseProduct) =>
         canManageProducts ? (
-          <Button
-            type="link"
-            size="small"
-            onClick={() => {
-              setEditingProduct(row);
-              setProductFormOpen(true);
-            }}
-          >
-            {tr("编辑")}</Button>
+          <Space size="small">
+            <Button
+              type="link"
+              size="small"
+              onClick={() => {
+                setEditingProduct(row);
+                setProductFormOpen(true);
+              }}
+            >
+              {tr("编辑")}</Button>
+            <Popconfirm
+              title={tr("删除授权产品 {{arg0}}？", { arg0: row.key })}
+              description={tr("产品仍有授权行或离线码台账时会被拒绝，以保留签发留痕。此操作不可恢复。")}
+              okText={tr("删除")}
+              cancelText={tr("取消")}
+              onConfirm={() => void deleteProductRow(row)}
+            >
+              <Button type="link" size="small" danger>
+                {tr("删除")}</Button>
+            </Popconfirm>
+          </Space>
         ) : null,
     },
   ];
@@ -452,7 +474,7 @@ export function LicensingPage() {
         canIssueOffline ? (
           <Popconfirm
             title={tr("删除台账行？")}
-            description={tr("已发出的码到期前仍然可用，删除只影响这里的记录。")}
+            description={tr("仅已过有效期（含宽限期）的记录可删；已发出的码本身无法吊销，删除只影响这里的记录。")}
             okText={tr("删除")}
             cancelText={tr("取消")}
             onConfirm={() => void deleteOfflineCode(row)}

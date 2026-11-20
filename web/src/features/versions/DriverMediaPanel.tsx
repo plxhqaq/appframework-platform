@@ -237,7 +237,7 @@ export function DriverMediaPanel({ appKey, canUpload, canDownload, canArchive }:
       <Space wrap style={{ marginBottom: 12 }}>
         <Input
           allowClear
-          placeholder={tr("按媒体键精确过滤")}
+          placeholder={tr("按媒体键关键词过滤")}
           style={{ width: 200, maxWidth: '100%' }}
           value={mediaKeyFilter}
           onChange={(event) => {

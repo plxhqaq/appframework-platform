@@ -73,7 +73,7 @@ const VISIBILITY_META: Record<DocumentVisibility, { label: string; color?: strin
  * 服务端在清单与下载两处都强制过滤，前端不承担安全边界。
  */
 export function DocumentsPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const session = useAuthStore((state) => state.session);
@@ -350,15 +350,47 @@ export function DocumentsPage() {
     {
       title: tr("操作"),
       key: 'actions',
-      width: 80,
+      width: 130,
       fixed: 'right',
       render: (_: unknown, row: DocumentCollection) =>
         canManageCollection ? (
-          <Button type="link" size="small" onClick={() => openCollectionForm(row)}>
-            {tr("编辑")}</Button>
+          <Space size="small">
+            <Button type="link" size="small" onClick={() => openCollectionForm(row)}>
+              {tr("编辑")}
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              danger
+              onClick={() => confirmDeleteCollection(row)}
+            >
+              {tr("删除")}
+            </Button>
+          </Space>
         ) : null,
     },
   ];
+
+  const deleteCollectionRow = async (collection: DocumentCollection) => {
+    try {
+      await documentsApi.deleteCollection(collection.id);
+      message.success(tr("集合 {{arg0}} 已删除", { arg0: collection.key }));
+      await refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : tr("操作失败"));
+    }
+  };
+
+  const confirmDeleteCollection = (collection: DocumentCollection) => {
+    modal.confirm({
+      title: tr("删除文档集合 {{arg0}}？", { arg0: collection.key }),
+      content: tr("集合内仍有文档（含软删除待清理）时会被拒绝，以保留文档留痕。此操作不可恢复。"),
+      okText: tr("删除"),
+      okButtonProps: { danger: true },
+      cancelText: tr("取消"),
+      onOk: () => deleteCollectionRow(collection),
+    });
+  };
 
   const documentColumns: TableColumnsType<DocumentSummary> = [
     { title: tr("集合"), dataIndex: 'collectionKey', key: 'collectionKey', width: 120 },

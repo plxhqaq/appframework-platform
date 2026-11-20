@@ -148,6 +148,45 @@ internal static class BackupEndpoints
             .WithName("backups.namespaces.update")
             .WithSummary("更新命名空间渠道/配额/启用状态")
             .RequirePermission(PermissionCatalog.BackupNamespaceManage);
+
+        admin.MapDelete(
+                "/namespaces/{id:guid}",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IBackupNamespaceService namespaces,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        await namespaces.DeleteAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "backups.namespace.delete",
+                            targetType: "backup_namespace",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: null);
+                        return ApiResults.Ok(context, true);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "backups.namespace.delete",
+                            targetType: "backup_namespace",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("backups.namespaces.delete")
+            .WithSummary("删除备份命名空间（仍有备份时拒绝）")
+            .RequirePermission(PermissionCatalog.BackupNamespaceManage);
     }
 
     private static void MapBackupEndpointsInternal(RouteGroupBuilder admin, long createRequestLimit)

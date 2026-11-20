@@ -39,7 +39,7 @@ public interface IDriverMediaService
     /// <summary>把媒体键的启用版本切到指定行（同键其余全部置非启用）。</summary>
     Task<DriverMediaDto> ActivateAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
 
-    /// <summary>删除登记行；blob 交给孤儿扫描回收。</summary>
+    /// <summary>删除登记行；启用中的行拒绝（先禁用），删除后按内容寻址口径回收无引用 blob。</summary>
     Task DeleteAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>下载定位：登记行与 blob 都必须存在。</summary>
@@ -235,8 +235,9 @@ public sealed partial class DriverMediaService : IDriverMediaService
             .Where(x => x.AppKey == appKey);
         if (!string.IsNullOrWhiteSpace(mediaKey))
         {
+            // 关键词模糊匹配；媒体键登记时恒为小写，过滤词同口径归一。
             var value = mediaKey.Trim().ToLowerInvariant();
-            query = query.Where(x => x.MediaKey == value);
+            query = query.Where(x => EF.Functions.Like(x.MediaKey, $"%{value}%"));
         }
 
         if (activeOnly == true)
@@ -295,8 +296,19 @@ public sealed partial class DriverMediaService : IDriverMediaService
     public async Task DeleteAsync(string appKey, Guid id, CancellationToken cancellationToken = default)
     {
         var media = await FindTrackedAsync(appKey, id, cancellationToken);
+        if (media.IsActive)
+        {
+            throw new BusinessException(
+                ApiErrorCode.VersionsReleaseImmutable,
+                $"媒体 {media.MediaKey}/{media.Version} 正在启用，请先停用再删除。");
+        }
+
         _db.Set<DriverMedia>().Remove(media);
         await _db.SaveChangesAsync(cancellationToken);
+
+        // 与版本/更新器删除同口径：内容仍被其它登记行引用时 blob 保留，无引用才回收。
+        await VersionBlobReclaim.DeleteUnreferencedAsync(
+            _db, _blobs, appKey, new List<string> { media.Sha256 }, cancellationToken);
         LogDeleted(_logger, appKey, media.MediaKey, id, null);
     }
 

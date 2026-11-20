@@ -52,6 +52,10 @@ export const backupsApi = {
       body,
     }),
 
+  /** 删除备份命名空间；仍有任何备份（含软删除待清理）时服务端拒绝。 */
+  deleteNamespace: (id: string) =>
+    request<boolean>(`/api/v1/admin/backups/namespaces/${id}`, { method: 'DELETE' }),
+
   listBackups: (query: BackupListQuery, signal?: AbortSignal) =>
     request<PageResult<BackupSummary>>(
       `/api/v1/admin/backups${toQueryString({ ...query })}`,

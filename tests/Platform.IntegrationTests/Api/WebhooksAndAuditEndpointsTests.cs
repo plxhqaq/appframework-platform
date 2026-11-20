@@ -71,6 +71,17 @@ public sealed class WebhooksAndAuditEndpointsTests : IClassFixture<PlatformApiFa
         Assert.Equal(delivered.Id, sent.DeliveryId);
         Assert.Contains(WebhookConventions.EventTest, sent.Payload, StringComparison.Ordinal);
 
+        // 启用中的订阅不可删除
+        var enabledDelete = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/webhooks/{created.Subscription.Id}", token));
+        Assert.Equal(
+            (int)ApiErrorCode.Conflict,
+            await IdentityTestHelpers.ReadErrorCodeAsync(enabledDelete, HttpStatusCode.Conflict));
+
+        // 停用后删除订阅并连带清理投递记录
+        await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Patch, $"/api/v1/admin/webhooks/{created.Subscription.Id}", token,
+            new UpdateWebhookSubscriptionRequest(IsEnabled: false)));
         await IdentityTestHelpers.ReadDataAsync<object>(
             await client.SendAsync(IdentityTestHelpers.Authorized(
                 HttpMethod.Delete, $"/api/v1/admin/webhooks/{created.Subscription.Id}", token)));

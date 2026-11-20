@@ -29,6 +29,9 @@ public interface IDocumentCollectionService
         UpdateDocumentCollectionRequest request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>删除集合；集合内仍有文档（含软删除）时拒绝，避免留痕连带消失。</summary>
+    Task DeleteAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
+
     /// <summary>按应用 + 键读取集合；不存在抛 <see cref="ApiErrorCode.DocumentsCollectionNotFound"/>。</summary>
     Task<DocumentCollection> GetAsync(
         string appKey,
@@ -138,6 +141,32 @@ public sealed partial class DocumentCollectionService : IDocumentCollectionServi
         var count = await _db.Set<Document>()
             .CountAsync(x => x.CollectionId == id && x.DeletedAt == null, cancellationToken);
         return ToDto(entity, count);
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteAsync(
+        string appKey,
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await _db.Set<DocumentCollection>()
+                         .FirstOrDefaultAsync(x => x.Id == id && x.AppKey == appKey, cancellationToken)
+                     ?? throw new BusinessException(
+                         ApiErrorCode.DocumentsCollectionNotFound,
+                         $"集合 {id} 不存在。");
+
+        // 软删除的文档也算数：先彻底清理文档，集合才可删。
+        var remaining = await _db.Set<Document>()
+            .CountAsync(x => x.CollectionId == id, cancellationToken);
+        if (remaining > 0)
+        {
+            throw new BusinessException(
+                ApiErrorCode.Conflict,
+                $"集合 {entity.Key} 仍有 {remaining} 篇文档（含已删除待清理），请先清空再删除集合。");
+        }
+
+        _db.Set<DocumentCollection>().Remove(entity);
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     /// <inheritdoc />

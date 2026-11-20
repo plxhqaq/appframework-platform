@@ -46,11 +46,16 @@ Webhook 是**旁路通知，不是事实来源**。
 | `GET` | `/api/v1/admin/webhooks` | `webhook.read` | — |
 | `POST` | `/api/v1/admin/webhooks` | `webhook.manage` | **支持**（作用域 `webhooks.subscription.create`，TTL 24h） |
 | `PATCH` | `/api/v1/admin/webhooks/{id}` | `webhook.manage` | — |
-| `DELETE` | `/api/v1/admin/webhooks/{id}` | `webhook.manage` | — |
+| `DELETE` | `/api/v1/admin/webhooks/{id}` | `webhook.manage` | 订阅须先停用，且无待投递/待重试记录 |
 | `POST` | `/api/v1/admin/webhooks/{id}/secret/rotate` | `webhook.manage` | — |
 | `POST` | `/api/v1/admin/webhooks/{id}/test` | `webhook.manage` | — |
 | `GET` | `/api/v1/admin/webhooks/deliveries` | `webhook.read` | — |
 | `POST` | `/api/v1/admin/webhooks/deliveries/{deliveryId}/redeliver` | `webhook.manage` | — |
+
+订阅删除（`DELETE /api/v1/admin/webhooks/{id}`）有两道门：**启用中的订阅拒绝**（先 `PATCH` 置
+`isEnabled=false`），且仍有 `pending` / `failed` 投递时拒绝——这两种状态会被 dispatcher 继续重试，
+删掉订阅等于丢弃在途投递。两者都返回通用冲突 `6`（HTTP 409）。放行时该订阅的投递记录随订阅一并删除；
+`succeeded` / `dead` 这类已终结记录不阻塞删除。
 
 ### 2.1 创建
 

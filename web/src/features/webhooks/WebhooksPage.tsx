@@ -194,7 +194,7 @@ export function WebhooksPage() {
             {tr("轮换密钥")}</Button>
           <Popconfirm
             title={tr("删除订阅？")}
-            description={tr("其投递记录一并删除，且不可恢复。")}
+            description={tr("仅已停用的订阅可删除，且待投递或待重试的记录会拒绝删除；投递记录随订阅一并删除，不可恢复。")}
             okText={tr("删除")}
             okButtonProps={{ danger: true }}
             cancelText={tr("取消")}

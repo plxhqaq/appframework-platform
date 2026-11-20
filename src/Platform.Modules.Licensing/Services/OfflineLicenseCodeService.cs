@@ -32,7 +32,7 @@ public interface IOfflineLicenseCodeService
         VerifyOfflineLicenseCodeRequest request,
         CancellationToken cancellationToken = default);
 
-    /// <summary>删除台账行（已发出的码在到期前仍然可用——离线码无法吊销）。</summary>
+    /// <summary>删除台账行；仅已过有效期（含宽限期）的记录可删——离线码无法吊销，未过期删除会失去留痕。</summary>
     Task DeleteAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
 }
 
@@ -307,6 +307,13 @@ public sealed class OfflineLicenseCodeService : IOfflineLicenseCodeService
             throw BusinessException.NotFound(
                 ApiErrorCode.NotFound,
                 $"离线授权码记录 {id} 不存在。");
+        }
+
+        if (row.NotAfter.AddDays(row.GraceDays) >= _clock.UtcNow)
+        {
+            throw new BusinessException(
+                ApiErrorCode.Conflict,
+                "离线授权码尚未过期（含宽限期），过期后才可删除记录。");
         }
 
         _db.Set<OfflineLicenseCode>().Remove(row);

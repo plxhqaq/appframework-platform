@@ -148,6 +148,45 @@ internal static class DocumentEndpoints
             .WithName("documents.collections.update")
             .WithSummary("更新集合名称/说明/启用状态")
             .RequirePermission(PermissionCatalog.DocumentCollectionManage);
+
+        admin.MapDelete(
+                "/collections/{id:guid}",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IDocumentCollectionService collections,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        await collections.DeleteAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "documents.collection.delete",
+                            targetType: "document_collection",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: null);
+                        return ApiResults.Ok(context, true);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "documents.collection.delete",
+                            targetType: "document_collection",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("documents.collections.delete")
+            .WithSummary("删除文档集合（仍有文档时拒绝）")
+            .RequirePermission(PermissionCatalog.DocumentCollectionManage);
     }
 
     private static void MapDocumentAdminEndpoints(RouteGroupBuilder admin, long uploadRequestLimit)

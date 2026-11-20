@@ -27,6 +27,9 @@ public interface ILicenseProductService
         Guid id,
         UpdateLicenseProductRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>删除产品；仍有授权行或离线码台账时拒绝。</summary>
+    Task DeleteAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
 }
 
 /// <summary>授权产品实现。</summary>
@@ -187,6 +190,34 @@ public sealed partial class LicenseProductService : ILicenseProductService
             .CountAsync(x => x.ProductId == product.Id && x.RevokedAt == null && x.ExpiresAt >= now, cancellationToken);
 
         return ToDto(product, total, active);
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteAsync(
+        string appKey,
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var product = await _db.Set<LicenseProduct>()
+                          .FirstOrDefaultAsync(x => x.Id == id && x.AppKey == appKey, cancellationToken)
+                      ?? throw BusinessException.NotFound(
+                          ApiErrorCode.LicensingProductNotFound,
+                          $"授权产品 {id} 不存在。");
+
+        // 授权与离线码台账都以 ProductId 挂在产品行上；留痕记录不可连带消失。
+        var entitlements = await _db.Set<LicenseEntitlement>()
+            .CountAsync(x => x.ProductId == id, cancellationToken);
+        var offlineCodes = await _db.Set<OfflineLicenseCode>()
+            .CountAsync(x => x.ProductId == id, cancellationToken);
+        if (entitlements > 0 || offlineCodes > 0)
+        {
+            throw new BusinessException(
+                ApiErrorCode.Conflict,
+                $"产品 {product.Key} 仍有 {entitlements} 条授权、{offlineCodes} 条离线码台账，请先处理留痕再删除产品。");
+        }
+
+        _db.Set<LicenseProduct>().Remove(product);
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     private static int NormalizeGraceDays(int value)

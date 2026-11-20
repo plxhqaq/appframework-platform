@@ -229,7 +229,7 @@ public sealed class LicensingEndpointsTests : IClassFixture<PlatformApiFactory>
         using var client = _factory.CreateClient();
         var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
 
-        await CreateProductAsync(client, token, "offline-pro", seatLimit: null, trialDays: 0);
+        var product = await CreateProductAsync(client, token, "offline-pro", seatLimit: null, trialDays: 0);
 
         var ledger = await ReadDataAsync<OfflineLicenseCodeDto>(
             await client.SendAsync(IdentityTestHelpers.Authorized(
@@ -280,10 +280,43 @@ public sealed class LicensingEndpointsTests : IClassFixture<PlatformApiFactory>
             (int)ApiErrorCode.LicensingOfflineCodeInvalid,
             await IdentityTestHelpers.ReadErrorCodeAsync(badCode, HttpStatusCode.UnprocessableEntity));
 
-        // 台账删除后码本身仍可用（离线码无法吊销）
-        var deleted = await client.SendAsync(IdentityTestHelpers.Authorized(
+        // 未过期（含宽限）的台账行不可删除，避免失去留痕
+        var tooEarly = await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Delete,
             $"/api/v1/admin/licensing/offline-codes/{ledger.Id}",
+            token));
+        Assert.Equal(
+            (int)ApiErrorCode.Conflict,
+            await IdentityTestHelpers.ReadErrorCodeAsync(tooEarly, HttpStatusCode.Conflict));
+
+        // 过期后的台账行可删；码本身自包含，删除台账不影响码继续可用（离线码无法吊销）
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+            db.Set<OfflineLicenseCode>().Add(new OfflineLicenseCode
+            {
+                AppKey = "demo",
+                ProductId = product.Id,
+                MachineCode = MachineA,
+                LicenseNo = "OFF-EXPIRED",
+                Code = ledger.Code,
+                Kind = LicenseConventions.KindOfficial,
+                IssuedAt = DateTimeOffset.UtcNow.AddDays(-120),
+                NotAfter = DateTimeOffset.UtcNow.AddDays(-30),
+                GraceDays = 0,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var expiredRow = await ReadDataAsync<PageResult<OfflineLicenseCodeDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                "/api/v1/admin/licensing/offline-codes?keyword=OFF-EXPIRED",
+                token)));
+        var expiredLedger = expiredRow.Items.Single(x => x.LicenseNo == "OFF-EXPIRED");
+        var deleted = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete,
+            $"/api/v1/admin/licensing/offline-codes/{expiredLedger.Id}",
             token));
         Assert.Equal(HttpStatusCode.OK, deleted.StatusCode);
         Assert.True((await VerifyOfflineAsync(client, token, ledger.Code, MachineA, "offline-pro")).IsValid);
@@ -699,6 +732,37 @@ public sealed class LicensingEndpointsTests : IClassFixture<PlatformApiFactory>
         var revokedPayload = await revokedNotice.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal("demo", revokedPayload.AppKey);
         Assert.Equal(registered.MachineCode, revokedPayload.MachineCode);
+    }
+
+    [Fact]
+    public async Task 产品删除按授权与离线码留痕受控()
+    {
+        using var client = _factory.CreateClient();
+        var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
+
+        var busy = await CreateProductAsync(client, token, "busy-pro", seatLimit: null, trialDays: 0);
+        await IssueAsync(client, token, "busy-pro", MachineA, addDays: 30, licenseNo: null);
+
+        var rejected = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/licensing/products/{busy.Id}", token));
+        Assert.Equal(
+            (int)ApiErrorCode.Conflict,
+            await IdentityTestHelpers.ReadErrorCodeAsync(rejected, HttpStatusCode.Conflict));
+
+        var empty = await CreateProductAsync(client, token, "deletable-pro", seatLimit: null, trialDays: 0);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/licensing/products/{empty.Id}", token))).StatusCode);
+
+        var listed = await ReadDataAsync<List<LicenseProductDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, "/api/v1/admin/licensing/products", token)));
+        Assert.DoesNotContain(listed, x => x.Id == empty.Id);
+
+        var gone = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/licensing/products/{empty.Id}", token));
+        Assert.Equal(
+            (int)ApiErrorCode.LicensingProductNotFound,
+            await IdentityTestHelpers.ReadErrorCodeAsync(gone, HttpStatusCode.NotFound));
     }
 
     private static async Task<LicenseProductDto> CreateProductAsync(

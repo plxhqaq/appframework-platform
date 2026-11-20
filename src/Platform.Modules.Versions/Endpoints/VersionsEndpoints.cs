@@ -316,6 +316,45 @@ internal static class VersionsEndpoints
             .WithName("versions.channels.update")
             .WithSummary("更新渠道名称/说明/启用状态/降级开关")
             .RequirePermission(PermissionCatalog.VersionsChannelManage);
+
+        admin.MapDelete(
+                "/channels/{id:guid}",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IReleaseChannelService channels,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        await channels.DeleteAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.channel.delete",
+                            targetType: "release_channel",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: null);
+                        return ApiResults.Ok(context, true);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.channel.delete",
+                            targetType: "release_channel",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("versions.channels.delete")
+            .WithSummary("删除渠道（仍登记版本时拒绝）")
+            .RequirePermission(PermissionCatalog.VersionsChannelManage);
     }
 
     private static void MapReleaseEndpoints(RouteGroupBuilder admin)

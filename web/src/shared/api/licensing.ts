@@ -62,6 +62,10 @@ export const licensingApi = {
       body,
     }),
 
+  /** 删除授权产品；仍有授权行或离线码台账时服务端拒绝。 */
+  deleteProduct: (id: string) =>
+    request<boolean>(`/api/v1/admin/licensing/products/${id}`, { method: 'DELETE' }),
+
   listEntitlements: (query: EntitlementListQuery, signal?: AbortSignal) =>
     request<PageResult<LicenseEntitlement>>(
       `/api/v1/admin/licensing/entitlements${toQueryString({ ...query })}`,

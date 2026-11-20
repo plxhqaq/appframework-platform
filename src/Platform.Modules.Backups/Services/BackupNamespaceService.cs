@@ -29,6 +29,9 @@ public interface IBackupNamespaceService
         UpdateBackupNamespaceRequest request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>删除命名空间；仍有任何备份（含软删除）时拒绝。</summary>
+    Task DeleteAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
+
     /// <summary>按应用 + 键读取启用中的命名空间；不存在抛 <see cref="ApiErrorCode.BackupsNamespaceNotFound"/>。</summary>
     Task<BackupNamespace> GetEnabledAsync(string appKey, string key, CancellationToken cancellationToken = default);
 
@@ -172,6 +175,32 @@ public sealed partial class BackupNamespaceService : IBackupNamespaceService
         var count = await _db.Set<Backup>()
             .CountAsync(x => x.NamespaceId == id && x.DeletedAt == null, cancellationToken);
         return ToDto(entity, count);
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteAsync(
+        string appKey,
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await _db.Set<BackupNamespace>()
+                         .FirstOrDefaultAsync(x => x.AppKey == appKey && x.Id == id, cancellationToken)
+                     ?? throw new BusinessException(
+                         ApiErrorCode.BackupsNamespaceNotFound,
+                         $"命名空间 {id} 不存在。");
+
+        // 软删除的备份仍占配额、可被恢复；彻底清理后才可删命名空间。
+        var remaining = await _db.Set<Backup>()
+            .CountAsync(x => x.NamespaceId == id, cancellationToken);
+        if (remaining > 0)
+        {
+            throw new BusinessException(
+                ApiErrorCode.Conflict,
+                $"命名空间 {entity.Key} 仍有 {remaining} 条备份（含已删除待清理），请先清空再删除命名空间。");
+        }
+
+        _db.Set<BackupNamespace>().Remove(entity);
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     /// <inheritdoc />
