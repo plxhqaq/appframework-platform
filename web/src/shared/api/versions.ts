@@ -114,6 +114,10 @@ export const versionsApi = {
   archiveRelease: (id: string) =>
     request<ReleaseDetail>(`/api/v1/admin/versions/releases/${id}/archive`, { method: 'POST' }),
 
+  /** 删除版本（草稿丢弃 / 归档彻底删除并回收无引用内容）；已发布版本须先归档。 */
+  deleteRelease: (id: string) =>
+    request<ReleaseDetail>(`/api/v1/admin/versions/releases/${id}`, { method: 'DELETE' }),
+
   /** 申请一次性上传票据；先声明哈希与长度，再 PUT 字节。 */
   createUploadTicket: (body: CreateUploadTicketRequest) =>
     request<UploadTicket>('/api/v1/admin/versions/uploads', {

@@ -47,6 +47,9 @@ public interface IReleaseService
     /// <summary>归档版本（最新版本归档后，客户端 check 自动回退到上一个已发布版本）。</summary>
     Task<ReleaseDetailDto> ArchiveAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>删除整个版本：草稿直接丢弃，归档版本同步回收无引用的已落盘内容省空间；已发布版本须先归档。</summary>
+    Task<ReleaseDetailDto> DeleteAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
+
     /// <summary>客户端检查更新。</summary>
     Task<CheckUpdateResponse> CheckAsync(
         string appKey,
@@ -360,6 +363,78 @@ public sealed partial class ReleaseService : IReleaseService
         await _db.SaveChangesAsync(cancellationToken);
 
         return ToDetail(release);
+    }
+
+    /// <inheritdoc />
+    public async Task<ReleaseDetailDto> DeleteAsync(
+        string appKey,
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var release = await LoadDetailAsync(appKey, id, cancellationToken);
+        if (release.Status == VersionConventions.StatusPublished)
+        {
+            throw new BusinessException(
+                ApiErrorCode.VersionsReleaseImmutable,
+                $"版本 {release.Version} 已发布，请先归档再彻底删除。");
+        }
+
+        var detail = ToDetail(release);
+
+        // 内容寻址去重：文件与包共用 sha，删行后仍被其它版本/媒体/更新器引用的内容必须留下；
+        // bundles/ 组合缓存是纯派生内容，交给孤儿扫描按宽限期回收。
+        var shas = release.Packages
+            .Select(static x => x.Sha256)
+            .Concat(release.Artifacts.SelectMany(static a => a.Files).Select(static f => f.Sha256))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        _db.Set<Release>().Remove(release);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        await DeleteUnreferencedBlobsAsync(appKey, shas, cancellationToken);
+        return detail;
+    }
+
+    private async Task DeleteUnreferencedBlobsAsync(
+        string appKey,
+        List<string> shas,
+        CancellationToken cancellationToken)
+    {
+        const int batchSize = 500;
+        for (var offset = 0; offset < shas.Count; offset += batchSize)
+        {
+            var chunk = shas.GetRange(offset, Math.Min(batchSize, shas.Count - offset));
+
+            // 引用判定与孤儿扫描同口径：可能来自任何应用，四类行都算引用。
+            var referenced = new HashSet<string>(StringComparer.Ordinal);
+            referenced.UnionWith(await _db.Set<ReleaseFile>()
+                .Where(x => chunk.Contains(x.Sha256))
+                .Select(static x => x.Sha256)
+                .Distinct()
+                .ToListAsync(cancellationToken));
+            referenced.UnionWith(await _db.Set<ReleasePackage>()
+                .Where(x => chunk.Contains(x.Sha256))
+                .Select(static x => x.Sha256)
+                .Distinct()
+                .ToListAsync(cancellationToken));
+            referenced.UnionWith(await _db.Set<AppUpdaterRelease>()
+                .Where(x => chunk.Contains(x.Sha256))
+                .Select(static x => x.Sha256)
+                .Distinct()
+                .ToListAsync(cancellationToken));
+            referenced.UnionWith(await _db.Set<DriverMedia>()
+                .Where(x => chunk.Contains(x.Sha256))
+                .Select(static x => x.Sha256)
+                .Distinct()
+                .ToListAsync(cancellationToken));
+
+            foreach (var sha in chunk.Where(x => !referenced.Contains(x)))
+            {
+                await _blobs.DeleteAsync(VersionBlobPaths.Blob(appKey, sha), cancellationToken);
+                await _blobs.DeleteAsync(VersionBlobPaths.ArchiveZip(appKey, sha), cancellationToken);
+            }
+        }
     }
 
     /// <inheritdoc />

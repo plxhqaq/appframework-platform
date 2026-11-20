@@ -23,6 +23,7 @@ export const PERMISSIONS = {
   versionsReleaseRead: 'versions.release.read',
   versionsReleasePublish: 'versions.release.publish',
   versionsReleaseArchive: 'versions.release.archive',
+  versionsReleaseDelete: 'versions.release.delete',
   versionsArtifactUpload: 'versions.artifact.upload',
   versionsArtifactDownload: 'versions.artifact.download',
   nodeRead: 'node.read',

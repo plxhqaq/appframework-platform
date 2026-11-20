@@ -37,6 +37,9 @@ compose 里是 `BlobStorage__RootPath=/data/blobs` 挂在 `blobs` 卷上）。
 内容可下载；`archived` 移出下发序列，`check` 自动落到上一个已发布版本，即全量回退。版本重复判定只在
 渠道内：`(ChannelId, Version)` 唯一，草稿也占位。
 
+客户端下载语义如上受三态约束；管理台浏览器下载票据链路（`download-ticket` → `/downloads/{ticket}`）
+不受三态限制：草稿与归档版本的安装包同样可下载核对，只受权限、包 `ready` 与 Blob 在盘约束。
+
 ## 2. 渠道
 
 | 方法与路径 | 权限码 | 幂等 |
@@ -128,6 +131,7 @@ curl -s -X PUT "http://localhost:5080$UPLOAD_URL" \
 | `PATCH /api/v1/admin/versions/releases/{id}` | `versions.release.publish` | —（仅草稿，只改 `notes`） |
 | `POST /api/v1/admin/versions/releases/{id}/publish` | `versions.release.publish` | — |
 | `POST /api/v1/admin/versions/releases/{id}/archive` | `versions.release.archive` | — |
+| `DELETE /api/v1/admin/versions/releases/{id}` | `versions.release.delete` | — |
 
 列表参数 `page`（默认 1）、`pageSize`（默认 20，超 200 被钳制）、`channelKey`、`status`（三态之一，
 否则 `2`），返回 `PageResult<ReleaseSummaryDto>`，按 `createdAt` 倒序。
@@ -189,6 +193,12 @@ curl -s -X POST http://localhost:5080/api/v1/admin/versions/releases \
 核对/修正包内说明 → 再发布」。`notes` 去空格后为空存 `null`，最长 4000 字符（`2`）；
 只有 `draft` 可改，已发布/已归档返回 `222`（409）。上传登记的版本一律先落草稿，发布动作始终由
 管理员在确认页显式触发（见 [`10-package-manifest.md`](10-package-manifest.md) §8）。
+
+**删除版本**（`DELETE /releases/{id}`）：草稿即彻底丢弃（补齐「只能逐包删、删不完版本」的缺口），
+归档版本即彻底删除，两者都会级联删除产物、文件清单与发布包登记；已发布版本拒绝，返回 `222`（409），
+须先归档。行提交后按内容哈希回收 Blob：仍被其它版本/媒体/更新器引用的共享内容保留（与孤儿扫描同口径
+的引用判定），源文件与其 `{sha}.zip` 下载派生缓存一并删除，立即省出空间；`bundles/` 组合缓存属纯派生
+内容，仍由保留任务的孤儿扫描按宽限期回收。删除不可恢复，误删已归档版本只能重新上传同版本包。
 
 ---
 

@@ -48,10 +48,15 @@ public interface IReleasePackageService
     /// <summary>把摄取失败的包重新置为 <c>pending</c>，交给 Worker 重新处理。</summary>
     Task<ReleasePackageDto> RetryAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
 
-    /// <summary>客户端下载定位：包可用且所属版本已发布，否则按不存在/不可用拒绝。</summary>
+    /// <summary>
+    /// 下载定位：包就绪且 Blob 在盘才放行。<c>requirePublished=true</c>（客户端链路）额外要求
+    /// 所属版本已发布，未发布按不存在处理以免泄露草稿；管理台票据签发/兑现传 false，
+    /// 草稿与归档版本也要能下载核对安装包。
+    /// </summary>
     Task<ReleasePackageDownload> ResolveDownloadAsync(
         string appKey,
         Guid id,
+        bool requirePublished,
         CancellationToken cancellationToken = default);
 }
 
@@ -542,6 +547,7 @@ public sealed partial class ReleasePackageService : IReleasePackageService
     public async Task<ReleasePackageDownload> ResolveDownloadAsync(
         string appKey,
         Guid id,
+        bool requirePublished,
         CancellationToken cancellationToken = default)
     {
         var package = await _db.Set<ReleasePackage>()
@@ -550,7 +556,7 @@ public sealed partial class ReleasePackageService : IReleasePackageService
                           .FirstOrDefaultAsync(x => x.Id == id && x.AppKey == appKey, cancellationToken)
                       ?? throw PackageNotFound(id);
 
-        if (package.Release.Status != VersionConventions.StatusPublished)
+        if (requirePublished && package.Release.Status != VersionConventions.StatusPublished)
         {
             throw PackageNotFound(id);
         }

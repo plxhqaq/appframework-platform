@@ -523,6 +523,45 @@ internal static class VersionsEndpoints
             .WithName("versions.releases.archive")
             .WithSummary("归档版本（最新版本归档后 check 回退到上一版）")
             .RequirePermission(PermissionCatalog.VersionsReleaseArchive);
+
+        admin.MapDelete(
+                "/releases/{id:guid}",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IReleaseService releases,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var deleted = await releases.DeleteAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.release.delete",
+                            targetType: "release",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: deleted.Version);
+                        return ApiResults.Ok(context, deleted);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.release.delete",
+                            targetType: "release",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("versions.releases.delete")
+            .WithSummary("删除版本（草稿丢弃 / 归档彻底删除并回收无引用内容；已发布须先归档）")
+            .RequirePermission(PermissionCatalog.VersionsReleaseDelete);
     }
 
     private static void MapPackageEndpoints(RouteGroupBuilder admin)
@@ -1034,7 +1073,7 @@ internal static class VersionsEndpoints
                     CancellationToken cancellationToken) =>
                 {
                     var download = await packages.ResolveDownloadAsync(
-                        RequireAppKey(principal), id, cancellationToken);
+                        RequireAppKey(principal), id, requirePublished: true, cancellationToken);
                     RecordDownload(metrics, "package", download.SizeBytes);
                     var stream = await blobs.OpenReadAsync(download.BlobPath, cancellationToken);
                     context.Response.Headers["X-Content-Sha256"] = download.Sha256;
@@ -1179,7 +1218,9 @@ internal static class VersionsEndpoints
                     CancellationToken cancellationToken) =>
                 {
                     var appKey = RequireAppKey(principal);
-                    var download = await packages.ResolveDownloadAsync(appKey, id, cancellationToken);
+                    // 管理台核对安装包不要求版本已发布：草稿/归档也要能下载。
+                    var download = await packages.ResolveDownloadAsync(
+                        appKey, id, requirePublished: false, cancellationToken);
                     var representation = await RepresentAsync(
                         appKey, download.Sha256, download.FileName, download.SizeBytes,
                         archives, cancellationToken);
@@ -1335,8 +1376,9 @@ internal static class VersionsEndpoints
         {
             case DownloadTicketKinds.Package:
                 {
+                    // 票据签发时已按管理台权限放行，兑现不再复查版本状态（签发后归档不会作废已发票据）。
                     var download = await packages.ResolveDownloadAsync(
-                        ticket.AppKey, ticket.Id, cancellationToken);
+                        ticket.AppKey, ticket.Id, requirePublished: false, cancellationToken);
                     return await RepresentAsync(
                         ticket.AppKey, download.Sha256, download.FileName, download.SizeBytes,
                         archives, cancellationToken);

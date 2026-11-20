@@ -49,6 +49,7 @@ export function VersionsPage() {
   const canManageChannels = useAuthStore((state) => state.hasPermission(PERMISSIONS.versionsChannelManage));
   const canPublish = useAuthStore((state) => state.hasPermission(PERMISSIONS.versionsReleasePublish));
   const canArchive = useAuthStore((state) => state.hasPermission(PERMISSIONS.versionsReleaseArchive));
+  const canDelete = useAuthStore((state) => state.hasPermission(PERMISSIONS.versionsReleaseDelete));
   const canUpload = useAuthStore((state) => state.hasPermission(PERMISSIONS.versionsArtifactUpload));
   const canDownload = useAuthStore((state) =>
     state.hasPermission(PERMISSIONS.versionsArtifactDownload),
@@ -113,6 +114,34 @@ export function VersionsPage() {
       okButtonProps: { danger: true },
       cancelText: tr("取消"),
       onOk: () => archiveRelease(row),
+    });
+  };
+
+  const deleteReleaseRow = async (row: ReleaseSummary) => {
+    try {
+      await versionsApi.deleteRelease(row.id);
+      message.success(tr("版本 {{arg0}} 已删除", { arg0: row.version }));
+      if (detailId === row.id) {
+        setDetailId(null);
+      }
+      await refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : tr("操作失败"));
+    }
+  };
+
+  const confirmDelete = (row: ReleaseSummary) => {
+    modal.confirm({
+      title: row.status === 'draft'
+        ? tr("丢弃草稿版本 {{arg0}}？", { arg0: row.version })
+        : tr("彻底删除已归档版本 {{arg0}}？", { arg0: row.version }),
+      content: row.status === 'draft'
+        ? tr("发布包登记与文件清单会一并移除，不再被其它版本引用的已落盘内容立即回收。此操作不可恢复。")
+        : tr("发布包、运行时产物与文件清单会一并删除，不再被引用的安装包与文件内容将从磁盘回收以节省空间。此操作不可恢复。"),
+      okText: tr("删除"),
+      okButtonProps: { danger: true },
+      cancelText: tr("取消"),
+      onOk: () => deleteReleaseRow(row),
     });
   };
 
@@ -262,7 +291,7 @@ export function VersionsPage() {
     {
       title: tr("操作"),
       key: 'actions',
-      width: 180,
+      width: 220,
       fixed: 'right',
       render: (_: unknown, row: ReleaseSummary) => (
         <Space size="small">
@@ -275,6 +304,10 @@ export function VersionsPage() {
           {canArchive && row.status !== 'archived' ? (
             <Button type="link" size="small" danger onClick={() => confirmArchive(row)}>
               {tr("归档")}</Button>
+          ) : null}
+          {canDelete && row.status !== 'published' ? (
+            <Button type="link" size="small" danger onClick={() => confirmDelete(row)}>
+              {tr("删除")}</Button>
           ) : null}
         </Space>
       ),
@@ -459,6 +492,7 @@ export function VersionsPage() {
         releaseId={detailId}
         canPublish={canPublish}
         canArchive={canArchive}
+        canDelete={canDelete}
         canDownload={canDownload}
         canUpload={canUpload}
         onClose={() => setDetailId(null)}

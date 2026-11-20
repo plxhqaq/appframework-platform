@@ -38,6 +38,7 @@ export const permissionsZh = {
         read: '查看版本、发布记录与文件清单；客户端检查更新也用它',
         publish: '创建并发布版本，控制客户端可见的更新',
         archive: '归档并停用某个已发布版本',
+        delete: '丢弃草稿版本，或彻底删除归档版本并回收其安装包与文件存储',
       },
       artifact: {
         upload: '上传发布产物、安装包与增量包',

@@ -41,6 +41,7 @@ public static class PermissionCatalog
     public const string VersionsReleaseRead = "versions.release.read";
     public const string VersionsReleasePublish = "versions.release.publish";
     public const string VersionsReleaseArchive = "versions.release.archive";
+    public const string VersionsReleaseDelete = "versions.release.delete";
     public const string VersionsArtifactUpload = "versions.artifact.upload";
     public const string VersionsArtifactDownload = "versions.artifact.download";
 
@@ -108,6 +109,7 @@ public static class PermissionCatalog
         new(VersionsReleaseRead, PlatformModuleKeys.Versions, "perm.versions.release.read", 320),
         new(VersionsReleasePublish, PlatformModuleKeys.Versions, "perm.versions.release.publish", 330),
         new(VersionsReleaseArchive, PlatformModuleKeys.Versions, "perm.versions.release.archive", 340),
+        new(VersionsReleaseDelete, PlatformModuleKeys.Versions, "perm.versions.release.delete", 345),
         new(VersionsArtifactUpload, PlatformModuleKeys.Versions, "perm.versions.artifact.upload", 350),
         new(VersionsArtifactDownload, PlatformModuleKeys.Versions, "perm.versions.artifact.download", 360),
 

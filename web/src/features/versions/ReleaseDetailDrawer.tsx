@@ -1,5 +1,5 @@
 import { tr } from '../../i18n/translate';
-import { DownloadOutlined, EditOutlined, InboxOutlined, SendOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DownloadOutlined, EditOutlined, InboxOutlined, SendOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App, Button, Collapse, Descriptions, Drawer, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { startDownload } from '../../shared/download';
@@ -22,6 +22,7 @@ interface ReleaseDetailDrawerProps {
   releaseId: string | null;
   canPublish: boolean;
   canArchive: boolean;
+  canDelete: boolean;
   canDownload: boolean;
   canUpload: boolean;
   onClose: () => void;
@@ -39,6 +40,7 @@ export function ReleaseDetailDrawer({
   releaseId,
   canPublish,
   canArchive,
+  canDelete,
   canDownload,
   canUpload,
   onClose,
@@ -70,6 +72,16 @@ export function ReleaseDetailDrawer({
       message.success(tr("版本 {{arg0}} 已归档", { arg0: release.version }));
       await queryClient.invalidateQueries({ queryKey: ['versions', 'release', releaseId] });
       onChanged();
+    },
+    onError: (error: Error) => message.error(error.message),
+  });
+
+  const removeRelease = useMutation({
+    mutationFn: () => versionsApi.deleteRelease(releaseId!),
+    onSuccess: (deleted) => {
+      message.success(tr("版本 {{arg0}} 已删除", { arg0: deleted.version }));
+      onChanged();
+      onClose();
     },
     onError: (error: Error) => message.error(error.message),
   });
@@ -128,6 +140,22 @@ export function ReleaseDetailDrawer({
     });
   };
 
+  const confirmDeleteRelease = () => {
+    const draft = release?.status === 'draft';
+    modal.confirm({
+      title: draft
+        ? tr("丢弃草稿版本 {{arg0}}？", { arg0: release?.version ?? '' })
+        : tr("彻底删除已归档版本 {{arg0}}？", { arg0: release?.version ?? '' }),
+      content: draft
+        ? tr("发布包登记与文件清单会一并移除，不再被其它版本引用的已落盘内容立即回收。此操作不可恢复。")
+        : tr("发布包、运行时产物与文件清单会一并删除，不再被引用的安装包与文件内容将从磁盘回收以节省空间。此操作不可恢复。"),
+      okText: tr("删除"),
+      okButtonProps: { danger: true },
+      cancelText: tr("取消"),
+      onOk: () => removeRelease.mutateAsync(),
+    });
+  };
+
   const confirmDelete = (pkg: ReleasePackage) => {
     modal.confirm({
       title: tr("删除发布包 {{arg0}}？", { arg0: pkg.fileName }),
@@ -177,6 +205,15 @@ export function ReleaseDetailDrawer({
                 onClick={confirmArchive}
               >
                 {tr("归档")}</Button>
+            ) : null}
+            {canDelete && release.status !== 'published' ? (
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                loading={removeRelease.isPending}
+                onClick={confirmDeleteRelease}
+              >
+                {release.status === 'draft' ? tr("丢弃草稿") : tr("彻底删除")}</Button>
             ) : null}
           </Space>
         ) : null

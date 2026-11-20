@@ -110,6 +110,7 @@ public sealed class IdentitySeeder : IHostedService
                 PermissionCatalog.VersionsReleaseRead,
                 PermissionCatalog.VersionsReleasePublish,
                 PermissionCatalog.VersionsReleaseArchive,
+                PermissionCatalog.VersionsReleaseDelete,
                 PermissionCatalog.VersionsArtifactUpload,
                 PermissionCatalog.VersionsArtifactDownload,
                 PermissionCatalog.LicenseProductRead,

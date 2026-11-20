@@ -3,10 +3,13 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.DependencyInjection;
 using Platform.Contracts;
 using Platform.Contracts.Audit;
+using Platform.Contracts.Identity;
 using Platform.Contracts.Versions;
 using Platform.IntegrationTests.Support;
+using Platform.Kernel.Abstractions;
 
 namespace Platform.IntegrationTests.Api;
 
@@ -770,6 +773,154 @@ public sealed class PackageEndpointsTests : IClassFixture<PlatformApiFactory>
         }
 
         return buffer.ToArray();
+    }
+
+    [Fact]
+    public async Task 管理台票据可下载草稿与归档版本包而客户端仍按不存在处理()
+    {
+        using var client = _factory.CreateClient();
+        var token = await LoginAsync(client);
+        const string channelKey = "pkg-statedownload";
+
+        await CreateChannelAsync(client, token, channelKey);
+
+        var exeBytes = "statedownload-installer-binary"u8.ToArray();
+        var exeSha = await UploadAsync(client, token, exeBytes);
+        var draftPackage = await RegisterAsync(client, token, new RegisterReleasePackageRequest(
+            exeSha,
+            exeBytes.Length,
+            "Setup-pkg-statedownload-1.0.0.exe",
+            VersionConventions.PackageKindFull,
+            Target: "win-x64",
+            Format: "exe",
+            ChannelKey: channelKey,
+            Version: "1.0.0"));
+
+        // 草稿版本：管理台票据放行，供发布前核对安装包。
+        var draftTicket = await ReadDataAsync<DownloadTicketDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/client/versions/packages/{draftPackage.Id}/download-ticket",
+                token)));
+        var draftDownload = await client.GetAsync(draftTicket.Url);
+        Assert.Equal(HttpStatusCode.OK, draftDownload.StatusCode);
+
+        // 客户端原始下载仍把未发布版本按不存在处理，不泄露草稿存在性。
+        Assert.Equal(
+            (int)ApiErrorCode.VersionsPackageNotFound,
+            await IdentityTestHelpers.ReadErrorCodeAsync(
+                await client.SendAsync(IdentityTestHelpers.Authorized(
+                    HttpMethod.Get,
+                    $"/api/v1/client/versions/packages/{draftPackage.Id}/download",
+                    token)),
+                HttpStatusCode.NotFound));
+
+        // 发布后归档：管理台票据仍可用（票据只受权限与包就绪约束）。
+        await ReadDataAsync<ReleaseDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/versions/releases/{draftPackage.ReleaseId}/publish",
+                token)));
+        await ReadDataAsync<ReleaseDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/versions/releases/{draftPackage.ReleaseId}/archive",
+                token)));
+
+        var archivedTicket = await ReadDataAsync<DownloadTicketDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/client/versions/packages/{draftPackage.Id}/download-ticket",
+                token)));
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(archivedTicket.Url)).StatusCode);
+    }
+
+    [Fact]
+    public async Task 删除版本按状态受控并回收无引用的落盘内容()
+    {
+        using var client = _factory.CreateClient();
+        var token = await LoginAsync(client);
+        const string channelKey = "rel-delete";
+
+        await CreateChannelAsync(client, token, channelKey);
+
+        var uniqueBytes = "delete-unique-file"u8.ToArray();
+        var uniqueSha = await UploadAsync(client, token, uniqueBytes);
+        var sharedBytes = "delete-shared-file"u8.ToArray();
+        var sharedSha = await UploadAsync(client, token, sharedBytes);
+        var exeBytes = "delete-installer-binary"u8.ToArray();
+        var exeSha = await UploadAsync(client, token, exeBytes);
+
+        // 草稿 v1 与已发布 v2 共享 uniqueSha：删 v1 时该 Blob 必须因引用还在而保留。
+        var draft = await CreateReleaseAsync(
+            client, token, channelKey, "1.0.0", publish: false,
+            Artifact("win-x64", ("App/unique.dll", uniqueBytes, uniqueSha)));
+        var published = await CreateReleaseAsync(
+            client, token, channelKey, "2.0.0", publish: true,
+            Artifact("win-x64", ("App/shared.dll", sharedBytes, sharedSha), ("App/unique.dll", uniqueBytes, uniqueSha)));
+        var installerPackage = await RegisterAsync(client, token, new RegisterReleasePackageRequest(
+            exeSha,
+            exeBytes.Length,
+            "Setup-rel-delete-2.0.0.exe",
+            VersionConventions.PackageKindFull,
+            Target: "win-x64",
+            Format: "exe",
+            ChannelKey: channelKey,
+            Version: "2.0.0"));
+
+        var blobs = _factory.Services.GetRequiredService<IBlobStorage>();
+        var uniquePath = $"versions/{IdentityConventions.DemoAppKey}/{uniqueSha}";
+
+        // 已发布版本拒绝删除（409），须先归档。
+        Assert.Equal(
+            (int)ApiErrorCode.VersionsReleaseImmutable,
+            await IdentityTestHelpers.ReadErrorCodeAsync(
+                await client.SendAsync(IdentityTestHelpers.Authorized(
+                    HttpMethod.Delete,
+                    $"/api/v1/admin/versions/releases/{published.Id}",
+                    token)),
+                HttpStatusCode.Conflict));
+
+        // 草稿直接丢弃：行删除，仍被已发布版本引用的 uniqueSha 保留。
+        await ReadDataAsync<ReleaseDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Delete,
+                $"/api/v1/admin/versions/releases/{draft.Id}",
+                token)));
+        Assert.Equal(
+            (int)ApiErrorCode.VersionsReleaseNotFound,
+            await IdentityTestHelpers.ReadErrorCodeAsync(
+                await client.SendAsync(IdentityTestHelpers.Authorized(
+                    HttpMethod.Get,
+                    $"/api/v1/admin/versions/releases/{draft.Id}",
+                    token)),
+                HttpStatusCode.NotFound));
+        Assert.True(await blobs.ExistsAsync(uniquePath));
+
+        // 归档后彻底删除：先下载一次生成 {sha}.zip 派生缓存，删除后源与派生缓存一并回收。
+        await ReadDataAsync<ReleaseDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/versions/releases/{published.Id}/archive",
+                token)));
+        var ticket = await ReadDataAsync<DownloadTicketDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/client/versions/packages/{installerPackage.Id}/download-ticket",
+                token)));
+        await client.GetAsync(ticket.Url);
+        Assert.True(await blobs.ExistsAsync($"versions/{IdentityConventions.DemoAppKey}/{exeSha}"));
+
+        await ReadDataAsync<ReleaseDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Delete,
+                $"/api/v1/admin/versions/releases/{published.Id}",
+                token)));
+
+        Assert.False(await blobs.ExistsAsync($"versions/{IdentityConventions.DemoAppKey}/{exeSha}"));
+        Assert.False(await blobs.ExistsAsync($"versions/{IdentityConventions.DemoAppKey}/{exeSha}.zip"));
+        Assert.False(await blobs.ExistsAsync($"versions/{IdentityConventions.DemoAppKey}/{sharedSha}"));
+        Assert.False(await blobs.ExistsAsync(uniquePath));
     }
 
     private static async Task<string> LoginAsync(HttpClient client) =>

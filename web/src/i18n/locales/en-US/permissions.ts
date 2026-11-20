@@ -49,6 +49,7 @@ export const permissionsEn = {
         read: 'View releases, publish records and file lists; also used by client update checks',
         publish: 'Create and publish releases, controlling updates visible to clients',
         archive: 'Archive and deactivate a published release',
+        delete: 'Discard a draft release, or permanently delete an archived one and reclaim its installers and stored files',
       },
       artifact: {
         upload: 'Upload release artifacts, installers and delta packages',
