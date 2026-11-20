@@ -237,6 +237,10 @@ export const versionsApi = {
   activateMedia: (id: string) =>
     request<DriverMedia>(`/api/v1/admin/versions/media/${id}/activate`, { method: 'POST' }),
 
+  /** 停用该媒体版本；不提升同键其它版本，该媒体键可无启用版本。 */
+  deactivateMedia: (id: string) =>
+    request<DriverMedia>(`/api/v1/admin/versions/media/${id}/deactivate`, { method: 'POST' }),
+
   deleteMedia: (id: string) =>
     request<DriverMedia>(`/api/v1/admin/versions/media/${id}`, { method: 'DELETE' }),
 

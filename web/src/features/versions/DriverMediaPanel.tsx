@@ -33,8 +33,8 @@ interface DriverMediaPanelProps {
 }
 
 /**
- * 驱动媒体面板：全量安装包的媒体按组件分包独立管理（一份媒体键可存多个版本，启用版本唯一），
- * 供「下载完整包」组合与后续版本复用，避免每个全量包重复上传相同驱动。
+ * 驱动媒体面板：全量安装包的媒体按组件分包独立管理（一份媒体键可存多个版本，启用版本至多一个，
+ * 可停用至该键无启用版本），供「下载完整包」组合与后续版本复用，避免每个全量包重复上传相同驱动。
  */
 export function DriverMediaPanel({ appKey, canUpload, canDownload, canArchive }: DriverMediaPanelProps) {
   const { message, modal } = App.useApp();
@@ -77,6 +77,20 @@ export function DriverMediaPanel({ appKey, canUpload, canDownload, canArchive }:
     onError: (error: Error) => message.error(error.message),
   });
 
+  const deactivate = useMutation({
+    mutationFn: (id: string) => versionsApi.deactivateMedia(id),
+    onSuccess: async (deactivated) => {
+      message.success(
+        tr("已停用 {{arg0}}/{{arg1}}", {
+          arg0: deactivated.mediaKey,
+          arg1: mediaVersionLabel(deactivated.version),
+        }),
+      );
+      await refresh();
+    },
+    onError: (error: Error) => message.error(error.message),
+  });
+
   const remove = useMutation({
     mutationFn: (id: string) => versionsApi.deleteMedia(id),
     onSuccess: async (deleted) => {
@@ -101,6 +115,16 @@ export function DriverMediaPanel({ appKey, canUpload, canDownload, canArchive }:
     } finally {
       setDownloadingId(null);
     }
+  };
+
+  const confirmDeactivate = (row: DriverMedia) => {
+    modal.confirm({
+      title: tr("停用媒体包 {{arg0}}/{{arg1}}？", { arg0: row.mediaKey, arg1: mediaVersionLabel(row.version) }),
+      content: tr("停用后该媒体键若无其它启用版本，将不再出现在「下载完整包」的候选中；已生成的组合与客户端按 id 下载不受影响，可随时再设为启用。"),
+      okText: tr("设为停用"),
+      cancelText: tr("取消"),
+      onOk: () => deactivate.mutateAsync(row.id),
+    });
   };
 
   const confirmDelete = (row: DriverMedia) => {
@@ -199,6 +223,15 @@ export function DriverMediaPanel({ appKey, canUpload, canDownload, canArchive }:
               onClick={() => activate.mutate(row.id)}
             >
               {tr("设为启用")}</Button>
+          ) : null}
+          {canUpload && row.isActive ? (
+            <Button
+              type="link"
+              size="small"
+              loading={deactivate.isPending && deactivate.variables === row.id}
+              onClick={() => confirmDeactivate(row)}
+            >
+              {tr("设为停用")}</Button>
           ) : null}
           {canDownload ? (
             <Button

@@ -4,6 +4,8 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using Platform.Contracts;
+using Platform.Contracts.Identity;
+using Platform.Contracts.Permissions;
 using Platform.Contracts.Versions;
 using Platform.IntegrationTests.Support;
 
@@ -11,7 +13,7 @@ namespace Platform.IntegrationTests.Api;
 
 /// <summary>
 /// 驱动媒体包链路：af-media/1 清单登记（逐文件复核）、内容复用与键冲突、
-/// 激活互斥、下载（Range / ETag / 票据）、删除。
+/// 激活互斥与停用、下载（Range / ETag / 票据）、删除。
 /// </summary>
 public sealed class DriverMediaEndpointsTests : IClassFixture<PlatformApiFactory>
 {
@@ -132,6 +134,72 @@ public sealed class DriverMediaEndpointsTests : IClassFixture<PlatformApiFactory
     }
 
     [Fact]
+    public async Task 停用媒体版本后可删除并可再启用()
+    {
+        using var client = _factory.CreateClient();
+        var token = await LoginAsync(client);
+
+        var zip = BuildMediaZip(("drv-e", "E 驱动", "1.0.0", [("media/drv-e/e.dll", "solo-driver")], null));
+        var sha = await UploadAsync(client, token, zip);
+        var only = await RegisterMediaAsync(client, token, new RegisterDriverMediaRequest(
+            null, sha, zip.Length, "media-drv-e.zip"));
+        Assert.True(only.IsActive);
+
+        // 单版本媒体键也能停用：停用后该键没有启用版本，组合候选随之清空
+        var deactivated = await DeactivateAsync(client, token, only.Id);
+        Assert.False(deactivated.IsActive);
+        Assert.Empty(await ActiveOnlyAsync(client, token, "drv-e"));
+
+        // 幂等：已停用的行再停用一次仍是停用态
+        Assert.False((await DeactivateAsync(client, token, only.Id)).IsActive);
+
+        // 停用不阻止重新启用
+        var reactivated = await ReadDataAsync<DriverMediaDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post, $"/api/v1/admin/versions/media/{only.Id}/activate", token)));
+        Assert.True(reactivated.IsActive);
+        Assert.Equal(only.Id, Assert.Single(await ActiveOnlyAsync(client, token, "drv-e")).Id);
+        Assert.False((await DeactivateAsync(client, token, only.Id)).IsActive);
+
+        // 停用后即可删除（启用行会被 VersionsReleaseImmutable 拒绝）
+        await ReadDataAsync<bool>(await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/versions/media/{only.Id}", token)));
+        var gone = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Get, $"/api/v1/admin/versions/media/{only.Id}", token));
+        Assert.Equal((int)ApiErrorCode.VersionsMediaNotFound,
+            await IdentityTestHelpers.ReadErrorCodeAsync(gone, HttpStatusCode.NotFound));
+    }
+
+    [Fact]
+    public async Task 只读角色不能停用媒体()
+    {
+        using var client = _factory.CreateClient();
+        var adminToken = await LoginAsync(client);
+
+        var readerRole = await ReadDataAsync<RoleSummaryDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                "/api/v1/admin/identity/roles",
+                adminToken,
+                new CreateRoleRequest(
+                    "media-reader",
+                    DisplayName: "媒体只读",
+                    Scope: IdentityConventions.ScopeApp,
+                    AppKey: IdentityConventions.DemoAppKey,
+                    Permissions: [PermissionCatalog.VersionsReleaseRead]))));
+        await IdentityTestHelpers.CreateUserAsync(
+            client, adminToken, "media-reader", "Viewer@12345", roleIds: [readerRole.Id]);
+        var viewerToken = (await IdentityTestHelpers.LoginAsync(
+            client, "media-reader", "Viewer@12345", IdentityConventions.DemoAppKey)).AccessToken;
+
+        var denied = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post, $"/api/v1/admin/versions/media/{Guid.NewGuid()}/deactivate", viewerToken));
+        Assert.Equal(
+            (int)ApiErrorCode.Forbidden,
+            await IdentityTestHelpers.ReadErrorCodeAsync(denied, HttpStatusCode.Forbidden));
+    }
+
+    [Fact]
     public async Task 清单与内容不一致的媒体包被拒绝()
     {
         using var client = _factory.CreateClient();
@@ -237,6 +305,19 @@ public sealed class DriverMediaEndpointsTests : IClassFixture<PlatformApiFactory
         RegisterDriverMediaRequest request) =>
         await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Post, "/api/v1/admin/versions/media", token, request));
+
+    private static async Task<DriverMediaDto> DeactivateAsync(HttpClient client, string token, Guid id) =>
+        await ReadDataAsync<DriverMediaDto>(await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post, $"/api/v1/admin/versions/media/{id}/deactivate", token)));
+
+    private static async Task<IReadOnlyList<DriverMediaDto>> ActiveOnlyAsync(
+        HttpClient client,
+        string token,
+        string mediaKey) =>
+        (await ReadDataAsync<PageResult<DriverMediaDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, $"/api/v1/admin/versions/media?mediaKey={mediaKey}&activeOnly=true", token))))
+        .Items;
 
     /// <summary>按 pack-media.ps1 的口径构造一份合法媒体 zip（清单 + 声明文件）。</summary>
     private static byte[] BuildMediaZip(

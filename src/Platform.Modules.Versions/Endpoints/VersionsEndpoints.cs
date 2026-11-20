@@ -42,7 +42,7 @@ internal static class VersionsEndpoints
     }
 
     /// <summary>
-    /// 驱动媒体包管理端：登记（af-media/1 清单逐文件复核）、列表、详情、激活互斥、删除。
+    /// 驱动媒体包管理端：登记（af-media/1 清单逐文件复核）、列表、详情、激活互斥、停用、删除。
     /// 下载与浏览器票据在客户端组（<c>/media/{id}/download*</c>）。
     /// </summary>
     private static void MapMediaEndpoints(RouteGroupBuilder admin)
@@ -171,6 +171,45 @@ internal static class VersionsEndpoints
                 })
             .WithName("versions.media.activate")
             .WithSummary("启用该媒体版本（同 mediaKey 其余版本自动停用）")
+            .RequirePermission(PermissionCatalog.VersionsArtifactUpload);
+
+        admin.MapPost(
+                "/media/{id:guid}/deactivate",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IDriverMediaService media,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var deactivated = await media.DeactivateAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.media.deactivate",
+                            targetType: "driver_media",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: $"{deactivated.MediaKey}/{deactivated.Version}");
+                        return ApiResults.Ok(context, deactivated);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.media.deactivate",
+                            targetType: "driver_media",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("versions.media.deactivate")
+            .WithSummary("停用该媒体版本（不提升同键其它版本，该媒体键可无启用版本）")
             .RequirePermission(PermissionCatalog.VersionsArtifactUpload);
 
         admin.MapDelete(

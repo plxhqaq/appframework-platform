@@ -39,6 +39,9 @@ public interface IDriverMediaService
     /// <summary>把媒体键的启用版本切到指定行（同键其余全部置非启用）。</summary>
     Task<DriverMediaDto> ActivateAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>停用指定行；不提升同键其它版本，该媒体键可以没有启用行。已停用行重复调用幂等。</summary>
+    Task<DriverMediaDto> DeactivateAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
+
     /// <summary>删除登记行；启用中的行拒绝（先禁用），删除后按内容寻址口径回收无引用 blob。</summary>
     Task DeleteAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
 
@@ -51,7 +54,7 @@ public interface IDriverMediaService
 
 /// <summary>
 /// 驱动媒体实现。同一 (mediaKey, version) 只允许一份内容：同 sha 幂等复用，异 sha 冲突拒绝；
-/// 每个 mediaKey 至多一条启用行（首次登记自动启用）。
+/// 每个 mediaKey 至多一条启用行（首次登记自动启用，停用后可无启用行）。
 /// </summary>
 public sealed partial class DriverMediaService : IDriverMediaService
 {
@@ -286,6 +289,22 @@ public sealed partial class DriverMediaService : IDriverMediaService
             }
 
             media.IsActive = true;
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        return ToDto(media, reused: false);
+    }
+
+    /// <inheritdoc />
+    public async Task<DriverMediaDto> DeactivateAsync(
+        string appKey,
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var media = await FindTrackedAsync(appKey, id, cancellationToken);
+        if (media.IsActive)
+        {
+            media.IsActive = false;
             await _db.SaveChangesAsync(cancellationToken);
         }
 
