@@ -37,6 +37,8 @@ public sealed class DocumentsModule : IPlatformModule
         PermissionCatalog.DocumentRead,
         PermissionCatalog.DocumentManage,
         PermissionCatalog.DocumentDelete,
+        PermissionCatalog.DocumentRestore,
+        PermissionCatalog.DocumentPurge,
     ];
 
     /// <inheritdoc />
@@ -49,6 +51,8 @@ public sealed class DocumentsModule : IPlatformModule
 
         services.AddScoped<IDocumentCollectionService, DocumentCollectionService>();
         services.AddScoped<IDocumentService, DocumentService>();
+        services.AddScoped<DocumentChangeNotifier>();
+        services.AddScoped<IDocumentRecycleService, DocumentRecycleService>();
 
         services.TryAddEnumerable(
             ServiceDescriptor.Scoped<IPlatformModelContributor, DocumentsModelContributor>());

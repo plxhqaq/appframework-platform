@@ -37,12 +37,153 @@ internal static class DocumentEndpoints
 
         MapCollectionEndpoints(admin);
         MapDocumentAdminEndpoints(admin, uploadRequestLimit);
+        MapRecycleEndpoints(admin);
 
         var client = api
             .MapGroup(PlatformRoutes.ClientModule(PlatformModuleKeys.Documents))
             .WithTags(PlatformModuleKeys.Documents);
 
         MapClientEndpoints(client);
+    }
+
+    private static void MapRecycleEndpoints(RouteGroupBuilder admin)
+    {
+        admin.MapGet(
+                "/deleted",
+                async (
+                    HttpContext context,
+                    ICurrentPrincipal principal,
+                    IDocumentRecycleService recycle,
+                    int page = 1,
+                    int pageSize = PageQuery.DefaultPageSize,
+                    string? keyword = null,
+                    CancellationToken cancellationToken = default) =>
+                {
+                    var query = new PageQuery { Page = page, PageSize = pageSize, Keyword = keyword };
+                    return ApiResults.Ok(
+                        context,
+                        await recycle.ListDeletedAsync(
+                            RequireAppKey(principal), query, keyword, cancellationToken));
+                })
+            .WithName("documents.deleted.list")
+            .WithSummary("回收站列表（软删除、宽限期内可恢复）")
+            .RequirePermission(PermissionCatalog.DocumentRestore);
+
+        admin.MapPost(
+                "/{id:guid}/restore",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IDocumentRecycleService recycle,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var restored = await recycle.RestoreAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "documents.restore",
+                            targetType: "document",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: restored.Title);
+                        return ApiResults.Ok(context, restored);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "documents.restore",
+                            targetType: "document",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("documents.restore")
+            .WithSummary("恢复回收站中的文档（含全部修订；任一文件缺失时拒绝）")
+            .RequirePermission(PermissionCatalog.DocumentRestore);
+
+        admin.MapPost(
+                "/{id:guid}/purge",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IDocumentRecycleService recycle,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var result = await recycle.PurgeAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "documents.purge",
+                            targetType: "document",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: $"行 {result.RowsDeleted} / 文件 {result.FilesDeleted}");
+                        return ApiResults.Ok(context, result);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "documents.purge",
+                            targetType: "document",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("documents.purge")
+            .WithSummary("立即物理清理单条已删除文档（含修订）")
+            .RequirePermission(PermissionCatalog.DocumentPurge);
+
+        admin.MapPost(
+                "/purge-all",
+                async (
+                    HttpContext context,
+                    ICurrentPrincipal principal,
+                    IDocumentRecycleService recycle,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var result = await recycle.PurgeAllAsync(appKey, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "documents.purge",
+                            targetType: "document",
+                            targetId: null,
+                            result: AuditResults.Success,
+                            message: $"全部清理：行 {result.RowsDeleted} / 文件 {result.FilesDeleted}");
+                        return ApiResults.Ok(context, result);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "documents.purge",
+                            targetType: "document",
+                            targetId: null,
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("documents.purge-all")
+            .WithSummary("立即物理清理当前应用全部已删除文档")
+            .RequirePermission(PermissionCatalog.DocumentPurge);
     }
 
     private static void MapCollectionEndpoints(RouteGroupBuilder admin)
