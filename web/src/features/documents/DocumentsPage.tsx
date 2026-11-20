@@ -99,6 +99,7 @@ export function DocumentsPage() {
   const [editTarget, setEditTarget] = useState<DocumentSummary | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [collectionFilter, setCollectionFilter] = useState<string | undefined>();
+  const [keywordFilter, setKeywordFilter] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [saving, setSaving] = useState(false);
@@ -106,6 +107,7 @@ export function DocumentsPage() {
   // 切换应用上下文在 Header 完成；旧应用的集合适配与详情抽屉要一起作废
   useEffect(() => {
     setCollectionFilter(undefined);
+    setKeywordFilter('');
     setPage(1);
     setDetailId(null);
   }, [appKey]);
@@ -117,10 +119,15 @@ export function DocumentsPage() {
   });
 
   const documents = useQuery({
-    queryKey: ['documents', 'list', appKey, collectionFilter, page, pageSize],
+    queryKey: ['documents', 'list', appKey, collectionFilter, keywordFilter, page, pageSize],
     queryFn: ({ signal }) =>
       documentsApi.listDocuments(
-        { collectionKey: collectionFilter, page, pageSize },
+        {
+          collectionKey: collectionFilter,
+          keyword: keywordFilter.trim() || undefined,
+          page,
+          pageSize,
+        },
         signal,
       ),
     enabled: appKey !== null,
@@ -574,6 +581,16 @@ export function DocumentsPage() {
               value: item.key,
               label: `${item.name}（${item.key}）`,
             }))}
+          />
+          <Input
+            allowClear
+            placeholder={tr("按标题或文件名关键词过滤")}
+            style={{ width: 220, maxWidth: '100%' }}
+            value={keywordFilter}
+            onChange={(event) => {
+              setKeywordFilter(event.target.value);
+              setPage(1);
+            }}
           />
           <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
             {tr("刷新")}</Button>

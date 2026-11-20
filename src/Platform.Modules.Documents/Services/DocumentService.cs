@@ -151,7 +151,8 @@ public sealed partial class DocumentService : IDocumentService
 
         if (!string.IsNullOrWhiteSpace(collectionKey))
         {
-            source = source.Where(x => x.Collection.Key == collectionKey);
+            var key = collectionKey.Trim();
+            source = source.Where(x => x.Collection.Key == key);
         }
 
         if (!string.IsNullOrWhiteSpace(keyword))

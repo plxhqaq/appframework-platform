@@ -366,6 +366,45 @@ internal static class AppsEndpoints
             .WithSummary("吊销 API Key")
             .RequirePermission(PermissionCatalog.AppsApiKeyManage);
 
+        admin.MapDelete(
+                "/{id:guid}/keys/{keyId:guid}",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    Guid keyId,
+                    IApiKeyService keys,
+                    IAuditWriter audit,
+                    ICurrentPrincipal principal,
+                    CancellationToken cancellationToken) =>
+                {
+                    try
+                    {
+                        await keys.DeleteAsync(id, keyId, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "apps.apikey.delete",
+                            targetType: "app_api_key",
+                            targetId: keyId.ToString(),
+                            result: AuditResults.Success,
+                            message: null);
+                        return ApiResults.Ok(context, true);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "apps.apikey.delete",
+                            targetType: "app_api_key",
+                            targetId: keyId.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("apps.keys.delete")
+            .WithSummary("删除 API Key（仅限已吊销行）")
+            .RequirePermission(PermissionCatalog.AppsApiKeyManage);
+
         api.MapPost(
                 $"{PlatformRoutes.Module(PlatformModuleKeys.Apps)}/token",
                 async (

@@ -100,6 +100,52 @@ public sealed class AppsEndpointsTests : IClassFixture<PlatformApiFactory>
         Assert.Equal((int)ApiErrorCode.AppsDisabled, disabled!.Code);
     }
 
+    [Fact]
+    public async Task API密钥须先吊销才能删除()
+    {
+        using var client = _factory.CreateClient();
+        var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        var appKey = $"key-del-{Guid.NewGuid().ToString("N")[..8]}";
+
+        var app = await IdentityTestHelpers.ReadDataAsync<AppDetailDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post, "/api/v1/admin/apps", token, new CreateAppRequest(appKey, "密钥删除测试"))));
+
+        var issued = await IdentityTestHelpers.ReadDataAsync<CreatedApiKeyDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/admin/apps/{app.Id}/keys",
+                token,
+                new CreateApiKeyRequest("现场设备", [PermissionCatalog.VersionsReleaseRead]))));
+
+        // 仍在生效的密钥只能吊销，不能直接删行
+        var busy = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/apps/{app.Id}/keys/{issued.Id}", token));
+        Assert.Equal(
+            (int)ApiErrorCode.Conflict,
+            await IdentityTestHelpers.ReadErrorCodeAsync(busy, HttpStatusCode.Conflict));
+
+        var revoked = await IdentityTestHelpers.ReadDataAsync<ApiKeySummaryDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post, $"/api/v1/admin/apps/{app.Id}/keys/{issued.Id}/revoke", token)));
+        Assert.NotNull(revoked.RevokedAt);
+
+        Assert.True(await IdentityTestHelpers.ReadDataAsync<bool>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Delete, $"/api/v1/admin/apps/{app.Id}/keys/{issued.Id}", token))));
+
+        var keys = await IdentityTestHelpers.ReadDataAsync<List<ApiKeySummaryDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, $"/api/v1/admin/apps/{app.Id}/keys", token)));
+        Assert.DoesNotContain(keys, x => x.Id == issued.Id);
+
+        var gone = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/apps/{app.Id}/keys/{issued.Id}", token));
+        Assert.Equal(
+            (int)ApiErrorCode.AppsApiKeyNotFound,
+            await IdentityTestHelpers.ReadErrorCodeAsync(gone, HttpStatusCode.NotFound));
+    }
+
     private static HttpRequestMessage CreateAppRequestMessage(string adminToken)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/apps")

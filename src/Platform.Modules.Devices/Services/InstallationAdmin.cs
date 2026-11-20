@@ -32,6 +32,12 @@ public interface IInstallationAdmin
         Guid installationId,
         UpdateInstallationRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>删除安装实例；有在线连接或状态仍为在线时拒绝（跨模块留痕按 machineCode/installGuid 记账，不随删）。</summary>
+    Task DeleteAsync(
+        string appKey,
+        Guid installationId,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>应用级安装实例服务实现。</summary>
@@ -94,8 +100,9 @@ public sealed class InstallationAdmin : IInstallationAdmin
 
         if (!string.IsNullOrWhiteSpace(branch))
         {
+            // 分支是客户端自填的自由文本，管理台按关键词筛；与备份/文档/媒体的筛选口径一致。
             var value = branch.Trim();
-            source = source.Where(x => x.installation.Branch == value);
+            source = source.Where(x => EF.Functions.Like(x.installation.Branch, $"%{value}%"));
         }
 
         if (!string.IsNullOrWhiteSpace(query.Keyword))
@@ -189,6 +196,35 @@ public sealed class InstallationAdmin : IInstallationAdmin
         }
 
         return InventoryMapper.ToDetail(installation, installation.Node);
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteAsync(
+        string appKey,
+        Guid installationId,
+        CancellationToken cancellationToken = default)
+    {
+        var installation = await FindAsync(appKey, installationId, cancellationToken);
+
+        // 在线判定以真实连接为准：OnlineStatus 由心跳与离线扫描维护，可能滞后一两拍。
+        if (_connections.HasConnection(installationId))
+        {
+            throw new BusinessException(
+                ApiErrorCode.Conflict,
+                "安装实例仍有在线连接，请先让设备断开或停用后再删除。");
+        }
+
+        if (string.Equals(installation.OnlineStatus, DeviceOnlineStatuses.Online, StringComparison.Ordinal))
+        {
+            throw new BusinessException(
+                ApiErrorCode.Conflict,
+                "安装实例仍标记为在线，等离线扫描落定或先停用后再删除。");
+        }
+
+        _db.Set<DeviceInstallation>().Remove(installation);
+        await _db.SaveChangesAsync(cancellationToken);
+        // 行已删除：心跳缓存必须同步失效，否则后台批量回写会拿脏条目去 UPDATE 不存在的行。
+        _heartbeats.Remove(installationId);
     }
 
     private async Task<DeviceInstallation> FindAsync(

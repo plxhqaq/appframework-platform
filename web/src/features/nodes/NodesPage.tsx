@@ -73,7 +73,7 @@ const ALARM_META: Record<DeviceAlarmLevel, { label: string; color?: string }> = 
  * 报警取最严重级别。应用则是节点详情里的子标签，一台机器装三个产品只占一行。
  */
 export function NodesPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const canManage = useAuthStore((state) => state.hasPermission(PERMISSIONS.nodeManage));
@@ -142,6 +142,27 @@ export function NodesPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const deleteNodeRow = async (row: NodeSummary) => {
+    try {
+      await nodesApi.deleteNode(row.id);
+      message.success(tr("节点 {{arg0}} 已删除", { arg0: row.displayName }));
+      await refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : tr("删除失败"));
+    }
+  };
+
+  const confirmDeleteNode = (row: NodeSummary) => {
+    modal.confirm({
+      title: tr("删除节点 {{arg0}}？", { arg0: row.displayName }),
+      content: tr("只有不再挂有任何安装实例的节点可删除；授权与会话按机器码留痕，不随节点行删除而清除。此操作不可恢复。"),
+      okText: tr("删除"),
+      okButtonProps: { danger: true },
+      cancelText: tr("取消"),
+      onOk: () => deleteNodeRow(row),
+    });
   };
 
   const openRestartForm = (row: NodeSummary) => {
@@ -275,7 +296,7 @@ export function NodesPage() {
     {
       title: tr("操作"),
       key: 'actions',
-      width: 200,
+      width: 250,
       fixed: 'right',
       render: (_: unknown, row: NodeSummary) => (
         <Space size="small">
@@ -301,6 +322,17 @@ export function NodesPage() {
               onClick={() => openRestartForm(row)}
             >
               {tr("重启")}</Button>
+          ) : null}
+          {canManage ? (
+            <Button
+              type="link"
+              size="small"
+              danger
+              disabled={row.installationCount > 0}
+              title={row.installationCount > 0 ? tr("仍有 {{arg0}} 个安装实例，需先删除", { arg0: row.installationCount }) : undefined}
+              onClick={() => confirmDeleteNode(row)}
+            >
+              {tr("删除")}</Button>
           ) : null}
         </Space>
       ),

@@ -48,6 +48,9 @@ export const nodesApi = {
   updateNode: (id: string, body: UpdateNodeRequest) =>
     request<NodeDetail>(`/api/v1/admin/nodes/${id}`, { method: 'PATCH', body }),
 
+  deleteNode: (id: string) =>
+    request<boolean>(`/api/v1/admin/nodes/${id}`, { method: 'DELETE' }),
+
   restartNode: (id: string, body: NodeRestartRequest) =>
     request<NodeRestartAccepted>(`/api/v1/admin/nodes/${id}/restart`, {
       method: 'POST',

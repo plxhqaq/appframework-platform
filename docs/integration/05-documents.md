@@ -68,6 +68,8 @@ curl -s -X POST http://localhost:5080/api/v1/admin/documents/$ID/revisions \
 - 修订号从 1 单调递增，不接受客户端指定。
 - 旧修订文件保留，可按下标下载：`GET /api/v1/admin/documents/{id}/revisions/{revision}/download`。
 - 文档摘要把最新修订号放在 `revision`，详情返回完整 `revisions` 数组。
+- 管理端列表 `GET /api/v1/admin/documents` 的筛选口径：`collectionKey` 是集合键，按去空格后的全值
+  精确匹配；`keyword` 对标题与文件名做 `%关键词%` 模糊匹配（管理台已接入关键词输入框）。
 
 ## 4. 可见性与服务端强制
 

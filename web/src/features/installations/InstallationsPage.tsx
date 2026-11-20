@@ -71,7 +71,7 @@ const ALARM_META: Record<DeviceAlarmLevel, { label: string; color?: string }> = 
  * 节点停用时即使实例启用也不可下发。
  */
 export function InstallationsPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { isMobile } = useResponsive();
   const queryClient = useQueryClient();
   const session = useAuthStore((state) => state.session);
@@ -159,6 +159,27 @@ export function InstallationsPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const deleteRow = async (row: InstallationSummary) => {
+    try {
+      await installationsApi.deleteInstallation(row.id);
+      message.success(tr("安装实例 {{arg0}} 已删除", { arg0: installationLabel(row) }));
+      await refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : tr("删除失败"));
+    }
+  };
+
+  const confirmDelete = (row: InstallationSummary) => {
+    modal.confirm({
+      title: tr("删除安装实例 {{arg0}}？", { arg0: installationLabel(row) }),
+      content: tr("在线或有活跃连接时会被拒绝。备份、会话与授权按机器码/安装标识留痕，不随安装实例删除而清除；设备再次注册会新建安装实例。此操作不可恢复。"),
+      okText: tr("删除"),
+      okButtonProps: { danger: true },
+      cancelText: tr("取消"),
+      onOk: () => deleteRow(row),
+    });
   };
 
   const openRestartForm = (row: InstallationSummary) => {
@@ -284,7 +305,7 @@ export function InstallationsPage() {
     {
       title: tr("操作"),
       key: 'actions',
-      width: 200,
+      width: 250,
       fixed: 'right',
       render: (_: unknown, row: InstallationSummary) => (
         <Space size="small">
@@ -312,6 +333,17 @@ export function InstallationsPage() {
               onClick={() => openRestartForm(row)}
             >
               {tr("重启")}</Button>
+          ) : null}
+          {canManage ? (
+            <Button
+              type="link"
+              size="small"
+              danger
+              disabled={row.onlineStatus === 'online'}
+              title={row.onlineStatus === 'online' ? tr("安装实例在线，需先离线或停用") : undefined}
+              onClick={() => confirmDelete(row)}
+            >
+              {tr("删除")}</Button>
           ) : null}
         </Space>
       ),
@@ -370,8 +402,8 @@ export function InstallationsPage() {
           <Input.Search
             key={`branch-${appKey}`}
             allowClear
-            placeholder={tr("分支")}
-            style={{ width: 160, maxWidth: '100%' }}
+            placeholder={tr("按分支关键词过滤")}
+            style={{ width: 180, maxWidth: '100%' }}
             defaultValue={branch}
             onSearch={(value) => {
               setBranch(value.trim() || undefined);

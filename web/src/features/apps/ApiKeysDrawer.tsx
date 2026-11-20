@@ -146,6 +146,26 @@ export function ApiKeysDrawer({ open, app, onClose }: ApiKeysDrawerProps) {
     });
   };
 
+  const removeKey = useMutation({
+    mutationFn: (keyId: string) => appsApi.deleteKey(app!.id, keyId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['apps', app?.id, 'keys'] });
+      message.success(tr("密钥已删除"));
+    },
+    onError: (error: Error) => message.error(error.message),
+  });
+
+  const handleDelete = (key: ApiKeySummary) => {
+    modal.confirm({
+      title: tr("删除密钥 {{arg0}}？", { arg0: key.prefix }),
+      content: tr("只清理已吊销的密钥行；签发与吊销留痕仍在审计日志中，已签发的访问令牌按自身有效期失效。此操作不可恢复。"),
+      okText: tr("删除"),
+      okButtonProps: { danger: true },
+      cancelText: tr("取消"),
+      onOk: () => removeKey.mutateAsync(key.id),
+    });
+  };
+
   const columns: TableColumnsType<ApiKeySummary> = [
     { title: tr("前缀"), dataIndex: 'prefix', key: 'prefix', width: 120, render: (prefix: string) => <Typography.Text code>{prefix}</Typography.Text> },
     { title: tr("用途"), dataIndex: 'name', key: 'name', width: 140 },
@@ -192,13 +212,32 @@ export function ApiKeysDrawer({ open, app, onClose }: ApiKeysDrawerProps) {
     {
       title: tr("操作"),
       key: 'actions',
-      width: 90,
+      width: 100,
       fixed: 'right',
-      render: (_: unknown, key: ApiKeySummary) =>
-        canManage && key.isActive ? (
+      render: (_: unknown, key: ApiKeySummary) => {
+        if (!canManage) {
+          return null;
+        }
+
+        return key.isActive ? (
           <Button type="link" size="small" danger onClick={() => handleRevoke(key)}>
             {tr("吊销")}</Button>
-        ) : null,
+        ) : key.revokedAt ? (
+          <Button
+            type="link"
+            size="small"
+            danger
+            loading={removeKey.isPending && removeKey.variables === key.id}
+            onClick={() => handleDelete(key)}
+          >
+            {tr("删除")}</Button>
+        ) : (
+          <Tooltip title={tr("密钥未吊销，不能直接删除")}>
+            <Button type="link" size="small" danger disabled>
+              {tr("删除")}</Button>
+          </Tooltip>
+        );
+      },
     },
   ];
 

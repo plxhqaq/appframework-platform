@@ -60,4 +60,7 @@ export const installationsApi = {
       method: 'POST',
       body,
     }),
+
+  deleteInstallation: (id: string) =>
+    request<boolean>(`/api/v1/admin/installations/${id}`, { method: 'DELETE' }),
 };

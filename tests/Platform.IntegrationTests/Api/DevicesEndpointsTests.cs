@@ -133,6 +133,133 @@ public sealed class DevicesEndpointsTests : IClassFixture<PlatformApiFactory>
         Assert.Contains(audits, x => x.Result == AuditResults.Failure);
     }
 
+    [Fact]
+    public async Task 安装实例分支按关键词模糊筛选()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var appKey = $"dev-br-{suffix}";
+        await CreateAppAsync(client, admin, appKey);
+        var viewer = await DevTokenAsync(client, appKey, [PermissionCatalog.InstallationRead]);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+        var node = new DeviceNode
+        {
+            MachineCode = Guid.NewGuid().ToString("N").ToUpperInvariant()[..16],
+            AutoName = "分支测试机",
+            DisplayName = "分支测试机",
+        };
+        db.Add(node);
+        var rows = new[] { "line-a-2026", "line-b-2026", "coater-line-a" }
+            .Select(branch => new DeviceInstallation
+            {
+                Node = node,
+                AppKey = appKey,
+                InstallGuid = Guid.NewGuid(),
+                Branch = branch,
+            })
+            .ToArray();
+        db.AddRange(rows);
+        await db.SaveChangesAsync();
+
+        var page = await IdentityTestHelpers.ReadDataAsync<PageResult<InstallationSummaryDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, "/api/v1/admin/installations?branch=line-a", viewer)));
+
+        Assert.Equal(2, page.Total);
+        Assert.Equal(
+            new[] { "coater-line-a", "line-a-2026" },
+            page.Items.Select(x => x.Branch).Order(StringComparer.Ordinal).ToArray());
+    }
+
+    [Fact]
+    public async Task 安装实例与节点删除按在线与子实例受控()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var appA = $"del-a-{suffix}";
+        var appB = $"del-b-{suffix}";
+        await CreateAppAsync(client, admin, appA);
+        await CreateAppAsync(client, admin, appB);
+
+        var (node, (installationA, installationB)) = await SeedSharedNodeAsync(appA, appB, "删除测试机");
+        var managerA = await DevTokenAsync(client, appA, [PermissionCatalog.InstallationManage]);
+        var managerB = await DevTokenAsync(client, appB, [PermissionCatalog.InstallationManage]);
+        var nodeManager = await DevTokenAsync(client, appA, [PermissionCatalog.NodeManage]);
+
+        // 节点还挂着安装实例：必须先逐应用删子行，数据库 Restrict 也不兜底业务提示
+        var nodeBusy = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/nodes/{node.Id}", nodeManager));
+        Assert.Equal(
+            (int)ApiErrorCode.Conflict,
+            await IdentityTestHelpers.ReadErrorCodeAsync(nodeBusy, HttpStatusCode.Conflict));
+
+        // 离线且无连接的安装实例可直接删除
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/installations/{installationA.Id}", managerA))).StatusCode);
+
+        // 跨应用删除与不存在同码，不泄露对方应用有没有这个安装实例
+        var foreign = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/installations/{installationB.Id}", managerA));
+        Assert.Equal(
+            (int)ApiErrorCode.DevicesInstallationNotFound,
+            await IdentityTestHelpers.ReadErrorCodeAsync(foreign, HttpStatusCode.NotFound));
+
+        // 状态仍是在线时拒绝（离线扫描在测试宿主里关闭，这里可以稳定复现）
+        await SetInstallationOnlineAsync(installationB.Id, DeviceOnlineStatuses.Online);
+        var online = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/installations/{installationB.Id}", managerB));
+        Assert.Equal(
+            (int)ApiErrorCode.Conflict,
+            await IdentityTestHelpers.ReadErrorCodeAsync(online, HttpStatusCode.Conflict));
+
+        await SetInstallationOnlineAsync(installationB.Id, DeviceOnlineStatuses.Offline);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/installations/{installationB.Id}", managerB))).StatusCode);
+
+        // 子行清空后节点可删，重复删除回到不存在
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/nodes/{node.Id}", nodeManager))).StatusCode);
+        var nodeGone = await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Delete, $"/api/v1/admin/nodes/{node.Id}", nodeManager));
+        Assert.Equal(
+            (int)ApiErrorCode.DevicesNodeNotFound,
+            await IdentityTestHelpers.ReadErrorCodeAsync(nodeGone, HttpStatusCode.NotFound));
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+        Assert.False(await db.Set<DeviceNode>().AnyAsync(x => x.Id == node.Id));
+        Assert.False(await db.Set<DeviceInstallation>()
+            .AnyAsync(x => x.Id == installationA.Id || x.Id == installationB.Id));
+
+        var audits = await db.Set<AuditLog>()
+            .Where(x => x.Action == "installations.delete" || x.Action == "nodes.delete")
+            .ToListAsync();
+        Assert.Contains(
+            audits,
+            x => x.Action == "installations.delete"
+                && x.Result == AuditResults.Success
+                && x.TargetId == installationA.Id.ToString());
+        Assert.Contains(audits, x => x.Action == "installations.delete" && x.Result == AuditResults.Failure);
+        Assert.Contains(
+            audits,
+            x => x.Action == "nodes.delete"
+                && x.Result == AuditResults.Success
+                && x.TargetId == node.Id.ToString());
+    }
+
+    private async Task SetInstallationOnlineAsync(Guid installationId, string status)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+        var row = await db.Set<DeviceInstallation>().FirstAsync(x => x.Id == installationId);
+        row.OnlineStatus = status;
+        await db.SaveChangesAsync();
+    }
+
     private static async Task CreateAppAsync(HttpClient client, string token, string key) =>
         await IdentityTestHelpers.ReadDataAsync<AppDetailDto>(
             await client.SendAsync(IdentityTestHelpers.Authorized(

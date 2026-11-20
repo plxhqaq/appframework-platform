@@ -75,13 +75,15 @@ curl -s -X POST http://localhost:5080/api/v1/admin/backups \
 ## 3. 列表 / 详情 / 下载
 
 ```bash
-curl -s "http://localhost:5080/api/v1/admin/backups?namespaceKey=global&kind=config&pageSize=20" \
+curl -s "http://localhost:5080/api/v1/admin/backups?namespaceKey=global&kind=config&keyword=line3&pageSize=20" \
   -H "Authorization: Bearer $TOKEN"
 
 curl -s "http://localhost:5080/api/v1/admin/backups/$ID/download" \
   -H "Authorization: Bearer $TOKEN" -o backup.json
 ```
 
+- 筛选口径：`namespaceKey`/`kind` 是枚举或键值，按去空格后的全值精确匹配；`keyword` 对
+  备份名与节点展示名做 `%关键词%` 模糊匹配（管理台已接入关键词输入框）。
 - 内联备份直接返回 JSON；转存备份走 `Results.Stream`，不缓冲整文件。
 - `ETag` 固定为内容 SHA-256，支持 `Range`（`206`）与 `If-None-Match`（`304`）。
 - 下载响应头带 RFC 5987 文件名，中文名不会乱码。

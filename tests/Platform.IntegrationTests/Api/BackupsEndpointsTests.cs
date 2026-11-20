@@ -44,6 +44,17 @@ public sealed class BackupsEndpointsTests : IClassFixture<PlatformApiFactory>
                 HttpMethod.Get, "/api/v1/admin/backups?page=1&pageSize=20", token)));
         Assert.Contains(list.Items, x => x.Id == backup.Id);
 
+        // keyword 对备份名做模糊匹配：片段命中，无匹配片段返回空
+        var fuzzy = await IdentityTestHelpers.ReadDataAsync<PageResult<BackupDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, "/api/v1/admin/backups?keyword=line-1", token)));
+        Assert.Contains(fuzzy.Items, x => x.Id == backup.Id);
+
+        var unmatched = await IdentityTestHelpers.ReadDataAsync<PageResult<BackupDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, "/api/v1/admin/backups?keyword=line-1-zzz", token)));
+        Assert.Empty(unmatched.Items);
+
         var download = await client.SendAsync(IdentityTestHelpers.Authorized(
             HttpMethod.Get, $"/api/v1/admin/backups/{backup.Id}/download", token));
         Assert.Equal(HttpStatusCode.OK, download.StatusCode);

@@ -6,6 +6,7 @@ import {
   App,
   Button,
   DatePicker,
+  Flex,
   Form,
   Input,
   InputNumber,
@@ -161,7 +162,7 @@ export function OfflineCodeModal({ open, products, onClose, onIssued }: OfflineC
             label={tr("机器码")}
             extra={pickedNode ? tr("已绑定节点：{{arg0}}", { arg0: pickedNode.displayName }) : undefined}
           >
-            <Space.Compact style={{ width: '100%' }}>
+            <Flex gap={8}>
               <Form.Item
                 name="machineCode"
                 noStyle
@@ -173,13 +174,17 @@ export function OfflineCodeModal({ open, products, onClose, onIssued }: OfflineC
                   },
                 ]}
               >
-                <Input placeholder={tr("客户端「授权」页展示的 16 位机器码")} autoComplete="off" />
+                <Input
+                  style={{ flex: '1 1 auto', minWidth: 0 }}
+                  placeholder={tr("客户端「授权」页展示的 16 位机器码")}
+                  autoComplete="off"
+                />
               </Form.Item>
               {canPickNode ? (
                 <Button icon={<DesktopOutlined />} onClick={() => setPickerOpen(true)}>
                   {tr("选择节点")}</Button>
               ) : null}
-            </Space.Compact>
+            </Flex>
           </Form.Item>
 
           <Form.Item name="validity" label={tr("有效期")}>

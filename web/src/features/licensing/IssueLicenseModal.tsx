@@ -1,7 +1,7 @@
 import { tr } from '../../i18n/translate';
 import { DesktopOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
-import { App, Button, DatePicker, Form, Input, InputNumber, Modal, Radio, Select, Space } from 'antd';
+import { App, Button, DatePicker, Flex, Form, Input, InputNumber, Modal, Radio, Select } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
 import { licensingApi } from '../../shared/api/licensing';
@@ -150,7 +150,7 @@ export function IssueLicenseModal({ open, products, initial, onClose, onSaved }:
               : undefined
           }
         >
-          <Space.Compact style={{ width: '100%' }}>
+          <Flex gap={8}>
             <Form.Item
               name="machineCode"
               noStyle
@@ -162,13 +162,17 @@ export function IssueLicenseModal({ open, products, initial, onClose, onSaved }:
                 },
               ]}
             >
-              <Input placeholder={tr("例如 008J-4CT4 ANK7-F24S")} autoComplete="off" />
+              <Input
+                style={{ flex: '1 1 auto', minWidth: 0 }}
+                placeholder={tr("例如 008J-4CT4 ANK7-F24S")}
+                autoComplete="off"
+              />
             </Form.Item>
             {canPickNode ? (
               <Button icon={<DesktopOutlined />} onClick={() => setPickerOpen(true)}>
                 {tr("选择节点")}</Button>
             ) : null}
-          </Space.Compact>
+          </Flex>
         </Form.Item>
 
         <Form.Item name="validity" label={tr("有效期")}>

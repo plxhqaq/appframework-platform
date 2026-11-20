@@ -111,6 +111,7 @@ export function BackupsPage() {
   } | null>(null);
   const pushOpenToken = useRef(0);
   const [namespaceFilter, setNamespaceFilter] = useState<string | undefined>();
+  const [keywordFilter, setKeywordFilter] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [saving, setSaving] = useState(false);
@@ -118,6 +119,7 @@ export function BackupsPage() {
   // 上下文在 Header 切换；旧应用的命名空间筛选不能带到新应用
   useEffect(() => {
     setNamespaceFilter(undefined);
+    setKeywordFilter('');
     setPage(1);
   }, [appKey]);
 
@@ -128,9 +130,17 @@ export function BackupsPage() {
   });
 
   const backups = useQuery({
-    queryKey: ['backups', 'list', appKey, namespaceFilter, page, pageSize],
+    queryKey: ['backups', 'list', appKey, namespaceFilter, keywordFilter, page, pageSize],
     queryFn: ({ signal }) =>
-      backupsApi.listBackups({ namespaceKey: namespaceFilter, page, pageSize }, signal),
+      backupsApi.listBackups(
+        {
+          namespaceKey: namespaceFilter,
+          keyword: keywordFilter.trim() || undefined,
+          page,
+          pageSize,
+        },
+        signal,
+      ),
     enabled: appKey !== null,
   });
 
@@ -647,6 +657,16 @@ export function BackupsPage() {
               value: item.key,
               label: `${item.name}（${item.key}）`,
             }))}
+          />
+          <Input
+            allowClear
+            placeholder={tr("按备份名或节点名关键词过滤")}
+            style={{ width: 220, maxWidth: '100%' }}
+            value={keywordFilter}
+            onChange={(event) => {
+              setKeywordFilter(event.target.value);
+              setPage(1);
+            }}
           />
           <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
             {tr("刷新")}</Button>

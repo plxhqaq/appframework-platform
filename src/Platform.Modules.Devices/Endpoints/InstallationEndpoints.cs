@@ -104,6 +104,43 @@ internal static class InstallationEndpoints
             .WithSummary("应用级启用/停用安装实例")
             .RequirePermission(PermissionCatalog.InstallationManage);
 
+        installations.MapDelete(
+                "/{installationId:guid}",
+                async (
+                    HttpContext context,
+                    Guid installationId,
+                    ICurrentPrincipal principal,
+                    IInstallationAdmin admin,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    try
+                    {
+                        await admin.DeleteAsync(
+                            RequireAppKey(principal), installationId, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "installations.delete",
+                            targetId: installationId.ToString(),
+                            result: AuditResults.Success,
+                            message: null);
+                        return ApiResults.Ok(context, true);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "installations.delete",
+                            targetId: installationId.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("installations.delete")
+            .WithSummary("删除安装实例；在线或有活跃连接时拒绝")
+            .RequirePermission(PermissionCatalog.InstallationManage);
+
         installations.MapPost(
                 "/{installationId:guid}/restart",
                 async (

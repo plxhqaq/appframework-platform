@@ -61,6 +61,7 @@ curl -s -X POST http://localhost:5080/api/v1/apps/token \
 
 - `M2MTokenRequest.scopes` 可为 `null`（取该 Key 的全部 scope）；**只减不增**——请求了 Key 未被授予的 scope 返回 `606`（403），缺任一请求头返回 `603`（401）。
 - Key 由管理台 `POST /api/v1/admin/apps/{id}/keys` 签发：每个 scope 必须是签发人**自己已持有**的权限（否则 `606`，403），不得使用通配符 `*`；未知权限码返回 `608`。
+- Key 生命周期：`POST /api/v1/admin/apps/{id}/keys/{keyId}/revoke` 吊销后立即失效（换不到新令牌，不可恢复）；`DELETE /api/v1/admin/apps/{id}/keys/{keyId}` 只清理**已吊销**的行，仍在生效返回 `6`（409），不存在或不属于该应用返回 `609`（404）。删除只移走密钥行，签发与吊销留痕仍在审计日志里，已签发的访问令牌按自身有效期失效。
 - 响应 `M2MTokenResponse`：`accessToken` / `tokenType`（固定 `Bearer`）/ `expiresAt` / `appKey` / `scopes` / `permissionsLocked`。`permissionsLocked=true` 表示该应用的权限清单已锁定，客户端连接成功后可直接跳过清单上传，不必重复调用。
 - 令牌声明：`sub` = `apikey:{密钥id:N}`、`name` = `应用名 (密钥名)`、`role` = `service`、`perms` = 生效 scope、`app` = 该应用键、`pkind` = `service`。
 - **没有刷新令牌**：到期只能再换一次；`/admin/auth/context` 明确拒绝服务主体（`4`，403）。

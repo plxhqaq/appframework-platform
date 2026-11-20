@@ -93,6 +93,42 @@ internal static class NodeEndpoints
             .WithSummary("修改节点自定义名/启用状态；节点停用即全应用拒绝")
             .RequirePermission(PermissionCatalog.NodeManage);
 
+        nodes.MapDelete(
+                "/{nodeId:guid}",
+                async (
+                    HttpContext context,
+                    Guid nodeId,
+                    INodeAdmin admin,
+                    IAuditWriter audit,
+                    ICurrentPrincipal principal,
+                    CancellationToken cancellationToken) =>
+                {
+                    try
+                    {
+                        await admin.DeleteAsync(nodeId, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "nodes.delete",
+                            targetId: nodeId.ToString(),
+                            result: AuditResults.Success,
+                            message: null);
+                        return ApiResults.Ok(context, true);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "nodes.delete",
+                            targetId: nodeId.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("nodes.delete")
+            .WithSummary("删除物理节点；仍挂有安装实例时拒绝")
+            .RequirePermission(PermissionCatalog.NodeManage);
+
         nodes.MapPost(
                 "/{nodeId:guid}/restart",
                 async (

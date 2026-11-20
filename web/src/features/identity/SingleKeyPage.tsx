@@ -10,6 +10,7 @@ import {
   Descriptions,
   Empty,
   Grid,
+  Flex,
   Input,
   Row,
   Space,
@@ -124,9 +125,10 @@ export function SingleKeyPage() {
                     </Tag>
                   </div>
                 ) : null}
-                <Space.Compact style={{ width: '100%', marginTop: bound ? 8 : 0 }}>
+                <Flex gap={8} style={{ marginTop: bound ? 8 : 0 }}>
                   <Input
                     allowClear
+                    style={{ flex: '1 1 auto', minWidth: 0 }}
                     value={device}
                     onChange={(event) => setDevice(event.target.value)}
                     placeholder={tr("留空则不限制设备")}
@@ -138,7 +140,7 @@ export function SingleKeyPage() {
                     onClick={() => setPickerOpen(true)}
                   >
                     {tr("选择设备")}</Button>
-                </Space.Compact>
+                </Flex>
                 <Typography.Text type="secondary">
                   {tr("填了就只有这台设备能兑换，指纹在客户端「关于」页可以复制。")}</Typography.Text>
                 <Typography.Text type="secondary">

@@ -114,12 +114,14 @@ public sealed partial class BackupService : IBackupService
 
         if (!string.IsNullOrWhiteSpace(namespaceKey))
         {
-            source = source.Where(x => x.Namespace.Key == namespaceKey);
+            var key = namespaceKey.Trim();
+            source = source.Where(x => x.Namespace.Key == key);
         }
 
         if (!string.IsNullOrWhiteSpace(kind))
         {
-            source = source.Where(x => x.Kind == kind);
+            var value = kind.Trim();
+            source = source.Where(x => x.Kind == value);
         }
 
         if (installationId is { } installation)

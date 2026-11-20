@@ -194,6 +194,10 @@ curl -s -X POST http://localhost:5080/api/v1/admin/nodes/$NODE_ID/restart \
 # 节点下安装实例分页
 curl -s "http://localhost:5080/api/v1/admin/nodes/$NODE_ID/installations?pageSize=20" \
   -H "Authorization: Bearer $TOKEN"
+
+# 删除节点：仅当该节点已不挂任何安装实例（含停用实例）
+curl -s -X DELETE http://localhost:5080/api/v1/admin/nodes/$NODE_ID \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 - 列表固定按 `lastSeenAt` 倒序、再按展示名排序；`onlineStatus` 只接受 `online`/`offline`；
@@ -201,12 +205,14 @@ curl -s "http://localhost:5080/api/v1/admin/nodes/$NODE_ID/installations?pageSiz
 - 节点停用是**全局开关**：该机器所有应用拒绝注册/心跳/重启/下发，重新启用后设备重连即恢复；
 - 重启只发给在线连接：节点不存在 404（`809`）、停用 403（`806`）、没有任何在线安装实例 409（`803`）；
   响应 `installationCount` 为实际收到命令的在线安装实例数；
-- 改名/启停写审计 `nodes.update`，重启写 `nodes.restart`（成功与失败都记，原因进 `message`）。
+- 改名/启停写审计 `nodes.update`，重启写 `nodes.restart`（成功与失败都记，原因进 `message`）；
+- 删除写审计 `nodes.delete`：仍挂有安装实例时 409（通用冲突码 `6`，消息里带上实例数），
+  需先在对应应用下逐个删除安装实例；不存在 404（`809`）。
 
 ### 3.2 安装实例（应用级）
 
 ```bash
-# 列表：只返回当前应用；关键字匹配机器码/节点名/IP/安装实例展示名/应用内录入名
+# 列表：只返回当前应用；关键字匹配机器码/节点名/IP/安装实例展示名/应用内录入名，branch 按关键词模糊匹配
 curl -s "http://localhost:5080/api/v1/admin/installations?onlineStatus=online&branch=line-a&keyword=coater" \
   -H "Authorization: Bearer $TOKEN"
 
@@ -223,14 +229,30 @@ curl -s -X PATCH http://localhost:5080/api/v1/admin/installations/$INSTALLATION_
 curl -s -X POST http://localhost:5080/api/v1/admin/installations/$INSTALLATION_ID/restart \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"reason":"现场维护"}'
+
+# 删除安装实例：仅当前应用、且离线无活跃连接
+curl -s -X DELETE http://localhost:5080/api/v1/admin/installations/$INSTALLATION_ID \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 - 列表固定按 `lastHeartbeatAt` 倒序、再按节点展示名排序；`onlineStatus` 只接受 `online`/`offline`；
+  `branch` 与 `keyword` 都是关键词模糊匹配（`%关键词%`），不做全值相等判定；
 - 所有安装实例端点都要求令牌带应用上下文（无 `app` 返回 403），只返回/只接受本应用的行；
 - 有效启用 = 节点启用 **且** 安装实例启用；节点停用优先，应用管理员即使启用安装实例也无法注册/心跳；
 - 重启门禁顺序：不存在 404（`805`）→ 节点停用 403（`806`）→ 安装实例停用 403（`807`）→ 离线 409（`803`）；
 - 改名/启停写审计 `installations.update`，重启写 `installations.restart`；
-- 停用只阻止注册/心跳/重启/下发，不删除记录；旧安装（重装遗留）可单独停用。
+- 停用只阻止注册/心跳/重启/下发，不删除记录；旧安装（重装遗留）可单独停用；
+- 删除写审计 `installations.delete`：仍有活跃连接 409（通用冲突码 `6`）、状态仍为 `online` 同样 409
+  （在线判定以真实连接为准，状态列由心跳与离线扫描维护，可能滞后一两拍）、跨应用或不存在 404（`805`）。
+  删除会同步失效心跳缓存条目，后台批量回写不会再去更新已删除的行。
+
+### 3.3 删除与留痕边界
+
+设备域的删除只清设备登记本身：**授权与会话按机器码 / 安装标识记账，不随节点行或安装实例行删除而
+清理，也不作为删除的前置条件**（`license_entitlements`、`offline_license_codes`、`refresh_tokens`、
+`qr_login_sessions`、`single_login_keys` 与备份的 `node_id`/`installation_id` 都是跨模块留痕列，
+设备模块不查询它们）。设备重新注册会新建节点行与安装实例行，旧留痕继续按原机器码/安装标识可查。
+需要清理授权时走授权台账自身的停用/吊销入口。
 
 ## 4. 按安装实例下发
 
@@ -383,6 +405,8 @@ curl -s http://localhost:5080/api/v1/client/backups/$BACKUP_ID/download -H "Auth
 
 下发还会复用备份段：`407` 跨安装实例未确认 / 应用无在线连接，`408` 回执超时；兼容矩阵失败仍是
 `403`/`404`（与 04 文档一致）。所有业务失败都在统一信封里，`traceId` 与服务端日志对齐。
+
+删除守卫用段外的通用冲突码 `6`（HTTP 409），不新占 `800–899`；不存在仍然用 `805`/`809`。
 
 ## 10. 迁移与部署
 

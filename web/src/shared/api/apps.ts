@@ -44,6 +44,9 @@ export const appsApi = {
   revokeKey: (id: string, keyId: string) =>
     request<ApiKeySummary>(`/api/v1/admin/apps/${id}/keys/${keyId}/revoke`, { method: 'POST' }),
 
+  deleteKey: (id: string, keyId: string) =>
+    request<boolean>(`/api/v1/admin/apps/${id}/keys/${keyId}`, { method: 'DELETE' }),
+
   getPermissions: (appKey: string, signal?: AbortSignal) =>
     request<AppPermissionManifest>(`/api/v1/apps/${appKey}/permissions`, { anonymous: true, signal }),
 

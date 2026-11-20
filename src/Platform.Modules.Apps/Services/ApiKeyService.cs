@@ -27,6 +27,9 @@ public interface IApiKeyService
     /// <summary>吊销 Key；已吊销视为成功。</summary>
     Task<ApiKeySummaryDto> RevokeAsync(Guid appId, Guid keyId, CancellationToken cancellationToken = default);
 
+    /// <summary>删除 Key；仅限已吊销行（先留吊销台账，再清理误添加内容）。</summary>
+    Task DeleteAsync(Guid appId, Guid keyId, CancellationToken cancellationToken = default);
+
     /// <summary>校验明文并返回所属应用与 scopes；失败抛对应业务错误码。</summary>
     Task<AuthenticatedApiKey> AuthenticateAsync(
         string appKey,
@@ -151,6 +154,28 @@ public sealed class ApiKeyService : IApiKeyService
         }
 
         return ToSummary(key, _clock.UtcNow);
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteAsync(
+        Guid appId,
+        Guid keyId,
+        CancellationToken cancellationToken = default)
+    {
+        var key = await _db.Set<AppApiKey>()
+                      .FirstOrDefaultAsync(x => x.Id == keyId && x.AppId == appId, cancellationToken)
+                  ?? throw BusinessException.NotFound(ApiErrorCode.AppsApiKeyNotFound, $"API Key {keyId} 不存在。");
+
+        // 吊销是"停用留痕"的终态，删除只用于清理已停用行；未吊销一律拒绝。
+        if (key.RevokedAt is null)
+        {
+            throw new BusinessException(
+                ApiErrorCode.Conflict,
+                $"API Key {key.Prefix} 仍在生效，请先吊销再删除。");
+        }
+
+        _db.Set<AppApiKey>().Remove(key);
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     /// <inheritdoc />

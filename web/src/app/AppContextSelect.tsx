@@ -2,6 +2,7 @@ import { AppstoreOutlined } from '@ant-design/icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { App, Select, Tooltip } from 'antd';
 import { useTranslation } from 'react-i18next';
+import { useState } from 'react';
 import { useAuthStore } from '../stores/auth';
 
 interface AppContextSelectProps {
@@ -23,6 +24,11 @@ export function AppContextSelect({ compact = false }: AppContextSelectProps) {
   const switchAppContext = useAuthStore((state) => state.switchAppContext);
   const switching = useAuthStore((state) => state.pending);
 
+  // Tooltip 与下拉面板都浮在 header 之上、Tooltip 层级更高，展开时会被提示条压住首行，
+  // 所以下拉打开期间不让提示出现。
+  const [hintOpen, setHintOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
   const appKeys = session?.appKeys ?? [];
   if (appKeys.length === 0) {
     return null;
@@ -32,8 +38,10 @@ export function AppContextSelect({ compact = false }: AppContextSelectProps) {
   const disabled = switching || (appKeys.length <= 1 && current !== undefined);
 
   return (
-    <Tooltip title={t('common:appContext.hint')}>
+    <Tooltip title={t('common:appContext.hint')} open={hintOpen && !dropdownOpen} onOpenChange={setHintOpen}>
       <Select
+        // antd 会把选中项文本写进原生 title，和上面的 Tooltip 叠成两层提示；空串关掉原生提示。
+        title=""
         size="small"
         aria-label={t('common:appContext.switch')}
         value={current}
@@ -43,6 +51,7 @@ export function AppContextSelect({ compact = false }: AppContextSelectProps) {
         style={{ width: compact ? 132 : 168, maxWidth: '100%', minWidth: 0 }}
         prefix={<AppstoreOutlined />}
         options={appKeys.map((key) => ({ value: key, label: key }))}
+        onOpenChange={setDropdownOpen}
         onChange={async (next: string) => {
           if (next === current) {
             return;

@@ -35,6 +35,11 @@ public interface INodeAdmin
         Guid nodeId,
         PageQuery query,
         CancellationToken cancellationToken = default);
+
+    /// <summary>删除物理节点；仍有安装实例时拒绝。授权与会话按机器码记账，不随节点行删除而失效。</summary>
+    Task DeleteAsync(
+        Guid nodeId,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>平台级节点服务实现。</summary>
@@ -217,6 +222,31 @@ public sealed class NodeAdmin : INodeAdmin
             [.. rows.Select(x => InventoryMapper.ToSummary(x, node))],
             total,
             query);
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteAsync(
+        Guid nodeId,
+        CancellationToken cancellationToken = default)
+    {
+        var node = await _db.Set<DeviceNode>()
+                       .FirstOrDefaultAsync(x => x.Id == nodeId, cancellationToken)
+                   ?? throw BusinessException.NotFound(
+                       ApiErrorCode.DevicesNodeNotFound,
+                       $"物理节点 {nodeId} 不存在。");
+
+        // 安装实例是节点的行子级（FK Restrict）；停用实例同样计数，必须先逐应用删除再删节点。
+        var installationCount = await _db.Set<DeviceInstallation>()
+            .CountAsync(x => x.NodeId == nodeId, cancellationToken);
+        if (installationCount > 0)
+        {
+            throw new BusinessException(
+                ApiErrorCode.Conflict,
+                $"节点 {node.DisplayName} 仍挂有 {installationCount} 个安装实例，请先在对应应用下删除安装实例。");
+        }
+
+        _db.Set<DeviceNode>().Remove(node);
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<DeviceNode> FindAsync(Guid nodeId, CancellationToken cancellationToken) =>

@@ -117,6 +117,13 @@ public sealed class DocumentsEndpointsTests : IClassFixture<PlatformApiFactory>
                 HttpMethod.Get, "/api/v1/admin/documents?collectionKey=release-guide", token)));
         Assert.Null(list.Items.Single(x => x.Id == legacy.Id).ApplicableVersion);
         Assert.Null(list.Items.Single(x => x.Id == document.Id).ApplicableVersion);
+
+        // keyword 对标题/文件名做模糊匹配：片段命中 legacy，不命中 guide
+        var fuzzy = await IdentityTestHelpers.ReadDataAsync<PageResult<DocumentSummaryDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get, "/api/v1/admin/documents?collectionKey=release-guide&keyword=ega", token)));
+        Assert.Contains(fuzzy.Items, x => x.Id == legacy.Id);
+        Assert.DoesNotContain(fuzzy.Items, x => x.Id == document.Id);
     }
 
     [Fact]
