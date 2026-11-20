@@ -303,13 +303,13 @@ function renderModuleDetails(module: ModuleInfo) {
  * 总览仪表盘：运行状态、进程资源、服务器资源监控、节点/安装实例与平台信息。
  *
  * - 服务器运行时间由本地秒表推进（每秒一次），轮询只校准锚点，和自动刷新开关解耦；
- * - 节点/实例等状态跃迁由 AdminHub 事件失效回拉；自动刷新默认 60s 兜底、间隔可调（最小 1s），切换路由卸载即暂停；
+ * - 节点/实例等状态跃迁由 AdminHub 事件失效回拉；自动刷新默认关闭，需手动打开后按间隔兜底（最小 1s），切换路由卸载即暂停；
  * - 百分比一律用 antd dashboard 仪表盘：CPU/内存环内分段同时显示整机总量与平台进程占用，
  *   数量类指标用彩色信息块区分语义，避免整页灰白。
  */
 export function OverviewPage() {
   const { token } = antdTheme.useToken();
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [autoRefresh, setAutoRefresh] = useState(false);
   const [intervalSeconds, setIntervalSeconds] = useState(DEFAULT_INTERVAL_SECONDS);
   const [uptimeAnchor, setUptimeAnchor] = useState<UptimeAnchor | null>(null);
 
