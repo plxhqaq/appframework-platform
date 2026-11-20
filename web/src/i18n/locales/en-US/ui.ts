@@ -1145,6 +1145,8 @@ export const uiEn: Record<string, string> = {
   "已清理 {{arg0}} 条记录、回收 {{arg1}} 个文件": "Purged {{arg0}} records and reclaimed {{arg1}} files",
   "备份已恢复": "Backup restored",
   "文档已恢复": "Document restored",
+  "恢复失败": "Failed to restore",
+  "清理失败": "Failed to purge",
   "清理完成": "Cleanup completed",
   "清理宽限期已保存": "Cleanup grace period saved",
   "软删除到物理清理之间的等待时间；宽限期内可在回收站恢复。修改作用于平台全部应用。": "Wait time between soft delete and physical cleanup; items can be restored from the recycle bin during this window. Applies to every app.",

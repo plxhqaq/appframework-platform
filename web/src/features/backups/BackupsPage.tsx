@@ -15,6 +15,7 @@ import {
   Space,
   Switch,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -43,6 +44,7 @@ import { useResponsive } from '../../shared/useResponsive';
 import { InstallationPickerModal } from '../../shared/ui/InstallationPickerModal';
 import { isInstallationSelectable } from '../../shared/installationSelection';
 import { useAuthStore } from '../../stores/auth';
+import { BackupRecyclePanel } from './BackupRecyclePanel';
 
 interface NamespaceFormValues {
   key: string;
@@ -87,6 +89,12 @@ export function BackupsPage() {
   const canCreate = useAuthStore((state) => state.hasPermission(PERMISSIONS.backupCreate));
   const canPush = useAuthStore((state) => state.hasPermission(PERMISSIONS.backupPush));
   const canDelete = useAuthStore((state) => state.hasPermission(PERMISSIONS.backupDelete));
+  const canRestore = useAuthStore((state) => state.hasPermission(PERMISSIONS.backupRestore));
+  const canPurge = useAuthStore((state) => state.hasPermission(PERMISSIONS.backupPurge));
+  const canManageGrace = useAuthStore((state) =>
+    state.hasPermission(PERMISSIONS.retentionCleanupManage),
+  );
+  const [activeTab, setActiveTab] = useState<'list' | 'recycle'>('list');
 
   const appKeys = session?.appKeys ?? [];
   const appKey = session?.appKey ?? appKeys[0] ?? null;
@@ -643,71 +651,101 @@ export function BackupsPage() {
         size="small"
         title={tr("备份")}
         extra={
-          canCreate ? (
+          activeTab === 'list' && canCreate ? (
             <Button type="primary" icon={<PlusOutlined />} onClick={openBackupForm}>
               {tr("新建备份")}</Button>
           ) : null
         }
       >
-        <Space wrap style={{ marginBottom: 12 }}>
-          <Select
-            allowClear
-            placeholder={tr("全部命名空间")}
-            style={{ width: 200, maxWidth: '100%' }}
-            value={namespaceFilter}
-            onChange={(value) => {
-              setNamespaceFilter(value);
-              setPage(1);
-            }}
-            options={(namespaces.data ?? []).map((item) => ({
-              value: item.key,
-              label: `${item.name}（${item.key}）`,
-            }))}
-          />
-          <Input
-            allowClear
-            placeholder={tr("按备份名或节点名关键词过滤")}
-            style={{ width: 220, maxWidth: '100%' }}
-            value={keywordFilter}
-            onChange={(event) => {
-              setKeywordFilter(event.target.value);
-              setPage(1);
-            }}
-          />
-          <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
-            {tr("刷新")}</Button>
-        </Space>
+        <Tabs
+          activeKey={activeTab}
+          onChange={(key) => setActiveTab(key as 'list' | 'recycle')}
+          items={[
+            {
+              key: 'list',
+              label: tr("备份记录"),
+              children: (
+                <>
+                  <Space wrap style={{ marginBottom: 12 }}>
+                    <Select
+                      allowClear
+                      placeholder={tr("全部命名空间")}
+                      style={{ width: 200, maxWidth: '100%' }}
+                      value={namespaceFilter}
+                      onChange={(value) => {
+                        setNamespaceFilter(value);
+                        setPage(1);
+                      }}
+                      options={(namespaces.data ?? []).map((item) => ({
+                        value: item.key,
+                        label: `${item.name}（${item.key}）`,
+                      }))}
+                    />
+                    <Input
+                      allowClear
+                      placeholder={tr("按备份名或节点名关键词过滤")}
+                      style={{ width: 220, maxWidth: '100%' }}
+                      value={keywordFilter}
+                      onChange={(event) => {
+                        setKeywordFilter(event.target.value);
+                        setPage(1);
+                      }}
+                    />
+                    <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
+                      {tr("刷新")}</Button>
+                  </Space>
 
-        {backups.isError ? (
-          <Alert
-            type="error"
-            showIcon
-            style={{ marginBottom: 16 }}
-            message={(backups.error as Error).message}
-            action={
-              <Button size="small" onClick={() => void backups.refetch()}>
-                {tr("重试")}</Button>
-            }
-          />
-        ) : null}
-        <Table<BackupSummary>
-          scroll={{ x: 'max-content' }}
-          rowKey="id"
-          size="small"
-          loading={backups.isPending}
-          dataSource={backups.data?.items ?? []}
-          columns={backupColumns}
-          pagination={responsivePagination(isMobile, {
-            current: backups.data?.page ?? page,
-            pageSize: backups.data?.pageSize ?? pageSize,
-            total: backups.data?.total ?? 0,
-            showTotal: (total: number) => tr("共 {{arg0}} 份备份", { arg0: total }),
-            onChange: (nextPage: number, nextPageSize: number) => {
-              setPage(nextPageSize === pageSize ? nextPage : 1);
-              setPageSize(nextPageSize);
+                  {backups.isError ? (
+                    <Alert
+                      type="error"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                      message={(backups.error as Error).message}
+                      action={
+                        <Button size="small" onClick={() => void backups.refetch()}>
+                          {tr("重试")}</Button>
+                      }
+                    />
+                  ) : null}
+                  <Table<BackupSummary>
+                    scroll={{ x: 'max-content' }}
+                    rowKey="id"
+                    size="small"
+                    loading={backups.isPending}
+                    dataSource={backups.data?.items ?? []}
+                    columns={backupColumns}
+                    pagination={responsivePagination(isMobile, {
+                      current: backups.data?.page ?? page,
+                      pageSize: backups.data?.pageSize ?? pageSize,
+                      total: backups.data?.total ?? 0,
+                      showTotal: (total: number) => tr("共 {{arg0}} 份备份", { arg0: total }),
+                      onChange: (nextPage: number, nextPageSize: number) => {
+                        setPage(nextPageSize === pageSize ? nextPage : 1);
+                        setPageSize(nextPageSize);
+                      },
+                    })}
+                    locale={{ emptyText: tr("尚无备份") }}
+                  />
+                </>
+              ),
             },
-          })}
-          locale={{ emptyText: tr("尚无备份") }}
+            ...(canRestore
+              ? [
+                  {
+                    key: 'recycle',
+                    label: tr("回收站"),
+                    children: (
+                      <BackupRecyclePanel
+                        appKey={appKey}
+                        canRestore={canRestore}
+                        canPurge={canPurge}
+                        canManageGrace={canManageGrace}
+                      />
+                    ),
+                  },
+                ]
+              : []),
+          ]}
         />
       </Card>
 
