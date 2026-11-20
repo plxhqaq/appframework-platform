@@ -585,6 +585,46 @@ public sealed class SingleLoginEndpointsTests : IClassFixture<PlatformApiFactory
         Assert.Equal("现场工程师", upgraded.DisplayName);
     }
 
+    [Fact]
+    public async Task 老库应用管理员角色再次种子后补齐回收站权限且不冲掉手工权限()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+            var role = await db.Set<Role>().SingleAsync(x => x.Name == IdentityConventions.AppAdminRole);
+
+            // 模拟老库：四码是后加的，升级前一个都没有；末尾留一条管理员手工加的权限。
+            role.Permissions = role.Permissions
+                .Except(
+                    [
+                        PermissionCatalog.BackupRestore,
+                        PermissionCatalog.BackupPurge,
+                        PermissionCatalog.DocumentRestore,
+                        PermissionCatalog.DocumentPurge,
+                    ],
+                    StringComparer.Ordinal)
+                .Append("custom.manual")
+                .ToList();
+            await db.SaveChangesAsync();
+        }
+
+        await _factory.Services.GetRequiredService<IdentitySeeder>().StartAsync(CancellationToken.None);
+
+        var upgraded = await IdentityTestHelpers.GetRoleAsync(client, admin, IdentityConventions.AppAdminRole);
+        Assert.Contains(PermissionCatalog.BackupRestore, upgraded.Permissions);
+        Assert.Contains(PermissionCatalog.BackupPurge, upgraded.Permissions);
+        Assert.Contains(PermissionCatalog.DocumentRestore, upgraded.Permissions);
+        Assert.Contains(PermissionCatalog.DocumentPurge, upgraded.Permissions);
+        Assert.Contains("custom.manual", upgraded.Permissions);
+        // 回填只限那四码：种子从未授予的删除码与平台专属清理码都不能被顺手带上。
+        Assert.DoesNotContain(PermissionCatalog.BackupDelete, upgraded.Permissions);
+        Assert.DoesNotContain(PermissionCatalog.DocumentDelete, upgraded.Permissions);
+        Assert.DoesNotContain(PermissionCatalog.RetentionCleanupManage, upgraded.Permissions);
+    }
+
     private static async Task<string> LoginAsEngineerAsync(HttpClient client, string admin, string userName)
     {
         var role = await IdentityTestHelpers.GetRoleAsync(client, admin, SingleLoginConventions.EngineerRole);

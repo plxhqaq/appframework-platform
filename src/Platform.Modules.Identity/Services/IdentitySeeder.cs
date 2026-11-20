@@ -286,21 +286,40 @@ public sealed class IdentitySeeder : IHostedService
     }
 
     /// <summary>
-    /// 老库里的工程师角色只覆盖业务权限，签不了密钥也审批不了扫码，真人账号登录后两个页面都是空的。
-    /// 这里只**补齐**缺的入口权限，不整体覆盖集合——管理员手工调过的其余部分要留着。
-    /// </summary>
-    /// <summary>
     /// 老库内置角色已经存在时 <see cref="EnsureRoleAsync"/> 不会覆盖权限；
     /// 新增的敏感入口权限只在种子期补齐，管理员手工调整过的其余集合保持不变。
     /// </summary>
+    /// <remarks>
+    /// 补齐两批后加的权限：应用权限清单管控（<see cref="PermissionCatalog.AppsPermissionsManage"/>）；
+    /// 回收站恢复与彻底清理（<see cref="PermissionCatalog.BackupRestore"/>、<see cref="PermissionCatalog.BackupPurge"/>、
+    /// <see cref="PermissionCatalog.DocumentRestore"/>、<see cref="PermissionCatalog.DocumentPurge"/>）——
+    /// 漏了这四码，老库的应用管理员在管理台看不到回收站页签。
+    /// 种子从未授予的 <c>backup.delete</c> / <c>document.delete</c>，以及平台专属的
+    /// <see cref="PermissionCatalog.RetentionCleanupManage"/>，都不在此列。
+    /// </remarks>
     private static void UpgradeAppAdminRole(Role appAdmin)
     {
-        if (!appAdmin.Permissions.Contains(PermissionCatalog.AppsPermissionsManage, StringComparer.Ordinal))
+        var missing = new[]
+            {
+                PermissionCatalog.AppsPermissionsManage,
+                PermissionCatalog.BackupRestore,
+                PermissionCatalog.BackupPurge,
+                PermissionCatalog.DocumentRestore,
+                PermissionCatalog.DocumentPurge,
+            }
+            .Except(appAdmin.Permissions, StringComparer.Ordinal)
+            .ToArray();
+
+        if (missing.Length > 0)
         {
-            appAdmin.Permissions = [.. appAdmin.Permissions, PermissionCatalog.AppsPermissionsManage];
+            appAdmin.Permissions = [.. appAdmin.Permissions, .. missing];
         }
     }
 
+    /// <summary>
+    /// 老库里的工程师角色只覆盖业务权限，签不了密钥也审批不了扫码，真人账号登录后两个页面都是空的。
+    /// 这里只**补齐**缺的入口权限，不整体覆盖集合——管理员调过的其余部分要留着。
+    /// </summary>
     private static void UpgradeEngineerRole(Role engineer)
     {
         var missing = new[]
