@@ -509,7 +509,7 @@ public sealed partial class BackupService : IBackupService
                    $"安装实例 {id} 不存在。");
     }
 
-    private static BackupDto ToDto(Backup entity, string namespaceKey) =>
+    internal static BackupDto ToDto(Backup entity, string namespaceKey) =>
         new(
             entity.Id,
             namespaceKey,

@@ -37,6 +37,7 @@ internal static class BackupEndpoints
 
         MapNamespaceEndpoints(admin);
         MapBackupEndpointsInternal(admin, createRequestLimit);
+        MapRecycleEndpoints(admin);
 
         var client = api
             .MapGroup(PlatformRoutes.ClientModule(PlatformModuleKeys.Backups))
@@ -382,6 +383,146 @@ internal static class BackupEndpoints
             .WithName("backups.delete")
             .WithSummary("软删除备份（宽限期后由后台清理物理文件）")
             .RequirePermission(PermissionCatalog.BackupDelete);
+    }
+
+    private static void MapRecycleEndpoints(RouteGroupBuilder admin)
+    {
+        admin.MapGet(
+                "/deleted",
+                async (
+                    HttpContext context,
+                    ICurrentPrincipal principal,
+                    IBackupRecycleService recycle,
+                    int page = 1,
+                    int pageSize = PageQuery.DefaultPageSize,
+                    string? keyword = null,
+                    CancellationToken cancellationToken = default) =>
+                {
+                    var query = new PageQuery { Page = page, PageSize = pageSize, Keyword = keyword };
+                    return ApiResults.Ok(
+                        context,
+                        await recycle.ListDeletedAsync(
+                            RequireAppKey(principal), query, keyword, cancellationToken));
+                })
+            .WithName("backups.deleted.list")
+            .WithSummary("回收站列表（软删除、宽限期内可恢复）")
+            .RequirePermission(PermissionCatalog.BackupRestore);
+
+        admin.MapPost(
+                "/{id:guid}/restore",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IBackupRecycleService recycle,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var restored = await recycle.RestoreAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "backups.restore",
+                            targetType: "backup",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: restored.Name);
+                        return ApiResults.Ok(context, restored);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "backups.restore",
+                            targetType: "backup",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("backups.restore")
+            .WithSummary("恢复回收站中的备份（物理文件缺失时拒绝）")
+            .RequirePermission(PermissionCatalog.BackupRestore);
+
+        admin.MapPost(
+                "/{id:guid}/purge",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IBackupRecycleService recycle,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var result = await recycle.PurgeAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "backups.purge",
+                            targetType: "backup",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: $"行 {result.RowsDeleted} / 文件 {result.FilesDeleted}");
+                        return ApiResults.Ok(context, result);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "backups.purge",
+                            targetType: "backup",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("backups.purge")
+            .WithSummary("立即物理清理单条已删除备份")
+            .RequirePermission(PermissionCatalog.BackupPurge);
+
+        admin.MapPost(
+                "/purge-all",
+                async (
+                    HttpContext context,
+                    ICurrentPrincipal principal,
+                    IBackupRecycleService recycle,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var result = await recycle.PurgeAllAsync(appKey, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "backups.purge",
+                            targetType: "backup",
+                            targetId: null,
+                            result: AuditResults.Success,
+                            message: $"全部清理：行 {result.RowsDeleted} / 文件 {result.FilesDeleted}");
+                        return ApiResults.Ok(context, result);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "backups.purge",
+                            targetType: "backup",
+                            targetId: null,
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("backups.purge-all")
+            .WithSummary("立即物理清理当前应用全部已删除备份")
+            .RequirePermission(PermissionCatalog.BackupPurge);
     }
 
     private static void MapClientEndpoints(RouteGroupBuilder client, long createRequestLimit)

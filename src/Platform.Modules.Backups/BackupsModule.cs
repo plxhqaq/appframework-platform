@@ -38,6 +38,8 @@ public sealed class BackupsModule : IPlatformModule
         PermissionCatalog.BackupCreate,
         PermissionCatalog.BackupPush,
         PermissionCatalog.BackupDelete,
+        PermissionCatalog.BackupRestore,
+        PermissionCatalog.BackupPurge,
     ];
 
     /// <inheritdoc />
@@ -51,6 +53,7 @@ public sealed class BackupsModule : IPlatformModule
         services.AddScoped<IBackupNamespaceService, BackupNamespaceService>();
         services.AddScoped<IBackupService, BackupService>();
         services.AddScoped<IBackupPushService, BackupPushService>();
+        services.AddScoped<IBackupRecycleService, BackupRecycleService>();
 
         services.TryAddEnumerable(
             ServiceDescriptor.Scoped<IPlatformModelContributor, BackupsModelContributor>());
