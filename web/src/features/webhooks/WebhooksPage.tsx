@@ -103,7 +103,7 @@ export function WebhooksPage() {
       title: tr("接收地址"),
       dataIndex: 'url',
       key: 'url',
-      ellipsis: true,
+      ellipsis: { showTitle: false },
       render: (url: string) => (
         <Typography.Text code ellipsis={{ tooltip: url }} style={{ maxWidth: 360 }}>
           {url}

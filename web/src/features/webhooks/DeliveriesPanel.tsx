@@ -99,9 +99,15 @@ export function DeliveriesPanel({ subscriptions, canManage, appKey }: Deliveries
     {
       title: tr("错误"),
       dataIndex: 'lastError',
-      ellipsis: true,
+      ellipsis: { showTitle: false },
       render: (value: string | null) =>
-        value ? <Typography.Text style={{ wordBreak: 'break-all' }}>{value}</Typography.Text> : '-',
+        value ? (
+          <Tooltip title={value}>
+            <Typography.Text style={{ wordBreak: 'break-all' }}>{value}</Typography.Text>
+          </Tooltip>
+        ) : (
+          '-'
+        ),
     },
     {
       title: tr("操作"),

@@ -17,6 +17,7 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -275,9 +276,9 @@ export function InstallationsPage() {
       render: (level: DeviceAlarmLevel, row: InstallationSummary) => {
         const meta = ALARM_META[level];
         return meta.color ? (
-          <Tag color={meta.color} title={row.alarmMessage ?? undefined}>
-            {meta.label}
-          </Tag>
+          <Tooltip title={row.alarmMessage}>
+            <Tag color={meta.color}>{meta.label}</Tag>
+          </Tooltip>
         ) : (
           <Typography.Text type="secondary">{meta.label}</Typography.Text>
         );
@@ -316,11 +317,7 @@ export function InstallationsPage() {
               {tr("编辑")}</Button>
           ) : null}
           {canRestart ? (
-            <Button
-              type="link"
-              size="small"
-              danger
-              disabled={!row.nodeEnabled || !row.isEnabled || row.onlineStatus !== 'online'}
+            <Tooltip
               title={
                 !row.nodeEnabled
                   ? tr("节点已停用，无法重启")
@@ -330,20 +327,28 @@ export function InstallationsPage() {
                       ? tr("安装实例离线，无法重启")
                       : undefined
               }
-              onClick={() => openRestartForm(row)}
             >
-              {tr("重启")}</Button>
+              <Button
+                type="link"
+                size="small"
+                danger
+                disabled={!row.nodeEnabled || !row.isEnabled || row.onlineStatus !== 'online'}
+                onClick={() => openRestartForm(row)}
+              >
+                {tr("重启")}</Button>
+            </Tooltip>
           ) : null}
           {canManage ? (
-            <Button
-              type="link"
-              size="small"
-              danger
-              disabled={row.onlineStatus === 'online'}
-              title={row.onlineStatus === 'online' ? tr("安装实例在线，需先离线或停用") : undefined}
-              onClick={() => confirmDelete(row)}
-            >
-              {tr("删除")}</Button>
+            <Tooltip title={row.onlineStatus === 'online' ? tr("安装实例在线，需先离线或停用") : undefined}>
+              <Button
+                type="link"
+                size="small"
+                danger
+                disabled={row.onlineStatus === 'online'}
+                onClick={() => confirmDelete(row)}
+              >
+                {tr("删除")}</Button>
+            </Tooltip>
           ) : null}
         </Space>
       ),
@@ -597,9 +602,9 @@ function InstallationDescriptions({ installation }: { installation: Installation
           key: 'alarm',
           label: tr("报警"),
           children: alarm.color ? (
-            <Tag color={alarm.color} title={installation.alarmMessage ?? undefined}>
-              {alarm.label}
-            </Tag>
+            <Tooltip title={installation.alarmMessage}>
+              <Tag color={alarm.color}>{alarm.label}</Tag>
+            </Tooltip>
           ) : (
             tr("无")
           ),

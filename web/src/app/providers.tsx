@@ -66,6 +66,9 @@ function ThemedShell({ children }: { children: ReactNode }) {
       components: {
         // 小号卡片默认 12px 内边距，标题栏的操作按钮几乎贴边；统一放宽到 20px
         Card: { bodyPaddingSM: 20, headerPaddingSM: 20 },
+        // 浅色主题的气泡底色是 85% 半透，压在分隔线上会透出一行发丝缝，小尾巴看着像被边框隔开；
+        // 换成同色值的实色（85% 黑压白 = #262626）观感不变但不再透光。深色/深黑本来就是实色。
+        Tooltip: isDarkMode(mode) ? {} : { colorBgSpotlight: '#262626' },
       },
     }),
     [family, mode],

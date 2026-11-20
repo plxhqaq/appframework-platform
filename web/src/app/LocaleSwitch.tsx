@@ -1,5 +1,5 @@
 import { GlobalOutlined } from '@ant-design/icons';
-import { Button, Popover, Select } from 'antd';
+import { Button, Popover, Select, Tooltip } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { SUPPORTED_LOCALES, currentLocale, setLocale, type Locale } from '../i18n';
 
@@ -25,7 +25,9 @@ export function LocaleSwitch() {
         />
       }
     >
-      <Button icon={<GlobalOutlined />} aria-label={label} title={label} />
+      <Tooltip title={label}>
+        <Button icon={<GlobalOutlined />} aria-label={label} />
+      </Tooltip>
     </Popover>
   );
 }

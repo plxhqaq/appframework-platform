@@ -2,7 +2,7 @@ import { formatDateTime } from '../../shared/format';
 import { tr } from '../../i18n/translate';
 import { ReloadOutlined, SearchOutlined, UndoOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, DatePicker, Flex, Input, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, DatePicker, Flex, Input, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import type { Dayjs } from 'dayjs';
 import { useState } from 'react';
 import { auditApi } from '../../shared/api/audit';
@@ -211,9 +211,18 @@ export function AuditPage() {
             {
               title: tr("目标"),
               dataIndex: 'targetType',
-              ellipsis: true,
-              render: (value: string | null, record) =>
-                value ? `${value} ${record.targetId ?? ''}`.trim() : '-',
+              ellipsis: { showTitle: false },
+              render: (value: string | null, record) => {
+                if (!value) {
+                  return '-';
+                }
+                const target = `${value} ${record.targetId ?? ''}`.trim();
+                return (
+                  <Tooltip title={target}>
+                    <span>{target}</span>
+                  </Tooltip>
+                );
+              },
             },
             {
               title: tr("结果"),

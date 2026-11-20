@@ -309,9 +309,11 @@ export function ReleaseDetailDrawer({
                 title: tr("文件"),
                 dataIndex: 'fileName',
                 key: 'fileName',
-                ellipsis: true,
+                ellipsis: { showTitle: false },
                 render: (fileName: string) => (
-                  <Typography.Text copyable={{ text: fileName }}>{fileName}</Typography.Text>
+                  <Tooltip title={fileName}>
+                    <Typography.Text copyable={{ text: fileName }}>{fileName}</Typography.Text>
+                  </Tooltip>
                 ),
               },
               {

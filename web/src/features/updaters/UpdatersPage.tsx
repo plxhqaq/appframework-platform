@@ -15,6 +15,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -191,10 +192,12 @@ export function UpdatersPage() {
       title: tr("文件"),
       dataIndex: 'fileName',
       key: 'fileName',
-      ellipsis: true,
+      ellipsis: { showTitle: false },
       responsive: ['md'],
       render: (fileName: string) => (
-        <Typography.Text copyable={{ text: fileName }}>{fileName}</Typography.Text>
+        <Tooltip title={fileName}>
+          <Typography.Text copyable={{ text: fileName }}>{fileName}</Typography.Text>
+        </Tooltip>
       ),
     },
     {

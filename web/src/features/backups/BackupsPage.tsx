@@ -16,6 +16,7 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -550,10 +551,15 @@ export function BackupsPage() {
       title: tr("安装实例"),
       dataIndex: 'installationId',
       key: 'installationId',
-      ellipsis: true,
+      ellipsis: { showTitle: false },
       render: (installationId: string) => {
         const target = pushResult?.installations.get(installationId);
-        return target ? installationLabel(target) : installationId;
+        const label = target ? installationLabel(target) : installationId;
+        return (
+          <Tooltip title={label}>
+            <span>{label}</span>
+          </Tooltip>
+        );
       },
     },
     {

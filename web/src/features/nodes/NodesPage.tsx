@@ -18,6 +18,7 @@ import {
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -270,9 +271,9 @@ export function NodesPage() {
       render: (level: DeviceAlarmLevel, row: NodeSummary) => {
         const meta = ALARM_META[level];
         return meta.color ? (
-          <Tag color={meta.color} title={row.alarmMessage ?? undefined}>
-            {meta.label}
-          </Tag>
+          <Tooltip title={row.alarmMessage}>
+            <Tag color={meta.color}>{meta.label}</Tag>
+          </Tooltip>
         ) : (
           <Typography.Text type="secondary">{meta.label}</Typography.Text>
         );
@@ -307,11 +308,7 @@ export function NodesPage() {
               {tr("编辑")}</Button>
           ) : null}
           {canRestart ? (
-            <Button
-              type="link"
-              size="small"
-              danger
-              disabled={!row.isEnabled || row.onlineStatus !== 'online'}
+            <Tooltip
               title={
                 !row.isEnabled
                   ? tr("节点已停用")
@@ -319,20 +316,34 @@ export function NodesPage() {
                     ? tr("节点离线，无法重启")
                     : undefined
               }
-              onClick={() => openRestartForm(row)}
             >
-              {tr("重启")}</Button>
+              <Button
+                type="link"
+                size="small"
+                danger
+                disabled={!row.isEnabled || row.onlineStatus !== 'online'}
+                onClick={() => openRestartForm(row)}
+              >
+                {tr("重启")}</Button>
+            </Tooltip>
           ) : null}
           {canManage ? (
-            <Button
-              type="link"
-              size="small"
-              danger
-              disabled={row.installationCount > 0}
-              title={row.installationCount > 0 ? tr("仍有 {{arg0}} 个安装实例，需先删除", { arg0: row.installationCount }) : undefined}
-              onClick={() => confirmDeleteNode(row)}
+            <Tooltip
+              title={
+                row.installationCount > 0
+                  ? tr("仍有 {{arg0}} 个安装实例，需先删除", { arg0: row.installationCount })
+                  : undefined
+              }
             >
-              {tr("删除")}</Button>
+              <Button
+                type="link"
+                size="small"
+                danger
+                disabled={row.installationCount > 0}
+                onClick={() => confirmDeleteNode(row)}
+              >
+                {tr("删除")}</Button>
+            </Tooltip>
           ) : null}
         </Space>
       ),
@@ -536,9 +547,9 @@ function NodeDetailView({ node }: { node: NodeDetail }) {
             key: 'alarm',
             label: tr("报警"),
             children: alarm.color ? (
-              <Tag color={alarm.color} title={node.alarmMessage ?? undefined}>
-                {alarm.label}
-              </Tag>
+              <Tooltip title={node.alarmMessage}>
+                <Tag color={alarm.color}>{alarm.label}</Tag>
+              </Tooltip>
             ) : (
               tr("无")
             ),
