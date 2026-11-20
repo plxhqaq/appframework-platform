@@ -215,7 +215,7 @@ curl -s -X POST http://localhost:5080/api/v1/admin/backups/$ID/push \
 
 - 剩余宽限 = `deleted_at + 宽限期 - now`，向上取整到分钟，到期显示「等待下次清理」，≤5 分钟标红提示即将物理删除。
 - 文件完好 = `blob_path` 为空或 Blob 仍在；文件缺失的行只能「立即清理」，恢复按钮置灰。
-- 「全部清理」与单条清理共用同一执行器；命名空间删除仍以「含已删除待清理行」阻止（通用 `6`，HTTP 409）。
+- 「全部清理」与定时清理共用同一执行器；单条清理先删文件后删行就地执行。命名空间删除仍以「含已删除待清理行」阻止（通用 `6`，HTTP 409）。
 - 恢复/单条清理/全部清理分别写审计 `backups.restore` / `backups.purge`。
 - 宽限期本身通过 `GET|PUT /api/v1/admin/retention/settings`（`retention.cleanup.manage`，仅平台管理员默认持有）读写，
   备份与文档两域整体提交，最小 1 分钟。

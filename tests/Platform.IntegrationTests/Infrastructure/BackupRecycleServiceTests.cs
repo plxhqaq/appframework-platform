@@ -105,6 +105,39 @@ public sealed class BackupRecycleServiceTests : IDisposable
         Assert.Null(await db.Set<Backup>().SingleOrDefaultAsync(x => x.Id == backup.Id));
     }
 
+    [Fact]
+    public async Task 命名空间满额仍可恢复()
+    {
+        var clock = new TestClock();
+        await using var db = TestDbContext.Create(clock);
+        var blobs = CreateBlobs();
+        var service = new BackupRecycleService(
+            db, blobs, clock, new TestRetentionSettingsStore(), Options.Create(new BackupsOptions()));
+
+        var deleted = await SeedAsync(db, blobs, clock, "demo", "full", "backups/demo/full/deleted.json");
+        var space = await db.Set<BackupNamespace>().SingleAsync(x => x.Id == deleted.NamespaceId);
+        space.MaxVersions = 1;
+        db.Add(new Backup
+        {
+            AppKey = "demo",
+            NamespaceId = space.Id,
+            Name = "active",
+            FrameworkVersion = "1.0.0",
+            BlobPath = "backups/demo/full/active.json",
+            Sha256 = new string('b', 64),
+            SizeBytes = 7,
+        });
+        await db.SaveChangesAsync();
+
+        var restored = await service.RestoreAsync("demo", deleted.Id);
+
+        // 恢复不受配额门禁：max_versions=1 且已有 1 条未删行，恢复后为 2 条（后续新建才会 406）。
+        Assert.Equal("full", restored.NamespaceKey);
+        Assert.Equal(
+            2,
+            await db.Set<Backup>().CountAsync(x => x.NamespaceId == space.Id && x.DeletedAt == null));
+    }
+
     private static async Task<Backup> SeedAsync(
         Platform.Infrastructure.Persistence.PlatformDbContext db,
         LocalBlobStorage blobs,

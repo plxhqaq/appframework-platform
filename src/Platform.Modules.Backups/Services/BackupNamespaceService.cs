@@ -189,7 +189,8 @@ public sealed partial class BackupNamespaceService : IBackupNamespaceService
                          ApiErrorCode.BackupsNamespaceNotFound,
                          $"命名空间 {id} 不存在。");
 
-        // 软删除的备份仍占配额、可被恢复；彻底清理后才可删命名空间。
+        // 软删除的备份不占配额（配额只计未软删行），但仍阻塞命名空间删除；
+        // 宽限期内可恢复，彻底清理后才能删。
         var remaining = await _db.Set<Backup>()
             .CountAsync(x => x.NamespaceId == id, cancellationToken);
         if (remaining > 0)

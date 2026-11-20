@@ -191,17 +191,40 @@ public sealed class RetentionCleanupTests : IDisposable
             Sha256 = new string('a', 64),
             DeletedAt = document.DeletedAt,
         });
+        var space = new BackupNamespace { AppKey = "demo", Key = "grace-fallback", Name = "回落" };
+        db.Add(space);
+        var backup = new Backup
+        {
+            AppKey = "demo",
+            NamespaceId = space.Id,
+            Name = "kept",
+            FrameworkVersion = "1.0.0",
+            BlobPath = "backups/demo/grace-fallback/kept.json",
+            DeletedAt = clock.UtcNow.AddMinutes(-60),
+        };
+        db.Add(backup);
         await db.SaveChangesAsync();
         await blobs.WriteAsync(document.BlobPath, new MemoryStream("payload"u8.ToArray()));
+        await blobs.WriteAsync(backup.BlobPath, new MemoryStream("payload"u8.ToArray()));
 
         var settings = new TestRetentionSettingsStore();
-        var task = new DocumentsCleanupTask(
-            db, blobs, clock, Options.Create(new DocumentsOptions { CleanupGraceMinutes = 30 }), settings);
 
-        var result = await task.RunAsync();
+        // 选项宽限 120 分钟 > 删除时间 60 分钟前：真正回落选项则一行都不动，写成常量 1 会全部清掉。
+        var documents = new DocumentsCleanupTask(
+            db, blobs, clock, Options.Create(new DocumentsOptions { CleanupGraceMinutes = 120 }), settings);
+        var backups = new BackupCleanupTask(
+            db, blobs, clock, Options.Create(new BackupsOptions { CleanupGraceMinutes = 120 }), settings);
 
-        Assert.Equal(2, result.RowsDeleted);
-        Assert.Null(await db.Set<Document>().SingleOrDefaultAsync(x => x.Id == document.Id));
+        var documentResult = await documents.RunAsync();
+        var backupResult = await backups.RunAsync();
+
+        Assert.Equal(0, documentResult.RowsDeleted);
+        Assert.Equal(0, backupResult.RowsDeleted);
+        Assert.NotNull(await db.Set<Document>().SingleOrDefaultAsync(x => x.Id == document.Id));
+        Assert.NotNull(await db.Set<DocumentRevision>().SingleOrDefaultAsync(x => x.DocumentId == document.Id));
+        Assert.NotNull(await db.Set<Backup>().SingleOrDefaultAsync(x => x.Id == backup.Id));
+        Assert.True(await blobs.ExistsAsync(document.BlobPath));
+        Assert.True(await blobs.ExistsAsync(backup.BlobPath));
     }
 
     public void Dispose()
