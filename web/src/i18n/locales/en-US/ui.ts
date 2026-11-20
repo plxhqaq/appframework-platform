@@ -1142,6 +1142,8 @@ export const uiEn: Record<string, string> = {
   "恢复后文档与全部修订重新出现在列表与客户端清单中。": "After restoring, the document and all revisions reappear in the list and the client manifest.",
   "立即清理「{{arg0}}」？此操作不可恢复。": "Purge \"{{arg0}}\" now? This cannot be undone.",
   "清理回收站全部 {{arg0}} 条记录？此操作不可恢复。": "Purge all {{arg0}} items in the recycle bin? This cannot be undone.",
+  "清理回收站全部记录？": "Purge every item in the recycle bin?",
+  "将清理回收站全部记录（不受当前筛选影响），此操作不可恢复。": "This purges every item in the recycle bin (the current filter is ignored). This cannot be undone.",
   "已清理 {{arg0}} 条记录、回收 {{arg1}} 个文件": "Purged {{arg0}} records and reclaimed {{arg1}} files",
   "备份已恢复": "Backup restored",
   "文档已恢复": "Document restored",

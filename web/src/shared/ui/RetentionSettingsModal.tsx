@@ -1,7 +1,7 @@
 import { tr } from '../../i18n/translate';
-import { App, Form, InputNumber, Modal, Space, Tag, Typography } from 'antd';
+import { Alert, App, Button, Form, InputNumber, Modal, Space, Tag, Typography } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { retentionApi } from '../api/retention';
 import type { UpdateRetentionSettingsRequest } from '../api/types';
 
@@ -10,6 +10,8 @@ export function RetentionSettingsModal({ open, onClose }: { open: boolean; onClo
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [form] = Form.useForm<UpdateRetentionSettingsRequest>();
+  // 只反映本次保存的在途状态；打开弹窗或后台重取不应让保存按钮转圈
+  const [saving, setSaving] = useState(false);
 
   const settings = useQuery({
     queryKey: ['retention', 'settings'],
@@ -33,6 +35,7 @@ export function RetentionSettingsModal({ open, onClose }: { open: boolean; onClo
       return;
     }
 
+    setSaving(true);
     try {
       await retentionApi.updateSettings(values);
       message.success(tr("清理宽限期已保存"));
@@ -42,6 +45,8 @@ export function RetentionSettingsModal({ open, onClose }: { open: boolean; onClo
       await queryClient.invalidateQueries({ queryKey: ['documents'] });
     } catch (error) {
       message.error(error instanceof Error ? error.message : tr("保存失败"));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -54,20 +59,34 @@ export function RetentionSettingsModal({ open, onClose }: { open: boolean; onClo
       title={tr("清理宽限期")}
       okText={tr("保存")}
       cancelText={tr("取消")}
-      confirmLoading={settings.isFetching}
+      confirmLoading={saving}
+      okButtonProps={{ disabled: settings.isError || !settings.data }}
       onOk={() => void submit()}
       onCancel={onClose}
     >
       <Typography.Paragraph type="secondary">
         {tr("软删除到物理清理之间的等待时间；宽限期内可在回收站恢复。修改作用于平台全部应用。")}
       </Typography.Paragraph>
-      <Form form={form} layout="vertical">
+      {settings.isError ? (
+        <Alert
+          type="error"
+          showIcon
+          message={(settings.error as Error).message}
+          action={
+            <Button size="small" onClick={() => void settings.refetch()}>
+              {tr("重试")}
+            </Button>
+          }
+        />
+      ) : null}
+      <Form form={form} layout="vertical" style={{ marginTop: settings.isError ? 12 : 0 }}>
         <Form.Item
           name="backupsGraceMinutes"
           label={
             <Space size={6}>
               {tr("备份")}
-              {sourceTag(settings.data?.backups.isDatabaseValue ?? false)}
+              {/* 来源未知（加载中/失败）时不贴标签，避免把两域都误标成「出厂默认」 */}
+              {settings.data ? sourceTag(settings.data.backups.isDatabaseValue) : null}
             </Space>
           }
           rules={[{ required: true, type: 'number', min: 1, message: tr("最小 1 分钟") }]}
@@ -79,7 +98,7 @@ export function RetentionSettingsModal({ open, onClose }: { open: boolean; onClo
           label={
             <Space size={6}>
               {tr("文档")}
-              {sourceTag(settings.data?.documents.isDatabaseValue ?? false)}
+              {settings.data ? sourceTag(settings.data.documents.isDatabaseValue) : null}
             </Space>
           }
           rules={[{ required: true, type: 'number', min: 1, message: tr("最小 1 分钟") }]}

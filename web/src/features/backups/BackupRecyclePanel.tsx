@@ -19,7 +19,7 @@ import {
   Typography,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { backupsApi } from '../../shared/api/backups';
 import type { DeletedBackup } from '../../shared/api/types';
 import { formatBytes, formatDateTime } from '../../shared/format';
@@ -49,6 +49,13 @@ export function BackupRecyclePanel({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // 上下文在 Header 切换；旧应用的筛选/分页不能带到新应用
+  useEffect(() => {
+    setKeyword('');
+    setPage(1);
+    setPageSize(20);
+  }, [appKey]);
 
   const deleted = useQuery({
     queryKey: ['backups', 'recycle', appKey, keyword, page, pageSize],
@@ -106,11 +113,19 @@ export function BackupRecyclePanel({
     });
   };
 
+  // purge-all 不看筛选条件；有关键词时 total 只是筛选后的条数，不能当作整体条数展示
+  const hasKeyword = keyword.trim().length > 0;
+
   const handlePurgeAll = () => {
     modal.confirm({
-      title: tr("清理回收站全部 {{arg0}} 条记录？此操作不可恢复。", {
-        arg0: deleted.data?.total ?? 0,
-      }),
+      title: hasKeyword
+        ? tr("清理回收站全部记录？")
+        : tr("清理回收站全部 {{arg0}} 条记录？此操作不可恢复。", {
+            arg0: deleted.data?.total ?? 0,
+          }),
+      content: hasKeyword
+        ? tr("将清理回收站全部记录（不受当前筛选影响），此操作不可恢复。")
+        : undefined,
       okText: tr("全部清理"),
       okButtonProps: { danger: true },
       cancelText: tr("取消"),
@@ -241,7 +256,12 @@ export function BackupRecyclePanel({
           </Button>
         ) : null}
         {canPurge ? (
-          <Button danger icon={<DeleteOutlined />} onClick={handlePurgeAll}>
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            disabled={!hasKeyword && (deleted.data?.total ?? 0) === 0}
+            onClick={handlePurgeAll}
+          >
             {tr("全部清理")}
           </Button>
         ) : null}
