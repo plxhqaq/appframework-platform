@@ -55,8 +55,8 @@ const DONE_STATUSES: ReleasePackageStatus[] = ['ready'];
 
 /**
  * 上传安装包：管理台不提供任何手填元数据，渠道/版本/类型/运行时/说明全部取自包内清单
- * （PE 内嵌清单、zip 内 af-package.json 或旁挂 JSON）。登记结果一律为草稿版本，
- * 由上传者在草稿阶段核对并编辑发布说明，再走发布确认。
+ * （PE 内嵌清单、zip 内 af-package.json 或旁挂 JSON）。新版本登记为草稿，由上传者在草稿阶段
+ * 核对并编辑发布说明，再走发布确认；向已发布版本追加的包则直接并入并即时生效。
  */
 export function PackageUploadModal({
   open,
@@ -132,7 +132,7 @@ export function PackageUploadModal({
 
       setResult(registered);
       message.success(
-        tr('{{file}} 已登记为草稿（{{version}}，{{kind}}，{{target}}）', {
+        tr('{{file}} 已完成登记（{{version}}，{{kind}}，{{target}}）', {
           file: registered.fileName,
           version: registered.version,
           kind: packageKindMeta(registered.kind).label,
@@ -156,6 +156,14 @@ export function PackageUploadModal({
     },
   });
   const current = polling.data ?? result;
+
+  // 登记落地后的真实语义跟目标版本状态走：新版本进草稿；向已发布版本追加包则直接并入并即时生效。
+  const release = useQuery({
+    queryKey: ['versions', 'release', current?.releaseId],
+    queryFn: ({ signal }) => versionsApi.getRelease(current!.releaseId, signal),
+    enabled: current !== null && current.status === 'ready',
+  });
+  const publishedTarget = release.data?.status === 'published';
 
   const retry = useMutation({
     mutationFn: () => versionsApi.retryPackage(current!.id),
@@ -188,13 +196,15 @@ export function PackageUploadModal({
 
   const settled = current !== null;
   const succeeded = current?.status === 'ready';
+  // 只有目标版本确为草稿才提供「查看草稿版本」；状态未知或已发布时不引导发布页。
+  const draftEntry = succeeded && release.data?.status === 'draft';
 
   return (
     <Modal
       open={open}
       width={640}
       title={tr("上传安装包")}
-      okText={settled ? (succeeded ? tr("查看草稿版本") : tr("关闭")) : tr("上传并登记")}
+      okText={settled ? (draftEntry ? tr("查看草稿版本") : tr("关闭")) : tr("上传并登记")}
       cancelText={tr("关闭")}
       confirmLoading={mutation.isPending}
       maskClosable={!mutation.isPending}
@@ -202,7 +212,7 @@ export function PackageUploadModal({
       onCancel={mutation.isPending ? undefined : onClose}
       onOk={() => {
         if (settled) {
-          if (succeeded) {
+          if (draftEntry) {
             onOpenRelease(current.releaseId);
           }
           onClose();
@@ -224,7 +234,7 @@ export function PackageUploadModal({
         showIcon
         style={{ marginBottom: 12 }}
         message={tr("信息全部取自安装包内清单")}
-        description={tr("渠道、版本、包类型、运行时与说明由构建脚本写入包内清单；登记后进入草稿，核对信息并补充发布说明后再发布。")}
+        description={tr("渠道、版本、包类型、运行时与说明由构建脚本写入包内清单；新版本登记后进入草稿，核对信息并补充发布说明后再发布；向已发布版本追加安装包则直接并入、即时生效。")}
       />
 
       <Upload.Dragger
@@ -343,7 +353,13 @@ export function PackageUploadModal({
           size="small"
           column={1}
           bordered
-          title={tr("登记结果（草稿）")}
+          title={
+            !release.data
+              ? tr("登记结果")
+              : publishedTarget
+                ? tr("登记结果（已并入已发布版本）")
+                : tr("登记结果（草稿）")
+          }
           items={[
             {
               key: 'channel',
@@ -386,14 +402,26 @@ export function PackageUploadModal({
         />
       ) : null}
 
-      {succeeded ? (
-        <Alert
-          type="success"
-          showIcon
-          style={{ marginTop: 12 }}
-          message={tr("已登记为草稿版本，尚未发布")}
-          description={tr("点击「查看草稿版本」核对信息并编辑发布说明；发布前还会再确认一次。")}
-        />
+      {succeeded && release.data ? (
+        publishedTarget ? (
+          <Alert
+            type="success"
+            showIcon
+            style={{ marginTop: 12 }}
+            message={tr("已合并入已发布版本")}
+            description={tr("安装包已并入已发布版本 {{version}} 并即时生效，无需再发布；发布说明不可修改。", {
+              version: release.data.version,
+            })}
+          />
+        ) : (
+          <Alert
+            type="success"
+            showIcon
+            style={{ marginTop: 12 }}
+            message={tr("已登记为草稿版本，尚未发布")}
+            description={tr("点击「查看草稿版本」核对信息并编辑发布说明；发布前还会再确认一次。")}
+          />
+        )
       ) : null}
     </Modal>
   );

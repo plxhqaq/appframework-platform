@@ -71,6 +71,8 @@ export function ReleasePublishModal({
   });
 
   const release = detail.data;
+  // 弹窗打开期间版本被别处发布/归档（或缓存停留在草稿）时转只读，避免提交必然 409。
+  const immutable = release !== undefined && release.status !== 'draft';
 
   return (
     <Modal
@@ -81,13 +83,19 @@ export function ReleasePublishModal({
           ? tr("发布版本 {{arg0}}", { arg0: release?.version ?? '' })
           : tr("编辑发布说明")
       }
-      okText={mode === 'publish' ? tr("确认发布") : tr("保存")}
+      okText={immutable ? tr("关闭") : mode === 'publish' ? tr("确认发布") : tr("保存")}
       cancelText={tr("取消")}
       confirmLoading={submit.isPending}
       maskClosable={!submit.isPending}
       closable={!submit.isPending}
       onCancel={submit.isPending ? undefined : onClose}
-      onOk={() => void submit.mutateAsync()}
+      onOk={() => {
+        if (immutable) {
+          onClose();
+          return;
+        }
+        void submit.mutateAsync();
+      }}
       destroyOnHidden
     >
       {detail.isError ? (
@@ -119,7 +127,7 @@ export function ReleasePublishModal({
               {
                 key: 'packages',
                 label: tr("发布包"),
-                children: tr('{{count}} 个', { count: release.packageCount }),
+                children: tr('{{count}} 个', { count: release.packages?.length ?? 0 }),
               },
               { key: 'artifacts', label: tr("产物"), children: release.artifactCount },
               { key: 'files', label: tr("文件数"), children: release.fileCount },
@@ -152,16 +160,23 @@ export function ReleasePublishModal({
             maxLength={4000}
             showCount
             value={notes}
-            disabled={!notesLoaded}
+            disabled={!notesLoaded || immutable}
             onChange={(event) => setNotes(event.target.value)}
             placeholder={tr("取自安装包内清单，可在此补充或修改")}
           />
 
-          {mode === 'publish' ? (
+          {immutable ? (
+            <Alert
+              type="warning"
+              showIcon
+              message={tr("该版本已不是草稿，发布说明不可再修改")}
+              description={tr("安装包已并入该版本并即时生效；如需更正说明，请创建新版本。")}
+            />
+          ) : mode === 'publish' ? (
             <Alert
               type="info"
               showIcon
-              style={{ marginTop: 40 }}
+              style={{ marginTop: 12 }}
               message={tr("发布后客户端 check 才会下发该版本")}
               description={tr("确认渠道、版本与发布包信息无误后再发布；已发布版本不能再改说明。")}
             />

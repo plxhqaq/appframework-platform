@@ -324,6 +324,13 @@ body {
 .ant-drawer-content-wrapper {
   max-width: 100vw;
 }
+
+/* TextArea 的 showCount 计数行悬在文本框下沿之外约 22px：文本框排在 Modal/Drawer
+   末尾时，计数会被底部按钮条压掉半截。统一在下方垫一行高，任何用到 showCount 的
+   容器（含以后新增的）都不必各自补 marginTop。 */
+.ant-input-textarea-show-count {
+  margin-bottom: 22px;
+}
 /* 仪表盘：系统运行时间每秒推进，等宽数字避免宽度抖动。 */
 .dashboard-uptime {
   display: inline-block;

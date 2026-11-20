@@ -472,8 +472,10 @@ export interface ReleaseArtifact {
   files: ReleaseFile[];
 }
 
-/** 版本详情。 */
-export interface ReleaseDetail extends ReleaseSummary {
+/** 版本详情。服务端详情接口不返回包计数（仅列表摘要带），以 packages 为准。 */
+export interface ReleaseDetail extends Omit<ReleaseSummary, 'packageCount' | 'packageSizeBytes'> {
+  packageCount?: number;
+  packageSizeBytes?: number;
   archivedAt?: string | null;
   createdBy?: string | null;
   artifacts: ReleaseArtifact[];
