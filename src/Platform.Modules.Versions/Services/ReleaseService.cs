@@ -392,49 +392,8 @@ public sealed partial class ReleaseService : IReleaseService
         _db.Set<Release>().Remove(release);
         await _db.SaveChangesAsync(cancellationToken);
 
-        await DeleteUnreferencedBlobsAsync(appKey, shas, cancellationToken);
+        await VersionBlobReclaim.DeleteUnreferencedAsync(_db, _blobs, appKey, shas, cancellationToken);
         return detail;
-    }
-
-    private async Task DeleteUnreferencedBlobsAsync(
-        string appKey,
-        List<string> shas,
-        CancellationToken cancellationToken)
-    {
-        const int batchSize = 500;
-        for (var offset = 0; offset < shas.Count; offset += batchSize)
-        {
-            var chunk = shas.GetRange(offset, Math.Min(batchSize, shas.Count - offset));
-
-            // 引用判定与孤儿扫描同口径：可能来自任何应用，四类行都算引用。
-            var referenced = new HashSet<string>(StringComparer.Ordinal);
-            referenced.UnionWith(await _db.Set<ReleaseFile>()
-                .Where(x => chunk.Contains(x.Sha256))
-                .Select(static x => x.Sha256)
-                .Distinct()
-                .ToListAsync(cancellationToken));
-            referenced.UnionWith(await _db.Set<ReleasePackage>()
-                .Where(x => chunk.Contains(x.Sha256))
-                .Select(static x => x.Sha256)
-                .Distinct()
-                .ToListAsync(cancellationToken));
-            referenced.UnionWith(await _db.Set<AppUpdaterRelease>()
-                .Where(x => chunk.Contains(x.Sha256))
-                .Select(static x => x.Sha256)
-                .Distinct()
-                .ToListAsync(cancellationToken));
-            referenced.UnionWith(await _db.Set<DriverMedia>()
-                .Where(x => chunk.Contains(x.Sha256))
-                .Select(static x => x.Sha256)
-                .Distinct()
-                .ToListAsync(cancellationToken));
-
-            foreach (var sha in chunk.Where(x => !referenced.Contains(x)))
-            {
-                await _blobs.DeleteAsync(VersionBlobPaths.Blob(appKey, sha), cancellationToken);
-                await _blobs.DeleteAsync(VersionBlobPaths.ArchiveZip(appKey, sha), cancellationToken);
-            }
-        }
     }
 
     /// <inheritdoc />

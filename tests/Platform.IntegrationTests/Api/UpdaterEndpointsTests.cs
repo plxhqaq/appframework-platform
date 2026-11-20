@@ -3,9 +3,12 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.DependencyInjection;
 using Platform.Contracts;
+using Platform.Contracts.Identity;
 using Platform.Contracts.Versions;
 using Platform.IntegrationTests.Support;
+using Platform.Kernel.Abstractions;
 
 namespace Platform.IntegrationTests.Api;
 
@@ -313,6 +316,80 @@ public sealed class UpdaterEndpointsTests
                 new RegisterUpdaterRequest(null, "4.0.0", "updater.bin", rawSha, rawBytes.Length))));
         Assert.Equal("4.0.0", withVersion.Version);
         Assert.Equal(VersionConventions.PackageTargetAny, withVersion.Target);
+    }
+
+    [Fact]
+    public async Task 删除更新器按状态受控并回收无引用的落盘内容()
+    {
+        using var factory = new PlatformApiFactory();
+        using var client = factory.CreateClient();
+        var token = await LoginAsync(client);
+
+        var raw = "updater-shared-binary"u8.ToArray();
+        var sha = await UploadAsync(client, token, raw);
+        var win = await RegisterAsync(client, token, new RegisterUpdaterRequest(
+            "win-x64", "9.1.0", "updater-9.bin", sha, raw.Length));
+        var linux = await RegisterAsync(client, token, new RegisterUpdaterRequest(
+            "linux-x64", "9.1.0", "updater-9.bin", sha, raw.Length));
+
+        var blobs = factory.Services.GetRequiredService<IBlobStorage>();
+        var blobPath = $"versions/{IdentityConventions.DemoAppKey}/{sha}";
+
+        // 已发布拒绝删除（409），须先归档。
+        Assert.Equal(
+            (int)ApiErrorCode.VersionsReleaseImmutable,
+            await IdentityTestHelpers.ReadErrorCodeAsync(
+                await client.SendAsync(IdentityTestHelpers.Authorized(
+                    HttpMethod.Delete,
+                    $"/api/v1/admin/versions/updaters/{win.Id}",
+                    token)),
+                HttpStatusCode.Conflict));
+
+        // 先下载一次生成 {sha}.zip 派生缓存。
+        var ticket = await ReadDataAsync<DownloadTicketDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Post,
+                $"/api/v1/client/versions/updaters/{win.Id}/download-ticket",
+                token)));
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(ticket.Url)).StatusCode);
+
+        // 归档后删除 win 行：内容仍被 linux 行引用，源与派生缓存必须保留。
+        await ArchiveAsync(client, token, win.Id);
+        var deletedWin = await ReadDataAsync<UpdaterInfoDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Delete,
+                $"/api/v1/admin/versions/updaters/{win.Id}",
+                token)));
+        Assert.Equal(VersionConventions.StatusArchived, deletedWin.Status);
+        Assert.True(await blobs.ExistsAsync(blobPath));
+        Assert.True(await blobs.ExistsAsync($"{blobPath}.zip"));
+
+        var listed = await ReadDataAsync<PageResult<UpdaterInfoDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                "/api/v1/admin/versions/updaters",
+                token)));
+        Assert.DoesNotContain(listed.Items, x => x.Id == win.Id);
+
+        // 删除最后一行：源与 {sha}.zip 派生缓存一并回收。
+        await ArchiveAsync(client, token, linux.Id);
+        await ReadDataAsync<UpdaterInfoDto>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Delete,
+                $"/api/v1/admin/versions/updaters/{linux.Id}",
+                token)));
+        Assert.False(await blobs.ExistsAsync(blobPath));
+        Assert.False(await blobs.ExistsAsync($"{blobPath}.zip"));
+
+        // 删行后按不存在处理，而不是 500。
+        Assert.Equal(
+            (int)ApiErrorCode.VersionsUpdaterNotFound,
+            await IdentityTestHelpers.ReadErrorCodeAsync(
+                await client.SendAsync(IdentityTestHelpers.Authorized(
+                    HttpMethod.Delete,
+                    $"/api/v1/admin/versions/updaters/{linux.Id}",
+                    token)),
+                HttpStatusCode.NotFound));
     }
 
     private static async Task<UpdaterInfoDto> RegisterVersionAsync(

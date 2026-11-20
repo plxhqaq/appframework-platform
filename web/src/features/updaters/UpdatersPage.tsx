@@ -53,6 +53,9 @@ export function UpdatersPage() {
   const canArchive = useAuthStore((state) =>
     state.hasPermission(PERMISSIONS.versionsReleaseArchive),
   );
+  const canDelete = useAuthStore((state) =>
+    state.hasPermission(PERMISSIONS.versionsReleaseDelete),
+  );
   const canDownload = useAuthStore((state) =>
     state.hasPermission(PERMISSIONS.versionsArtifactDownload),
   );
@@ -126,6 +129,26 @@ export function UpdatersPage() {
       okButtonProps: { danger: true },
       cancelText: tr("取消"),
       onOk: () => archive.mutateAsync(row.id),
+    });
+  };
+
+  const remove = useMutation({
+    mutationFn: (id: string) => versionsApi.deleteUpdater(id),
+    onSuccess: async (deleted) => {
+      message.success(tr("更新器 {{arg0}}/{{arg1}} 已删除", { arg0: deleted.target, arg1: deleted.version }));
+      await refresh();
+    },
+    onError: (error: Error) => message.error(error.message),
+  });
+
+  const confirmRemove = (row: UpdaterInfo) => {
+    modal.confirm({
+      title: tr("彻底删除已归档更新器 {{arg0}}/{{arg1}}？", { arg0: row.target, arg1: row.version }),
+      content: tr("删除登记行并回收仍无引用的落盘内容；同一内容被其它版本或媒体使用时会保留。"),
+      okText: tr("删除"),
+      okButtonProps: { danger: true },
+      cancelText: tr("取消"),
+      onOk: () => remove.mutateAsync(row.id),
     });
   };
 
@@ -242,6 +265,16 @@ export function UpdatersPage() {
               onClick={() => confirmArchive(row)}
             >
               {tr("归档")}</Button>
+          ) : null}
+          {canDelete && row.status === 'archived' ? (
+            <Button
+              type="link"
+              size="small"
+              danger
+              loading={remove.isPending}
+              onClick={() => confirmRemove(row)}
+            >
+              {tr("删除")}</Button>
           ) : null}
         </Space>
       ),

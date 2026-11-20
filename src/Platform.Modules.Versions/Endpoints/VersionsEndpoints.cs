@@ -884,6 +884,45 @@ internal static class VersionsEndpoints
             .WithName("versions.updaters.archive")
             .WithSummary("归档更新器版本（幂等；归档后 check 回退到上一版更新器）")
             .RequirePermission(PermissionCatalog.VersionsReleaseArchive);
+
+        admin.MapDelete(
+                "/updaters/{id:guid}",
+                async (
+                    HttpContext context,
+                    Guid id,
+                    ICurrentPrincipal principal,
+                    IUpdaterReleaseService updaters,
+                    IAuditWriter audit,
+                    CancellationToken cancellationToken) =>
+                {
+                    var appKey = RequireAppKey(principal);
+                    try
+                    {
+                        var deleted = await updaters.DeleteAsync(appKey, id, cancellationToken);
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.updater.delete",
+                            targetType: "app_updater_release",
+                            targetId: id.ToString(),
+                            result: AuditResults.Success,
+                            message: $"{deleted.Target}/{deleted.Version}");
+                        return ApiResults.Ok(context, deleted);
+                    }
+                    catch (BusinessException exception)
+                    {
+                        await WriteAuditAsync(
+                            context, audit, principal,
+                            action: "versions.updater.delete",
+                            targetType: "app_updater_release",
+                            targetId: id.ToString(),
+                            result: AuditResults.Failure,
+                            message: exception.Message);
+                        throw;
+                    }
+                })
+            .WithName("versions.updaters.delete")
+            .WithSummary("彻底删除已归档更新器版本（已发布拒绝；删除后回收无引用内容）")
+            .RequirePermission(PermissionCatalog.VersionsReleaseDelete);
     }
 
     private static void MapUploadEndpoints(RouteGroupBuilder admin)

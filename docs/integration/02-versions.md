@@ -202,6 +202,10 @@ curl -s -X POST http://localhost:5080/api/v1/admin/versions/releases \
 的引用判定），源文件与其 `{sha}.zip` 下载派生缓存一并删除，立即省出空间；`bundles/` 组合缓存属纯派生
 内容，仍由保留任务的孤儿扫描按宽限期回收。删除不可恢复，误删已归档版本只能重新上传同版本包。
 
+**删除更新器**（`DELETE /updaters/{id}`，`versions.release.delete`）：同口径的状态门控——已发布拒绝
+（`222`，409），仅已归档可删；删行后按同一套四类引用判定回收无引用的 `{sha}` 源与 `{sha}.zip` 派生缓存。
+更新器登记本无草稿态，「归档→删除」就是其完整退役链路。
+
 ---
 
 ## 5. 客户端接口：check / manifest / download
@@ -586,7 +590,7 @@ InMemory 集成测试覆盖不到。
 | 详情抽屉的发布包表 / 下载 | `versions.release.read` / `versions.artifact.download` | `GET /packages` / `POST /api/v1/client/versions/packages/{id}/download-ticket` → `GET /downloads/{ticket}` |
 | 删除草稿版本的包 | `versions.release.archive` | `DELETE /packages/{id}` |
 | 增量包摄取状态轮询 / 重试 | `versions.release.read` / `versions.artifact.upload` | `GET /packages/{id}` / `POST /packages/{id}/retry` |
-| 更新器列表 / 上传 / 归档 / 下载 | `versions.release.read` / `versions.artifact.upload` / `versions.release.archive` / `versions.artifact.download` | `GET` / `POST /updaters`、`POST /updaters/{id}/archive`、`POST /updaters/{id}/download-ticket` → `GET /downloads/{ticket}` |
+| 更新器列表 / 上传 / 归档 / 删除 / 下载 | `versions.release.read` / `versions.artifact.upload` / `versions.release.archive` / `versions.release.delete` / `versions.artifact.download` | `GET` / `POST /updaters`、`POST /updaters/{id}/archive`、`DELETE /updaters/{id}`、`POST /updaters/{id}/download-ticket` → `GET /downloads/{ticket}` |
 | 顶部「当前应用」选择器 | — | `POST /api/v1/admin/auth/context` |
 
 页面细节：状态标签草稿/已发布/已归档对应三个状态常量；创建类请求由前端生成 `Idempotency-Key`

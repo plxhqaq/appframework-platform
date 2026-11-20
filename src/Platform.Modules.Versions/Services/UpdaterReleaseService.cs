@@ -40,6 +40,9 @@ public interface IUpdaterReleaseService
     /// <summary>归档更新器版本（幂等）。</summary>
     Task<UpdaterInfoDto> ArchiveAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
 
+    /// <summary>彻底删除更新器版本；仅已归档可删（已发布拒绝），删除后回收无引用的落盘内容。</summary>
+    Task<UpdaterInfoDto> DeleteAsync(string appKey, Guid id, CancellationToken cancellationToken = default);
+
     /// <summary>客户端下载定位：仅已发布且 Blob 存在。</summary>
     Task<UpdaterReleaseDownload> ResolveDownloadAsync(
         string appKey,
@@ -387,6 +390,35 @@ public sealed partial class UpdaterReleaseService : IUpdaterReleaseService
         await _db.SaveChangesAsync(cancellationToken);
 
         return ToDto(entity, reused: false);
+    }
+
+    /// <inheritdoc />
+    public async Task<UpdaterInfoDto> DeleteAsync(
+        string appKey,
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await _db.Set<AppUpdaterRelease>()
+                         .FirstOrDefaultAsync(x => x.Id == id && x.AppKey == appKey, cancellationToken)
+                     ?? throw BusinessException.NotFound(
+                         ApiErrorCode.VersionsUpdaterNotFound,
+                         $"更新器 {id} 不存在。");
+
+        if (entity.Status != VersionConventions.StatusArchived)
+        {
+            throw new BusinessException(
+                ApiErrorCode.VersionsReleaseImmutable,
+                $"更新器 {entity.Target}/{entity.Version} 未归档，请先归档再彻底删除。");
+        }
+
+        var dto = ToDto(entity, reused: false);
+        _db.Set<AppUpdaterRelease>().Remove(entity);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        // 内容寻址去重：与版本/媒体共用 sha 的内容在其它登记行仍被引用时必须留下。
+        await VersionBlobReclaim.DeleteUnreferencedAsync(
+            _db, _blobs, appKey, new List<string> { entity.Sha256 }, cancellationToken);
+        return dto;
     }
 
     /// <inheritdoc />

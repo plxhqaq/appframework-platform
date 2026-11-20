@@ -184,6 +184,10 @@ export const versionsApi = {
   archiveUpdater: (id: string) =>
     request<UpdaterInfo>(`/api/v1/admin/versions/updaters/${id}/archive`, { method: 'POST' }),
 
+  /** 彻底删除已归档更新器（已发布拒绝）。 */
+  deleteUpdater: (id: string) =>
+    request<UpdaterInfo>(`/api/v1/admin/versions/updaters/${id}`, { method: 'DELETE' }),
+
   /** 某运行时下客户端实际会拿到的更新器（同 RID 优先、再回退 any）。 */
   latestUpdater: (runtimeIdentifier: string, signal?: AbortSignal) =>
     request<UpdaterInfo>(
