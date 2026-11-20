@@ -9,11 +9,9 @@ import {
   Col,
   Descriptions,
   Flex,
-  InputNumber,
   Progress,
   Row,
   Space,
-  Switch,
   Table,
   Tag,
   Typography,
@@ -25,11 +23,9 @@ import { PageHeading } from '../../app/PageHeading';
 import { platformApi } from '../../shared/api/platform';
 import type { ModuleInfo } from '../../shared/api/types';
 import { formatBytes, formatDateTime } from '../../shared/format';
+import { AutoRefreshControls } from '../../shared/ui/AutoRefreshControls';
+import { useAutoRefresh } from '../../shared/useAutoRefresh';
 import { renderTableExpandIcon } from '../../shared/ui/TableExpandIcon';
-
-const DEFAULT_INTERVAL_SECONDS = 60;
-const MIN_INTERVAL_SECONDS = 1;
-const MAX_INTERVAL_SECONDS = 3600;
 
 interface UptimeAnchor {
   sampledAt: number;
@@ -309,8 +305,7 @@ function renderModuleDetails(module: ModuleInfo) {
  */
 export function OverviewPage() {
   const { token } = antdTheme.useToken();
-  const [autoRefresh, setAutoRefresh] = useState(false);
-  const [intervalSeconds, setIntervalSeconds] = useState(DEFAULT_INTERVAL_SECONDS);
+  const autoRefresh = useAutoRefresh();
   const [uptimeAnchor, setUptimeAnchor] = useState<UptimeAnchor | null>(null);
 
   const modules = useQuery({
@@ -321,7 +316,7 @@ export function OverviewPage() {
   const dashboard = useQuery({
     queryKey: ['platform', 'dashboard'],
     queryFn: ({ signal }) => platformApi.dashboard(signal),
-    refetchInterval: autoRefresh ? intervalSeconds * 1000 : false,
+    refetchInterval: autoRefresh.refetchInterval,
   });
 
   useEffect(() => {
@@ -352,9 +347,7 @@ export function OverviewPage() {
 
   const onlineRate = nodes && nodes.total > 0 ? (nodes.online / nodes.total) * 100 : 0;
 
-  const intervalLabel = autoRefresh
-    ? tr("每 {{arg0}} 秒自动刷新", { arg0: intervalSeconds })
-    : tr("自动刷新已暂停");
+  const intervalLabel = autoRefresh.label;
 
   return (
     <Flex vertical gap={16}>
@@ -367,33 +360,7 @@ export function OverviewPage() {
         }
         extra={
           <Space size={8} wrap>
-            <Space size={6} align="center">
-              <Switch size="small" checked={autoRefresh} onChange={setAutoRefresh} />
-              <Typography.Text>{tr("自动刷新")}</Typography.Text>
-            </Space>
-            <Space size={4} align="center">
-              <InputNumber
-                size="small"
-                min={MIN_INTERVAL_SECONDS}
-                max={MAX_INTERVAL_SECONDS}
-                precision={0}
-                value={intervalSeconds}
-                disabled={!autoRefresh}
-                onChange={(value) => {
-                  if (typeof value === 'number' && Number.isFinite(value)) {
-                    setIntervalSeconds(
-                      Math.min(
-                        MAX_INTERVAL_SECONDS,
-                        Math.max(MIN_INTERVAL_SECONDS, Math.round(value)),
-                      ),
-                    );
-                  }
-                }}
-                style={{ width: 84 }}
-                aria-label={tr("自动刷新间隔（秒）")}
-              />
-              <Typography.Text type={autoRefresh ? undefined : 'secondary'}>{tr("秒")}</Typography.Text>
-            </Space>
+            <AutoRefreshControls state={autoRefresh} />
             <Button
               icon={<ReloadOutlined />}
               loading={dashboard.isFetching}

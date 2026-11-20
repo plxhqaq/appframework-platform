@@ -35,6 +35,8 @@ import type {
 } from '../../shared/api/types';
 import { PERMISSIONS } from '../../shared/permissions';
 import { responsivePagination, responsiveWidth } from '../../shared/responsive';
+import { AutoRefreshControls } from '../../shared/ui/AutoRefreshControls';
+import { useAutoRefresh } from '../../shared/useAutoRefresh';
 import { renderTableExpandIcon } from '../../shared/ui/TableExpandIcon';
 import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
@@ -92,13 +94,14 @@ export function NodesPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [saving, setSaving] = useState(false);
+  const autoRefresh = useAutoRefresh();
 
   const nodes = useQuery({
     queryKey: ['nodes', 'list', onlineStatus, isEnabled, keyword, page, pageSize],
     queryFn: ({ signal }) =>
       nodesApi.listNodes({ onlineStatus, isEnabled, keyword, page, pageSize }, signal),
-    // 跃迁事件失效为主，60s 兜底。
-    refetchInterval: 60_000,
+    // 跃迁事件失效回拉为主，轮询只是兜底，默认关闭、由页面开关手动打开。
+    refetchInterval: autoRefresh.refetchInterval,
   });
 
   const detail = useQuery({
@@ -356,8 +359,11 @@ export function NodesPage() {
         size="small"
         title={tr("节点")}
         extra={
-          <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
-            {tr("刷新")}</Button>
+          <Space size={8} wrap>
+            <AutoRefreshControls state={autoRefresh} />
+            <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
+              {tr("刷新")}</Button>
+          </Space>
         }
       >
         <Space wrap style={{ marginBottom: 12 }}>
