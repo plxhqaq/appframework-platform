@@ -15,6 +15,7 @@ import {
   Space,
   Switch,
   Table,
+  Tabs,
   Tag,
   Upload,
   Typography,
@@ -38,6 +39,7 @@ import { PERMISSIONS } from '../../shared/permissions';
 import { responsivePagination, responsiveWidth } from '../../shared/responsive';
 import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
+import { DocumentRecyclePanel } from './DocumentRecyclePanel';
 
 interface CollectionFormValues {
   key: string;
@@ -82,6 +84,11 @@ export function DocumentsPage() {
   );
   const canManage = useAuthStore((state) => state.hasPermission(PERMISSIONS.documentManage));
   const canDelete = useAuthStore((state) => state.hasPermission(PERMISSIONS.documentDelete));
+  const canRestore = useAuthStore((state) => state.hasPermission(PERMISSIONS.documentRestore));
+  const canPurge = useAuthStore((state) => state.hasPermission(PERMISSIONS.documentPurge));
+  const canManageGrace = useAuthStore((state) =>
+    state.hasPermission(PERMISSIONS.retentionCleanupManage),
+  );
 
   const appKeys = session?.appKeys ?? [];
   const appKey = session?.appKey ?? appKeys[0] ?? null;
@@ -103,6 +110,7 @@ export function DocumentsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<'list' | 'recycle'>('list');
 
   // 切换应用上下文在 Header 完成；旧应用的集合适配与详情抽屉要一起作废
   useEffect(() => {
@@ -561,71 +569,101 @@ export function DocumentsPage() {
         size="small"
         title={tr("文档")}
         extra={
-          canManage ? (
+          activeTab === 'list' && canManage ? (
             <Button type="primary" icon={<PlusOutlined />} onClick={openUploadForm}>
               {tr("上传文档")}</Button>
           ) : null
         }
       >
-        <Space wrap style={{ marginBottom: 12 }}>
-          <Select
-            allowClear
-            placeholder={tr("全部集合")}
-            style={{ width: 200, maxWidth: '100%' }}
-            value={collectionFilter}
-            onChange={(value) => {
-              setCollectionFilter(value);
-              setPage(1);
-            }}
-            options={(collections.data ?? []).map((item) => ({
-              value: item.key,
-              label: `${item.name}（${item.key}）`,
-            }))}
-          />
-          <Input
-            allowClear
-            placeholder={tr("按标题或文件名关键词过滤")}
-            style={{ width: 220, maxWidth: '100%' }}
-            value={keywordFilter}
-            onChange={(event) => {
-              setKeywordFilter(event.target.value);
-              setPage(1);
-            }}
-          />
-          <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
-            {tr("刷新")}</Button>
-        </Space>
+        <Tabs
+          activeKey={activeTab}
+          onChange={(key) => setActiveTab(key as 'list' | 'recycle')}
+          items={[
+            {
+              key: 'list',
+              label: tr("文档列表"),
+              children: (
+                <>
+                  <Space wrap style={{ marginBottom: 12 }}>
+                    <Select
+                      allowClear
+                      placeholder={tr("全部集合")}
+                      style={{ width: 200, maxWidth: '100%' }}
+                      value={collectionFilter}
+                      onChange={(value) => {
+                        setCollectionFilter(value);
+                        setPage(1);
+                      }}
+                      options={(collections.data ?? []).map((item) => ({
+                        value: item.key,
+                        label: `${item.name}（${item.key}）`,
+                      }))}
+                    />
+                    <Input
+                      allowClear
+                      placeholder={tr("按标题或文件名关键词过滤")}
+                      style={{ width: 220, maxWidth: '100%' }}
+                      value={keywordFilter}
+                      onChange={(event) => {
+                        setKeywordFilter(event.target.value);
+                        setPage(1);
+                      }}
+                    />
+                    <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
+                      {tr("刷新")}</Button>
+                  </Space>
 
-        {documents.isError ? (
-          <Alert
-            type="error"
-            showIcon
-            style={{ marginBottom: 16 }}
-            message={(documents.error as Error).message}
-            action={
-              <Button size="small" onClick={() => void documents.refetch()}>
-                {tr("重试")}</Button>
-            }
-          />
-        ) : null}
-        <Table<DocumentSummary>
-          scroll={{ x: 'max-content' }}
-          rowKey="id"
-          size="small"
-          loading={documents.isPending}
-          dataSource={documents.data?.items ?? []}
-          columns={documentColumns}
-          pagination={responsivePagination(isMobile, {
-            current: documents.data?.page ?? page,
-            pageSize: documents.data?.pageSize ?? pageSize,
-            total: documents.data?.total ?? 0,
-            showTotal: (total: number) => tr("共 {{arg0}} 篇文档", { arg0: total }),
-            onChange: (nextPage: number, nextPageSize: number) => {
-              setPage(nextPageSize === pageSize ? nextPage : 1);
-              setPageSize(nextPageSize);
+                  {documents.isError ? (
+                    <Alert
+                      type="error"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                      message={(documents.error as Error).message}
+                      action={
+                        <Button size="small" onClick={() => void documents.refetch()}>
+                          {tr("重试")}</Button>
+                      }
+                    />
+                  ) : null}
+                  <Table<DocumentSummary>
+                    scroll={{ x: 'max-content' }}
+                    rowKey="id"
+                    size="small"
+                    loading={documents.isPending}
+                    dataSource={documents.data?.items ?? []}
+                    columns={documentColumns}
+                    pagination={responsivePagination(isMobile, {
+                      current: documents.data?.page ?? page,
+                      pageSize: documents.data?.pageSize ?? pageSize,
+                      total: documents.data?.total ?? 0,
+                      showTotal: (total: number) => tr("共 {{arg0}} 篇文档", { arg0: total }),
+                      onChange: (nextPage: number, nextPageSize: number) => {
+                        setPage(nextPageSize === pageSize ? nextPage : 1);
+                        setPageSize(nextPageSize);
+                      },
+                    })}
+                    locale={{ emptyText: tr("尚无文档") }}
+                  />
+                </>
+              ),
             },
-          })}
-          locale={{ emptyText: tr("尚无文档") }}
+            ...(canRestore
+              ? [
+                  {
+                    key: 'recycle',
+                    label: tr("回收站"),
+                    children: (
+                      <DocumentRecyclePanel
+                        appKey={appKey}
+                        canRestore={canRestore}
+                        canPurge={canPurge}
+                        canManageGrace={canManageGrace}
+                      />
+                    ),
+                  },
+                ]
+              : []),
+          ]}
         />
       </Card>
 
