@@ -242,7 +242,7 @@ export const versionsApi = {
     request<DriverMedia>(`/api/v1/admin/versions/media/${id}/deactivate`, { method: 'POST' }),
 
   deleteMedia: (id: string) =>
-    request<DriverMedia>(`/api/v1/admin/versions/media/${id}`, { method: 'DELETE' }),
+    request<boolean>(`/api/v1/admin/versions/media/${id}`, { method: 'DELETE' }),
 
   /** 管理台下载单个媒体包：限时票据，浏览器原生下载。 */
   createMediaDownloadTicket: (id: string) =>

@@ -92,7 +92,11 @@ export function DriverMediaPanel({ appKey, canUpload, canDownload, canArchive }:
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => versionsApi.deleteMedia(id),
+    // DELETE 只回布尔；提示用的键/版本取自发起删除时的行，避免插值出空值。
+    mutationFn: async (row: DriverMedia) => {
+      await versionsApi.deleteMedia(row.id);
+      return row;
+    },
     onSuccess: async (deleted) => {
       message.success(
         tr("已删除媒体包 {{arg0}}/{{arg1}}", {
@@ -134,7 +138,7 @@ export function DriverMediaPanel({ appKey, canUpload, canDownload, canArchive }:
       okText: tr("删除"),
       okButtonProps: { danger: true },
       cancelText: tr("取消"),
-      onOk: () => remove.mutateAsync(row.id),
+      onOk: () => remove.mutateAsync(row),
     });
   };
 
@@ -248,7 +252,7 @@ export function DriverMediaPanel({ appKey, canUpload, canDownload, canArchive }:
               type="link"
               size="small"
               danger
-              loading={remove.isPending && remove.variables === row.id}
+              loading={remove.isPending && remove.variables?.id === row.id}
               onClick={() => confirmDelete(row)}
             >
               {tr("删除")}</Button>
