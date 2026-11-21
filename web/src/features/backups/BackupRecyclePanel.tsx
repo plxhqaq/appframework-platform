@@ -154,7 +154,7 @@ export function BackupRecyclePanel({
       dataIndex: 'kind',
       key: 'kind',
       width: 90,
-      render: (kind: string) => <Tag>{kind}</Tag>,
+      render: (kind: string) => <Tag>{kind === 'config' ? tr("配置") : tr("档案")}</Tag>,
     },
     {
       title: tr("大小"),

@@ -479,7 +479,7 @@ export function BackupsPage() {
       dataIndex: 'kind',
       key: 'kind',
       width: 80,
-      render: (kind: BackupKind) => <Tag>{kind}</Tag>,
+      render: (kind: BackupKind) => <Tag>{kind === 'config' ? tr("配置") : tr("档案")}</Tag>,
     },
     {
       title: tr("渠道"),
