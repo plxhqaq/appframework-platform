@@ -543,10 +543,15 @@ internal static class BackupEndpoints
                 {
                     var appKey = RequireAppKey(principal);
                     var query = new PageQuery { Page = page, PageSize = pageSize };
+                    var requestedKey = namespaceKey?.Trim();
+                    var effectiveNamespaceKey = string.IsNullOrEmpty(requestedKey)
+                        || string.Equals(requestedKey, BackupConventions.DeviceBackupsNamespaceKey, StringComparison.Ordinal)
+                            ? BackupConventions.DeviceBackupsNamespaceKeyForChannel(null)
+                            : requestedKey;
                     var result = await backups.ListAsync(
                         appKey,
                         query,
-                        namespaceKey ?? BackupConventions.DeviceBackupsNamespaceKey,
+                        effectiveNamespaceKey,
                         kind,
                         keyword: null,
                         installationId,
@@ -588,22 +593,22 @@ internal static class BackupEndpoints
                             {
                                 var installation = await ResolveInstallationAsync(
                                     appKey, request.InstallationId, directories, ct);
-                                var effective = request with
-                                {
-                                    NamespaceKey = string.IsNullOrWhiteSpace(request.NamespaceKey)
-                                        ? BackupConventions.DeviceBackupsNamespaceKey
-                                        : request.NamespaceKey,
-                                };
+                                // 一渠道一命名空间：device-backups-{channel}，配额按渠道各自计算。
+                                var requestedKey = request.NamespaceKey?.Trim();
+                                var deviceKey = BackupConventions.DeviceBackupsNamespaceKeyForChannel(request.Channel);
+                                var namespaceKey = string.IsNullOrEmpty(requestedKey)
+                                    || string.Equals(requestedKey, BackupConventions.DeviceBackupsNamespaceKey, StringComparison.Ordinal)
+                                        ? deviceKey
+                                        : requestedKey;
+                                var effective = request with { NamespaceKey = namespaceKey };
 
-                                if (string.Equals(
-                                        effective.NamespaceKey,
-                                        BackupConventions.DeviceBackupsNamespaceKey,
-                                        StringComparison.Ordinal))
+                                if (string.Equals(namespaceKey, deviceKey, StringComparison.Ordinal))
                                 {
                                     await namespaces.EnsureAsync(
                                         appKey,
-                                        BackupConventions.DeviceBackupsNamespaceKey,
-                                        BackupConventions.DeviceBackupsNamespaceName,
+                                        deviceKey,
+                                        BackupConventions.DeviceBackupsNamespaceNameForChannel(request.Channel),
+                                        request.Channel,
                                         ct);
                                 }
 

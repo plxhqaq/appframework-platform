@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+
 namespace Platform.Contracts.Backups;
 
 /// <summary>备份模块常量与校验口径（服务端与客户端共用）。</summary>
@@ -12,11 +15,17 @@ public static class BackupConventions
     /// <summary>默认渠道：空值按该渠道处理（历史数据无渠道信息时的等价语义）。</summary>
     public const string DefaultChannel = "default";
 
-    /// <summary>客户端按设备上传的默认命名空间键。</summary>
+    /// <summary>设备备份命名空间键前缀：一个渠道（分支）一个命名空间。</summary>
+    public const string DeviceBackupsNamespacePrefix = "device-backups-";
+
+    /// <summary>旧版设备备份基键；客户端显式传入时按渠道映射到 <see cref="DeviceBackupsNamespacePrefix"/> 命名空间。</summary>
     public const string DeviceBackupsNamespaceKey = "device-backups";
 
-    /// <summary>客户端按设备上传的默认命名空间名称。</summary>
+    /// <summary>设备备份命名空间名称前缀（后接渠道键）。</summary>
     public const string DeviceBackupsNamespaceName = "设备备份";
+
+    /// <summary>设备命名空间键中留给渠道片段的最大长度（键上限 32 - 前缀 15）。</summary>
+    private const int DeviceNamespaceChannelMaxLength = 17;
 
     /// <summary>命名空间默认保留版本数。</summary>
     public const int DefaultMaxVersions = 50;
@@ -36,6 +45,34 @@ public static class BackupConventions
     /// <summary>渠道归一：空/空白 = <see cref="DefaultChannel"/>，统一小写。</summary>
     public static string NormalizeChannel(string? channel) =>
         string.IsNullOrWhiteSpace(channel) ? DefaultChannel : channel.Trim().ToLowerInvariant();
+
+    /// <summary>
+    /// 设备备份命名空间键（按渠道隔离）：<c>device-backups-{channel}</c>。
+    /// 渠道片段只保留键允许的字符；超长时截断并附渠道哈希，避免不同渠道落到同一命名空间。
+    /// </summary>
+    public static string DeviceBackupsNamespaceKeyForChannel(string? channel)
+    {
+        string normalized = NormalizeChannel(channel);
+        var fragment = new StringBuilder(normalized.Length);
+        foreach (char c in normalized)
+        {
+            fragment.Append(c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-' ? c : '-');
+        }
+
+        string suffix = fragment.ToString();
+        if (suffix.Length > DeviceNamespaceChannelMaxLength)
+        {
+            string hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)))
+                .ToLowerInvariant()[..6];
+            suffix = $"{suffix[..(DeviceNamespaceChannelMaxLength - hash.Length - 1)]}-{hash}";
+        }
+
+        return DeviceBackupsNamespacePrefix + suffix;
+    }
+
+    /// <summary>设备备份命名空间展示名（带渠道键）：<c>设备备份（channel）</c>。</summary>
+    public static string DeviceBackupsNamespaceNameForChannel(string? channel) =>
+        $"{DeviceBackupsNamespaceName}（{NormalizeChannel(channel)}）";
 }
 
 /// <summary>备份命名空间：同一应用下的配置域（例如 <c>line-a</c>、<c>global</c>）。</summary>

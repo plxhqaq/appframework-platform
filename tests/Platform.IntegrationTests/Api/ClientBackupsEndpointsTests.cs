@@ -13,6 +13,7 @@ using Platform.Contracts.Devices;
 using Platform.Contracts.Permissions;
 using Platform.Infrastructure.Persistence;
 using Platform.Infrastructure.Persistence.Entities;
+using Platform.Modules.Backups.Domain;
 using Platform.IntegrationTests.Support;
 
 namespace Platform.IntegrationTests.Api;
@@ -54,7 +55,7 @@ public sealed class ClientBackupsEndpointsTests : IClassFixture<PlatformApiFacto
             PayloadJson: payload,
             Sha256: null));
 
-        Assert.Equal(BackupConventions.DeviceBackupsNamespaceKey, backup.NamespaceKey);
+        Assert.Equal(BackupConventions.DeviceBackupsNamespaceKeyForChannel(null), backup.NamespaceKey);
         Assert.Equal(installation.NodeId, backup.NodeId);
         Assert.Equal("CLIENT-01", backup.NodeName);
         Assert.Equal(BackupConventions.DefaultChannel, backup.Channel);
@@ -64,6 +65,48 @@ public sealed class ClientBackupsEndpointsTests : IClassFixture<PlatformApiFacto
         var list = await ListAsync(client, token, $"installationId={installation.InstallationId}");
         Assert.Equal(1, list.Total);
         Assert.Equal(backup.Id, list.Items[0].Id);
+    }
+
+    [Fact]
+    public async Task 按渠道自动创建各自的设备备份命名空间()
+    {
+        using var client = _factory.CreateClient();
+        var admin = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        var appKey = await CreateAppAsync(client, admin);
+        var token = await DevTokenAsync(
+            client, appKey, [PermissionCatalog.BackupCreate, PermissionCatalog.BackupRead]);
+        var installation = await RegisterInstallationAsync(client, appKey, "CLIENT-04");
+        await using var connection = installation.Connection;
+
+        var torque = await UploadAsync(
+            client,
+            token,
+            NewRequest(installation.InstallationId, "torque-config", """{"a":1}""", BackupConventions.KindConfig)
+                with { Channel = "torque" });
+        var torqueLic = await UploadAsync(
+            client,
+            token,
+            NewRequest(installation.InstallationId, "torque-lic-config", """{"a":2}""", BackupConventions.KindConfig)
+                with { Channel = "torque-lic" });
+
+        Assert.Equal(BackupConventions.DeviceBackupsNamespaceKeyForChannel("torque"), torque.NamespaceKey);
+        Assert.Equal(BackupConventions.DeviceBackupsNamespaceKeyForChannel("torque-lic"), torqueLic.NamespaceKey);
+        Assert.NotEqual(torque.NamespaceKey, torqueLic.NamespaceKey);
+        Assert.Equal("torque", torque.Channel);
+        Assert.Equal("torque-lic", torqueLic.Channel);
+
+        // 各渠道命名空间的渠道与键一致（上传时自动创建）
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<PlatformDbContext>();
+        var namespaces = await db.Set<BackupNamespace>()
+            .Where(x => x.AppKey == appKey)
+            .OrderBy(x => x.Key)
+            .Select(x => new { x.Key, x.Channel })
+            .ToListAsync();
+        Assert.Contains(namespaces, x =>
+            x.Key == BackupConventions.DeviceBackupsNamespaceKeyForChannel("torque") && x.Channel == "torque");
+        Assert.Contains(namespaces, x =>
+            x.Key == BackupConventions.DeviceBackupsNamespaceKeyForChannel("torque-lic") && x.Channel == "torque-lic");
     }
 
     [Fact]

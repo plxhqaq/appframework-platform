@@ -625,7 +625,8 @@ curl -s -X POST http://localhost:5080/api/v1/admin/backups/$ID/push \
 
 **设备通路走明文 HTTP**：现场设备连 API 的明文端口（部署默认 `--api-port 8080`；老端默认 8082
 就按现场实际配），不要连管理台的自签 https（8443/8444）——客户端不信任自签证书，会直接连不上。
-客户端备份上传/列表用 `/api/v1/client/backups`（`installationId` 必填，默认 `device-backups` 命名空间）。
+客户端备份上传/列表用 `/api/v1/client/backups`（`installationId` 必填；命名空间按渠道为
+`device-backups-{channel}`，一渠道一个命名空间）。
 完整语义、错误码与迁移说明见 [`11-devices.md`](11-devices.md)。
 
 ---

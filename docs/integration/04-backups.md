@@ -112,10 +112,12 @@ curl -s "http://localhost:5080/api/v1/client/backups?installationId=<INSTALLATIO
 
 - 上传必须带 `installationId`（缺失 400），服务端经设备域窄接口校验归属：安装实例不存在或不属于
   当前应用返回 `805`（HTTP 404）；
-- `namespaceKey` 为空默认 `device-backups`，首次上传时自动创建该命名空间（名称「设备备份」、
-  渠道 `default`、配额取默认值），管理端无需预建；
+- `namespaceKey` 为空或传基键 `device-backups` 时，按 `channel` 映射为 `device-backups-{channel}`，
+  首次上传时自动创建该命名空间（名称「设备备份（channel）」、渠道即该 channel、配额取默认值）；
+  **一个渠道一个命名空间**，每个渠道独立保留 50 份（默认值），管理端无需预建；
 - 服务端按 `installationId` 解析节点，快照 `installation_id` / `node_id` / `node_name`；
-  `channel` 用客户端上报值，未上报继承命名空间渠道，不按安装实例分支强制回填；
+  `channel` 用客户端上报值，未上报按 `default` 渠道建空间，不按安装实例分支强制回填；
+  命名空间渠道门禁照常生效（按渠道建的空间天然匹配），管理端自建命名空间仍按自身渠道校验；
 - 与管理端创建复用同一条 `IBackupService` 路径（内联/转存阈值、SHA-256、配额、幂等、软删规则一致）；
 - 上传/列表分别写审计 `backups.client.upload` / `backups.client.list`，权限 `backup.create` / `backup.read`；
 - 安装实例连接、心跳与按安装实例下发见 [`11-devices.md`](11-devices.md)。

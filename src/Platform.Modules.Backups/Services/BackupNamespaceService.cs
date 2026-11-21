@@ -35,11 +35,12 @@ public interface IBackupNamespaceService
     /// <summary>按应用 + 键读取启用中的命名空间；不存在抛 <see cref="ApiErrorCode.BackupsNamespaceNotFound"/>。</summary>
     Task<BackupNamespace> GetEnabledAsync(string appKey, string key, CancellationToken cancellationToken = default);
 
-    /// <summary>幂等确保命名空间存在（已存在不改动）；用于客户端首次按设备上传。</summary>
+    /// <summary>幂等确保按渠道的设备命名空间存在（已存在不改动）；用于客户端首次按设备上传。</summary>
     Task EnsureAsync(
         string appKey,
         string key,
         string name,
+        string? channel,
         CancellationToken cancellationToken = default);
 }
 
@@ -229,6 +230,7 @@ public sealed partial class BackupNamespaceService : IBackupNamespaceService
         string appKey,
         string key,
         string name,
+        string? channel,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appKey);
@@ -245,7 +247,7 @@ public sealed partial class BackupNamespaceService : IBackupNamespaceService
             AppKey = appKey,
             Key = key,
             Name = name,
-            Channel = BackupConventions.DefaultChannel,
+            Channel = NormalizeChannel(channel),
             MaxVersions = _options.DefaultMaxVersions,
         };
 
