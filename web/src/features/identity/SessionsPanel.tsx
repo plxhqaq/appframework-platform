@@ -1,7 +1,7 @@
 import { formatDateTime } from '../../shared/format';
 import { tr } from '../../i18n/translate';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App, Button, Input, Popconfirm, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import { Alert, App, Button, Input, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useState } from 'react';
 import { identityApi } from '../../shared/api/identity';
@@ -12,6 +12,12 @@ import { useResponsive } from '../../shared/useResponsive';
 import { useAuthStore } from '../../stores/auth';
 
 const DEFAULT_PAGE_SIZE = 20;
+
+const STATUS_OPTIONS = [
+  { value: 'active', get label() { return tr("有效"); } },
+  { value: 'inactive', get label() { return tr("已失效"); } },
+  { value: 'all', get label() { return tr("全部"); } },
+];
 
 function formatTime(value?: string | null): string {
   return value ? formatDateTime(value) : '-';
@@ -26,12 +32,22 @@ export function SessionsPanel() {
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [userId, setUserId] = useState('');
+  const [keyword, setKeyword] = useState('');
+  // 默认只看有效会话：失效记录量大且运维日常不需要
+  const [status, setStatus] = useState('active');
 
   const sessions = useQuery({
-    queryKey: ['identity', 'sessions', page, pageSize, userId],
+    queryKey: ['identity', 'sessions', page, pageSize, keyword, status],
     queryFn: ({ signal }) =>
-      identityApi.listSessions({ page, pageSize, userId: userId || undefined }, signal),
+      identityApi.listSessions(
+        {
+          page,
+          pageSize,
+          keyword: keyword || undefined,
+          isActive: status === 'all' ? undefined : status === 'active',
+        },
+        signal,
+      ),
   });
 
   const revokeMutation = useMutation({
@@ -135,16 +151,28 @@ export function SessionsPanel() {
 
   return (
     <Space direction="vertical" size="small" style={{ width: '100%' }}>
-      <Input.Search
-        allowClear
-        placeholder={tr("按用户 ID 过滤")}
-        style={{ width: 320, maxWidth: '100%', minWidth: 0 }}
-        loading={sessions.isFetching}
-        onSearch={(value) => {
-          setUserId(value.trim());
-          setPage(1);
-        }}
-      />
+      <Space wrap size="small">
+        <Input.Search
+          allowClear
+          placeholder={tr("按用户名过滤")}
+          style={{ width: 320, maxWidth: '100%', minWidth: 0 }}
+          loading={sessions.isFetching}
+          onSearch={(value) => {
+            setKeyword(value.trim());
+            setPage(1);
+          }}
+        />
+        <Select
+          value={status}
+          options={STATUS_OPTIONS}
+          style={{ width: 120 }}
+          onChange={(value) => {
+            setStatus(value);
+            setPage(1);
+          }}
+          aria-label={tr("按状态筛选")}
+        />
+      </Space>
 
       {sessions.isError ? (
         <Alert

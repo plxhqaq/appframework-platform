@@ -23,7 +23,7 @@ export const uiEn: Record<string, string> = {
   "按订阅过滤": "Filter by subscription",
   "按设备列出、下载并上传配置备份。": "List, download and upload configuration backups by device.",
   "按天数": "By days",
-  "按用户 ID 过滤": "Filter by user ID",
+  "按用户名过滤": "Filter by username",
   "按用户名或显示名搜索": "Search by username or display name",
   "按状态筛选": "Filter by status",
   "版本": "Version",

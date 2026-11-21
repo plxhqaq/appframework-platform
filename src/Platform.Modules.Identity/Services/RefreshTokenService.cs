@@ -71,10 +71,11 @@ public interface IRefreshTokenService
         Guid userId,
         CancellationToken cancellationToken = default);
 
-    /// <summary>分页查询会话（运维视角）。</summary>
+    /// <summary>分页查询会话（运维视角）。<paramref name="isActive"/> 为 null 时不过滤状态。</summary>
     Task<PageResult<SessionSummaryDto>> ListAsync(
         PageQuery query,
         Guid? userId,
+        bool? isActive,
         CancellationToken cancellationToken = default);
 
     /// <summary>按会话 id 吊销整个家族。</summary>
@@ -407,18 +408,33 @@ public sealed class RefreshTokenService : IRefreshTokenService
     public async Task<PageResult<SessionSummaryDto>> ListAsync(
         PageQuery query,
         Guid? userId,
+        bool? isActive,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
 
+        var now = _clock.UtcNow;
         var source = _db.Set<RefreshToken>()
             .AsNoTracking()
             .Include(static x => x.User)
-            .Where(x => userId == null || x.UserId == userId)
-            .OrderByDescending(static x => x.CreatedAt);
+            .Where(x => userId == null || x.UserId == userId);
 
-        var now = _clock.UtcNow;
-        var page = await source.ToPageResultAsync(query, cancellationToken);
+        if (isActive is { } active)
+        {
+            source = active
+                ? source.Where(x => x.RevokedAt == null && x.ExpiresAt > now)
+                : source.Where(x => x.RevokedAt != null || x.ExpiresAt <= now);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Keyword))
+        {
+            var keyword = query.Keyword.Trim().ToLowerInvariant();
+            source = source.Where(x => x.User!.UserName.Contains(keyword));
+        }
+
+        var ordered = source.OrderByDescending(static x => x.CreatedAt);
+
+        var page = await ordered.ToPageResultAsync(query, cancellationToken);
         var nodes = await LoadNodesAsync(page.Items, cancellationToken);
         return PageResult<SessionSummaryDto>.Create(
             [.. page.Items.Select(token => ToSummary(token, now, nodes))],

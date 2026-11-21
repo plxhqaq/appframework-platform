@@ -342,10 +342,12 @@ internal static class IdentityAdminEndpoints
                     int page = 1,
                     int pageSize = 20,
                     Guid? userId = null,
+                    string? keyword = null,
+                    bool? isActive = null,
                     CancellationToken cancellationToken = default) =>
                 {
-                    var query = new PageQuery { Page = page, PageSize = pageSize };
-                    return ApiResults.Ok(context, await sessions.ListAsync(query, userId, cancellationToken));
+                    var query = new PageQuery { Page = page, PageSize = pageSize, Keyword = keyword };
+                    return ApiResults.Ok(context, await sessions.ListAsync(query, userId, isActive, cancellationToken));
                 })
             .WithName("identity.sessions.list")
             .WithSummary("会话列表（分页）")

@@ -33,7 +33,10 @@ export interface UserListQuery {
 export interface SessionListQuery {
   page?: number;
   pageSize?: number;
-  userId?: string;
+  /** 用户名（模糊匹配）。 */
+  keyword?: string;
+  /** 仅有效（true）/ 仅已失效（false）；缺省不过滤。 */
+  isActive?: boolean;
 }
 
 export interface QrSessionListQuery {

@@ -241,6 +241,58 @@ public sealed class IdentityAdminEndpointsTests : IClassFixture<PlatformApiFacto
             await IdentityTestHelpers.ReadErrorCodeAsync(refresh, HttpStatusCode.Unauthorized));
     }
 
+    [Fact]
+    public async Task 会话列表可按用户名与有效状态筛选()
+    {
+        using var client = _factory.CreateClient();
+        var token = await IdentityTestHelpers.LoginAsAdminAsync(client);
+        await IdentityTestHelpers.CreateUserAsync(
+            client, token, "session-filter-user", "Session@12345");
+        await IdentityTestHelpers.LoginAsync(client, "session-filter-user", "Session@12345");
+
+        // 关键字按用户名模糊匹配（非 GUID 文本不再被模型绑定判 400）
+        var byName = await IdentityTestHelpers.ReadDataAsync<PageResult<SessionSummaryDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                "/api/v1/admin/identity/sessions?keyword=session-filter&pageSize=100",
+                token)));
+        Assert.NotEmpty(byName.Items);
+        Assert.All(byName.Items, item => Assert.Equal("session-filter-user", item.UserName));
+
+        var active = await IdentityTestHelpers.ReadDataAsync<PageResult<SessionSummaryDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                "/api/v1/admin/identity/sessions?keyword=session-filter&isActive=true",
+                token)));
+        var session = Assert.Single(active.Items);
+        Assert.True(session.IsActive);
+
+        var inactiveBefore = await IdentityTestHelpers.ReadDataAsync<PageResult<SessionSummaryDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                "/api/v1/admin/identity/sessions?keyword=session-filter&isActive=false",
+                token)));
+        Assert.Equal(0L, inactiveBefore.Total);
+
+        await client.SendAsync(IdentityTestHelpers.Authorized(
+            HttpMethod.Post, $"/api/v1/admin/identity/sessions/{session.Id}/revoke", token));
+
+        var activeAfter = await IdentityTestHelpers.ReadDataAsync<PageResult<SessionSummaryDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                "/api/v1/admin/identity/sessions?keyword=session-filter&isActive=true",
+                token)));
+        Assert.Equal(0L, activeAfter.Total);
+
+        var inactiveAfter = await IdentityTestHelpers.ReadDataAsync<PageResult<SessionSummaryDto>>(
+            await client.SendAsync(IdentityTestHelpers.Authorized(
+                HttpMethod.Get,
+                "/api/v1/admin/identity/sessions?keyword=session-filter&isActive=false",
+                token)));
+        Assert.Equal(1L, inactiveAfter.Total);
+        Assert.False(Assert.Single(inactiveAfter.Items).IsActive);
+    }
+
     private static async Task<RoleSummaryDto> CreateRoleAsync(
         HttpClient client,
         string token,

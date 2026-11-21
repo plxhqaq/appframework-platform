@@ -214,7 +214,7 @@ curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sess
 | GET | `/api/v1/admin/identity/roles`（不分页）与 `roles/{id}` | `identity.role.read` | — |
 | POST | `/api/v1/admin/identity/roles` | `identity.role.manage` | 是（`identity.role.create`） |
 | PATCH / DELETE | `/api/v1/admin/identity/roles/{id}` | `identity.role.manage` | PATCH 否 |
-| GET | `/api/v1/admin/identity/sessions?page&pageSize&userId` | `identity.session.read` | — |
+| GET | `/api/v1/admin/identity/sessions?page&pageSize&keyword&userId&isActive` | `identity.session.read` | — |
 | GET | `/api/v1/admin/identity/users/{id}/sessions` | `identity.session.read` | — |
 | POST | `/api/v1/admin/identity/sessions/{id}/revoke` | `identity.session.revoke` | — |
 | POST | `/api/v1/admin/identity/users/{id}/sessions/revoke` | `identity.session.revoke` | — |
@@ -236,6 +236,7 @@ curl -s -b admin.jar -X POST http://localhost:5080/api/v1/admin/identity/qr/sess
 - 两个 revoke 端点都会 bump 用户 `token_epoch`（吊销收口统一路径）并定向推送 `UserSessionRevoked`：
   单会话吊销带 `sessionId`，全量吊销按用户级发；管理台连接靠 `/hubs/admin` 的 `Touch` 上行
   携带 `exp`+`epoch` 被守卫踢线。重置口令（`password/reset`）同样 bump。
+- 会话列表筛选：`keyword` 按用户名模糊匹配（不区分大小写）；`userId` 为精确 GUID 过滤；`isActive=true/false` 只返回有效/已失效，缺省不过滤状态。三个条件可同时给出（与运算）。管理台筛选框只发 `keyword`，状态默认「有效」。
 - 分页响应统一为 `PageResult<T>{items, page, pageSize, total, nextCursor}`。
 
 ---
